@@ -51,6 +51,13 @@ jobs:
           }
           $version = "$tagBase$tagSuffix"
           $prerelease = if ($tagSuffix) { 'true' } else { 'false' }
+          $expectedSetupLink = "../../releases/download/$tag/SoundFork-Setup-$tag.exe"
+          foreach ($readme in @('README.md', 'README.en.md')) {
+            $readmeText = Get-Content -LiteralPath $readme -Raw
+            if (-not $readmeText.Contains($expectedSetupLink)) {
+              Write-Warning "$readme does not point its direct Setup download to '$expectedSetupLink'."
+            }
+          }
 
           git fetch origin main --no-tags
           $releaseSha = (git rev-parse HEAD).Trim()
@@ -92,9 +99,12 @@ jobs:
       - name: Smoke-test installer and uninstaller
         shell: pwsh
         run: |
+          $testDirectory = Join-Path `
+            ([IO.Path]::GetTempPath()) `
+            ('SoundForkInstallerTest-' + [Guid]::NewGuid().ToString('N'))
           ./scripts/Test-ReleaseInstaller.ps1 `
             -SetupPath 'artifacts/SoundFork-Setup-v${{ steps.version.outputs.version }}.exe' `
-            -TestDirectory (Join-Path $env:RUNNER_TEMP 'SoundForkInstallerTest') `
+            -TestDirectory $testDirectory `
             -AllowRegistryChanges
 
       - name: Upload workflow artifact

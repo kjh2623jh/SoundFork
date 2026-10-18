@@ -62,6 +62,7 @@ Source: "{#MySourceDir}\bin\soundfork_discord_relay.exe"; DestDir: "{app}"; Flag
 Source: "{#MySourceDir}\bin\soundfork_host.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_capture_monitor.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#MySourceDir}\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#MySourceDir}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#MySourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

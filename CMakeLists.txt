@@ -170,16 +170,15 @@ install(TARGETS
 install(FILES
   README.md
   README.en.md
-  ARCHITECTURE.md
-  ARCHITECTURE.en.md
-  DISCORD.md
-  DISCORD.en.md
-  TESTING.md
-  TESTING.en.md
   LICENSE
   THIRD_PARTY_NOTICES.md
   THIRD_PARTY_NOTICES.en.md
   DESTINATION .
+)
+install(FILES
+  docs/DEVELOPMENT.md
+  docs/DEVELOPMENT.en.md
+  DESTINATION docs
 )
 install(PROGRAMS
   scripts/Get-SoundForkStatus.ps1
