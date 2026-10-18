@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    name: Windows x64 / ${{ matrix.configuration }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and test
+        shell: pwsh
+        run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}'
+
+      - name: Upload Release binaries
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: soundfork-windows-x64-release
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/windows-msvc-x64/Release/soundfork_driver.dll
+            build/windows-msvc-x64/Release/soundfork_control.exe
+            build/windows-msvc-x64/Release/soundfork_discord_relay.exe
+            build/windows-msvc-x64/Release/soundfork_capture_monitor.exe
+            build/windows-msvc-x64/Release/soundfork_host.exe

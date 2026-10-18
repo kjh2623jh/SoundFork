@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v-prefixed tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish Windows x64 release
+    runs-on: windows-2022
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Validate tag and project version
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:REQUESTED_TAG
+          if ($tag -notmatch '^v(?<base>[0-9]+\.[0-9]+\.[0-9]+)(?<suffix>-(?:alpha|beta|rc)\.[0-9]+)?$') {
+            throw "Unsupported release tag '$tag'."
+          }
+          $tagBase = $Matches.base
+          $tagSuffix = $Matches.suffix
+          $cmake = Get-Content -LiteralPath CMakeLists.txt -Raw
+          if ($cmake -notmatch 'project\s*\(\s*SoundFork\s+VERSION\s+(?<version>[0-9]+\.[0-9]+\.[0-9]+)') {
+            throw 'Could not read the CMake project version.'
+          }
+          $cmakeVersion = $Matches.version
+          if ($cmakeVersion -ne $tagBase) {
+            throw "Tag base version '$tagBase' does not match CMake version '$cmakeVersion'."
+          }
+          $version = "$tagBase$tagSuffix"
+          $prerelease = if ($tagSuffix) { 'true' } else { 'false' }
+
+          git fetch origin main --no-tags
+          $releaseSha = (git rev-parse HEAD).Trim()
+          $tagSha = (git rev-parse "$tag^{commit}").Trim()
+          if ($releaseSha -ne $tagSha) {
+            throw "Checked out commit '$releaseSha' does not match tag '$tag' ($tagSha)."
+          }
+          git merge-base --is-ancestor $releaseSha origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Release tag commit is not contained in origin/main.'
+          }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+
+      - name: Build, test, and package
+        shell: pwsh
+        run: ./scripts/Build-ReleasePackage.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Verify release binary dependencies
+        shell: pwsh
+        run: ./scripts/Test-ReleaseDependencies.ps1
+
+      - name: Verify checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($line in Get-Content -LiteralPath artifacts/SHA256SUMS.txt) {
+            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') {
+              throw "Malformed checksum line: $line"
+            }
+            $actual = (Get-FileHash -LiteralPath (Join-Path artifacts $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $Matches[1]) {
+              throw "Checksum mismatch for $($Matches[2])."
+            }
+          }
+
+      - name: Smoke-test installer and uninstaller
+        shell: pwsh
+        run: |
+          ./scripts/Test-ReleaseInstaller.ps1 `
+            -SetupPath 'artifacts/SoundFork-Setup-v${{ steps.version.outputs.version }}.exe' `
+            -TestDirectory (Join-Path $env:RUNNER_TEMP 'SoundForkInstallerTest') `
+            -AllowRegistryChanges
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: SoundFork-${{ steps.version.outputs.version }}-release
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            artifacts/SoundFork-Setup-v${{ steps.version.outputs.version }}.exe
+            artifacts/SoundFork-v${{ steps.version.outputs.version }}-windows-x64.zip
+            artifacts/SHA256SUMS.txt
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          IS_PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = @(
+            "artifacts/SoundFork-Setup-v$env:RELEASE_VERSION.exe",
+            "artifacts/SoundFork-v$env:RELEASE_VERSION-windows-x64.zip",
+            'artifacts/SHA256SUMS.txt'
+          )
+          & gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            & gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            $arguments = @(
+              'release', 'create', $env:RELEASE_TAG,
+              '--title', "SoundFork $env:RELEASE_TAG",
+              '--generate-notes'
+            )
+            if ($env:IS_PRERELEASE -eq 'true') {
+              $arguments += '--prerelease'
+            }
+            $arguments += $assets
+            & gh @arguments
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw 'GitHub Release publishing failed.'
+          }
