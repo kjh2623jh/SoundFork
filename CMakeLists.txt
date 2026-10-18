@@ -130,6 +130,7 @@ target_link_libraries(soundfork_host PRIVATE
 
 add_executable(soundfork_control WIN32
   src/control-app/control_main.cpp
+  src/control-app/soundfork_control.rc
   src/capture-backend/shared_ring.cpp
 )
 target_include_directories(soundfork_control PRIVATE
@@ -179,6 +180,10 @@ install(FILES
   docs/DEVELOPMENT.md
   docs/DEVELOPMENT.en.md
   DESTINATION docs
+)
+install(FILES
+  assets/soundfork.ico
+  DESTINATION assets
 )
 install(PROGRAMS
   scripts/Get-SoundForkStatus.ps1

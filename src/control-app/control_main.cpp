@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cwchar>
 #include <cwctype>
 #include <iomanip>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -18,6 +20,7 @@
 
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/shared_ring.hpp"
+#include "control-app/resource.h"
 
 namespace {
 
@@ -35,6 +38,8 @@ constexpr int kToggleRelay = 1004;
 constexpr int kRefresh = 1005;
 constexpr int kStatus = 1006;
 constexpr int kGetVbCable = 1007;
+constexpr int kLanguageEnglish = 2001;
+constexpr int kLanguageKorean = 2002;
 constexpr wchar_t kVbCableUrl[] = L"https://vb-audio.com/Cable/";
 
 struct RegistryKey {
@@ -57,6 +62,173 @@ enum class EndpointKind {
   voicemeeter,
 };
 
+enum class UiLanguage {
+  english,
+  korean,
+};
+
+struct UiStrings {
+  const wchar_t* window_title;
+  const wchar_t* language_menu;
+  const wchar_t* backend_label;
+  const wchar_t* apply;
+  const wchar_t* endpoint_label;
+  const wchar_t* start_relay;
+  const wchar_t* stop_relay;
+  const wchar_t* refresh_devices;
+  const wchar_t* get_vb_cable;
+  const wchar_t* vb_cable_detected;
+  const wchar_t* note;
+  const wchar_t* recommended;
+  const wchar_t* supported;
+  const wchar_t* ready;
+  const wchar_t* not_ready;
+  const wchar_t* not_configured;
+  const wchar_t* not_registered;
+  const wchar_t* asio_driver;
+  const wchar_t* backend;
+  const wchar_t* driver_dll;
+  const wchar_t* asio_stream;
+  const wchar_t* active;
+  const wchar_t* inactive;
+  const wchar_t* format;
+  const wchar_t* channels;
+  const wchar_t* frames_per_block;
+  const wchar_t* published_consumed;
+  const wchar_t* dropped_blocks;
+  const wchar_t* capture_consumer;
+  const wchar_t* none;
+  const wchar_t* broadcast;
+  const wchar_t* broadcast_not_ready;
+  const wchar_t* discord_relay;
+  const wchar_t* running;
+  const wchar_t* stopped;
+  const wchar_t* discord_mode;
+  const wchar_t* application_share_note;
+  const wchar_t* relay_missing;
+  const wchar_t* relay_start_failed;
+  const wchar_t* relay_stop_missing;
+  const wchar_t* relay_stop_failed;
+  const wchar_t* select_backend;
+  const wchar_t* backend_updated;
+  const wchar_t* backend_update_failed;
+  const wchar_t* another_consumer;
+  const wchar_t* select_endpoint;
+  const wchar_t* open_vb_cable_failed;
+  const wchar_t* com_initialization_failed;
+  const wchar_t* backend_missing;
+  const wchar_t* backend_access_denied;
+  const wchar_t* backend_write_failed;
+};
+
+const UiStrings& ui_strings(UiLanguage language) {
+  static constexpr UiStrings english{
+      L"SoundFork Control",
+      L"Language",
+      L"Hardware ASIO backend",
+      L"Apply",
+      L"Broadcast render endpoint (choose a virtual endpoint)",
+      L"Start relay",
+      L"Stop relay",
+      L"Refresh devices",
+      L"Get VB-CABLE",
+      L"VB-CABLE detected",
+      L"The control app is optional for ASIO playback. Closing it does not stop an active relay.",
+      L"Recommended",
+      L"Supported",
+      L"Ready",
+      L"Not ready",
+      L"Not configured",
+      L"Not registered",
+      L"ASIO driver",
+      L"Backend",
+      L"Driver DLL",
+      L"ASIO stream",
+      L"Active",
+      L"Inactive",
+      L"Format",
+      L"channels",
+      L"frames/block",
+      L"Published/consumed blocks",
+      L"Dropped capture blocks",
+      L"Capture consumer",
+      L"None",
+      L"Broadcast",
+      L"Not ready - install VB-CABLE or select VoiceMeeter",
+      L"Discord relay",
+      L"Running",
+      L"Stopped",
+      L"Discord mode: Entire-screen share only",
+      L"Application-window share excludes the separate relay process.",
+      L"soundfork_discord_relay.exe was not found next to the control app.",
+      L"Could not start the Discord relay (Windows error ",
+      L"The relay stop channel was not found.",
+      L"Could not signal the relay to stop.",
+      L"Select an ASIO backend first.",
+      L"Backend updated. Restart the ASIO host if it is already open.",
+      L"Backend update was cancelled or failed.",
+      L"Another capture consumer is active. Stop soundfork_capture_monitor or the other consumer first.",
+      L"Select a virtual render endpoint first.",
+      L"Could not open the official VB-CABLE download page.",
+      L"COM initialization failed.",
+      L"The selected ASIO driver is no longer registered.",
+      L"SoundFork is not registered or administrator access was denied.",
+      L"Could not update the SoundFork backend."};
+  static constexpr UiStrings korean{
+      L"SoundFork 제어판",
+      L"언어",
+      L"하드웨어 ASIO 백엔드",
+      L"적용",
+      L"방송 출력 엔드포인트 (가상 장치 선택)",
+      L"릴레이 시작",
+      L"릴레이 중지",
+      L"장치 새로 고침",
+      L"VB-CABLE 받기",
+      L"VB-CABLE 감지됨",
+      L"제어판을 닫아도 ASIO 재생과 실행 중인 릴레이는 계속 동작합니다.",
+      L"권장",
+      L"지원됨",
+      L"준비됨",
+      L"준비되지 않음",
+      L"설정되지 않음",
+      L"등록되지 않음",
+      L"ASIO 드라이버",
+      L"백엔드",
+      L"드라이버 DLL",
+      L"ASIO 스트림",
+      L"활성",
+      L"비활성",
+      L"포맷",
+      L"채널",
+      L"프레임/블록",
+      L"발행/소비 블록",
+      L"드롭된 캡처 블록",
+      L"캡처 소비자",
+      L"없음",
+      L"방송",
+      L"준비되지 않음 - VB-CABLE을 설치하거나 VoiceMeeter를 선택하세요",
+      L"Discord 릴레이",
+      L"실행 중",
+      L"중지됨",
+      L"Discord 모드: 전체 화면 공유 전용",
+      L"애플리케이션 창 공유에는 별도 릴레이 프로세스의 오디오가 포함되지 않습니다.",
+      L"제어판과 같은 폴더에서 soundfork_discord_relay.exe를 찾을 수 없습니다.",
+      L"Discord 릴레이를 시작할 수 없습니다 (Windows 오류 ",
+      L"릴레이 종료 채널을 찾을 수 없습니다.",
+      L"릴레이에 종료 신호를 보낼 수 없습니다.",
+      L"먼저 ASIO 백엔드를 선택하세요.",
+      L"백엔드를 변경했습니다. ASIO 호스트가 열려 있다면 다시 시작하세요.",
+      L"백엔드 변경이 취소됐거나 실패했습니다.",
+      L"다른 캡처 소비자가 실행 중입니다. soundfork_capture_monitor 또는 다른 소비자를 먼저 종료하세요.",
+      L"먼저 가상 출력 엔드포인트를 선택하세요.",
+      L"VB-CABLE 공식 다운로드 페이지를 열 수 없습니다.",
+      L"COM 초기화에 실패했습니다.",
+      L"선택한 ASIO 드라이버가 더 이상 등록되어 있지 않습니다.",
+      L"SoundFork가 등록되어 있지 않거나 관리자 권한이 거부됐습니다.",
+      L"SoundFork 백엔드를 변경할 수 없습니다."};
+  return language == UiLanguage::korean ? korean : english;
+}
+
 struct Endpoint {
   std::wstring name;
   std::wstring id;
@@ -78,7 +250,14 @@ struct AppState {
   HWND relay_button = nullptr;
   HWND vb_cable_button = nullptr;
   HWND status = nullptr;
+  HWND title = nullptr;
+  HWND backend_label = nullptr;
+  HWND apply_button = nullptr;
+  HWND endpoint_label = nullptr;
+  HWND refresh_button = nullptr;
+  HWND note = nullptr;
   HFONT font = nullptr;
+  UiLanguage language = UiLanguage::english;
   std::vector<AsioDriver> drivers;
   std::vector<Endpoint> endpoints;
 };
@@ -124,6 +303,81 @@ std::wstring lowercase(std::wstring_view value) {
     return static_cast<wchar_t>(std::towlower(item));
   });
   return result;
+}
+
+bool parse_ui_language(std::wstring_view value, UiLanguage* language) {
+  if (equals_ignore_case(value, L"english") ||
+      equals_ignore_case(value, L"en")) {
+    *language = UiLanguage::english;
+    return true;
+  }
+  if (equals_ignore_case(value, L"korean") ||
+      equals_ignore_case(value, L"ko")) {
+    *language = UiLanguage::korean;
+    return true;
+  }
+  return false;
+}
+
+const wchar_t* ui_language_name(UiLanguage language) {
+  return language == UiLanguage::korean ? L"korean" : L"english";
+}
+
+UiLanguage language_from_windows_ui(LANGID language_id) {
+  return PRIMARYLANGID(language_id) == LANG_KOREAN ? UiLanguage::korean
+                                                    : UiLanguage::english;
+}
+
+bool read_saved_language(UiLanguage* language) {
+  RegistryKey key;
+  if (RegOpenKeyExW(
+          HKEY_CURRENT_USER,
+          L"Software\\SoundFork",
+          0,
+          KEY_READ,
+          &key.value) != ERROR_SUCCESS) {
+    return false;
+  }
+  return parse_ui_language(read_registry_string(key.value, L"Language"), language);
+}
+
+bool save_language(UiLanguage language, bool only_if_missing = false) {
+  if (only_if_missing) {
+    UiLanguage existing{};
+    if (read_saved_language(&existing)) {
+      return true;
+    }
+  }
+  RegistryKey key;
+  if (RegCreateKeyExW(
+          HKEY_CURRENT_USER,
+          L"Software\\SoundFork",
+          0,
+          nullptr,
+          0,
+          KEY_SET_VALUE,
+          nullptr,
+          &key.value,
+          nullptr) != ERROR_SUCCESS) {
+    return false;
+  }
+  const wchar_t* name = ui_language_name(language);
+  return RegSetValueExW(
+             key.value,
+             L"Language",
+             0,
+             REG_SZ,
+             reinterpret_cast<const BYTE*>(name),
+             static_cast<DWORD>((std::wcslen(name) + 1) * sizeof(wchar_t))) ==
+         ERROR_SUCCESS;
+}
+
+UiLanguage load_ui_language() {
+  UiLanguage language{};
+  if (read_saved_language(&language)) {
+    return language;
+  }
+  return language_from_windows_ui(GetUserDefaultUILanguage());
 }
 
 EndpointKind classify_endpoint(std::wstring_view name) {
@@ -377,11 +631,13 @@ std::wstring quote_argument(std::wstring_view argument) {
   return result;
 }
 
-bool start_relay(const Endpoint& endpoint, std::wstring* error) {
+bool start_relay(
+    const Endpoint& endpoint, UiLanguage language, std::wstring* error) {
+  const UiStrings& strings = ui_strings(language);
   const std::wstring relay_path =
       executable_directory() + L"\\soundfork_discord_relay.exe";
   if (GetFileAttributesW(relay_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    *error = L"soundfork_discord_relay.exe was not found next to the control app.";
+    *error = strings.relay_missing;
     return false;
   }
   std::wstring command = quote_argument(relay_path) + L" --endpoint " +
@@ -402,7 +658,7 @@ bool start_relay(const Endpoint& endpoint, std::wstring* error) {
           executable_directory().c_str(),
           &startup,
           &process)) {
-    *error = L"Could not start the Discord relay (Windows error " +
+    *error = std::wstring(strings.relay_start_failed) +
              std::to_wstring(GetLastError()) + L").";
     return false;
   }
@@ -411,29 +667,34 @@ bool start_relay(const Endpoint& endpoint, std::wstring* error) {
   return true;
 }
 
-bool stop_relay(std::wstring* error) {
+bool stop_relay(UiLanguage language, std::wstring* error) {
+  const UiStrings& strings = ui_strings(language);
   HANDLE event = OpenEventW(
       EVENT_MODIFY_STATE, FALSE, soundfork::capture::kRelayStopEventName);
   if (event == nullptr) {
-    *error = L"The relay stop channel was not found.";
+    *error = strings.relay_stop_missing;
     return false;
   }
   const bool result = SetEvent(event) != FALSE;
   CloseHandle(event);
   if (!result) {
-    *error = L"Could not signal the relay to stop.";
+    *error = strings.relay_stop_failed;
   }
   return result;
 }
 
-bool set_backend(std::wstring_view requested_clsid, std::wstring* error) {
+bool set_backend(
+    std::wstring_view requested_clsid,
+    std::wstring* error,
+    UiLanguage language = UiLanguage::english) {
+  const UiStrings& strings = ui_strings(language);
   const std::vector<AsioDriver> drivers = enumerate_asio_drivers();
   const auto selected = std::find_if(
       drivers.begin(), drivers.end(), [&](const AsioDriver& driver) {
         return equals_ignore_case(driver.clsid, requested_clsid);
       });
   if (selected == drivers.end()) {
-    *error = L"The selected ASIO driver is no longer registered.";
+    *error = strings.backend_missing;
     return false;
   }
   RegistryKey key;
@@ -444,7 +705,7 @@ bool set_backend(std::wstring_view requested_clsid, std::wstring* error) {
       KEY_SET_VALUE | KEY_WOW64_64KEY,
       &key.value);
   if (open_result != ERROR_SUCCESS) {
-    *error = L"SoundFork is not registered or administrator access was denied.";
+    *error = strings.backend_access_denied;
     return false;
   }
   const DWORD bytes = static_cast<DWORD>(
@@ -456,7 +717,7 @@ bool set_backend(std::wstring_view requested_clsid, std::wstring* error) {
           REG_SZ,
           reinterpret_cast<const BYTE*>(selected->clsid.c_str()),
           bytes) != ERROR_SUCCESS) {
-    *error = L"Could not update the SoundFork backend.";
+    *error = strings.backend_write_failed;
     return false;
   }
   return true;
@@ -614,6 +875,7 @@ void save_endpoint(std::wstring_view endpoint_id) {
 }
 
 void populate_endpoint_combo(AppState* state) {
+  const UiStrings& strings = ui_strings(state->language);
   const std::wstring saved = read_saved_endpoint();
   state->endpoints = enumerate_endpoints();
   SendMessageW(state->endpoint_combo, CB_RESETCONTENT, 0, 0);
@@ -625,9 +887,9 @@ void populate_endpoint_combo(AppState* state) {
   for (std::size_t index = 0; index < state->endpoints.size(); ++index) {
     std::wstring label = state->endpoints[index].name;
     if (state->endpoints[index].kind == EndpointKind::vb_cable) {
-      label += L"  [Recommended]";
+      label += std::wstring(L"  [") + strings.recommended + L"]";
     } else if (state->endpoints[index].kind == EndpointKind::voicemeeter) {
-      label += L"  [Supported]";
+      label += std::wstring(L"  [") + strings.supported + L"]";
     }
     SendMessageW(
         state->endpoint_combo,
@@ -667,12 +929,13 @@ void populate_endpoint_combo(AppState* state) {
   if (state->vb_cable_button != nullptr) {
     SetWindowTextW(
         state->vb_cable_button,
-        vb_cable_detected ? L"VB-CABLE detected" : L"Get VB-CABLE");
+        vb_cable_detected ? strings.vb_cable_detected : strings.get_vb_cable);
     EnableWindow(state->vb_cable_button, vb_cable_detected ? FALSE : TRUE);
   }
 }
 
 void update_status(AppState* state) {
+  const UiStrings& strings = ui_strings(state->language);
   const RegistrationStatus registration = query_registration();
   const std::wstring backend =
       find_driver_name(state->drivers, registration.backend_clsid);
@@ -681,33 +944,36 @@ void update_status(AppState* state) {
                      !backend.empty();
 
   std::wostringstream text;
-  text << L"ASIO driver: " << (ready ? L"Ready" : L"Not ready") << L"\r\n";
-  text << L"Backend: "
-       << (backend.empty() ? L"Not configured" : backend) << L"\r\n";
-  text << L"Driver DLL: "
-       << (registration.driver_dll.empty() ? L"Not registered"
+  text << strings.asio_driver << L": "
+       << (ready ? strings.ready : strings.not_ready) << L"\r\n";
+  text << strings.backend << L": "
+       << (backend.empty() ? strings.not_configured : backend) << L"\r\n";
+  text << strings.driver_dll << L": "
+       << (registration.driver_dll.empty() ? strings.not_registered
                                            : registration.driver_dll)
        << L"\r\n\r\n";
 
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus stream;
   if (observer.open() && observer.snapshot(&stream) && stream.producer_active) {
-    text << L"ASIO stream: Active (PID " << stream.producer_pid << L")\r\n";
-    text << L"Format: " << stream.format.sample_rate << L" Hz, "
-         << stream.format.channel_count << L" channels, "
-         << stream.format.frames_per_block << L" frames/block\r\n";
-    text << L"Published/consumed blocks: " << stream.stats.published_blocks
-         << L" / " << stream.stats.consumed_blocks << L"\r\n";
-    text << L"Dropped capture blocks: " << stream.stats.dropped_blocks
+    text << strings.asio_stream << L": " << strings.active << L" (PID "
+         << stream.producer_pid << L")\r\n";
+    text << strings.format << L": " << stream.format.sample_rate << L" Hz, "
+         << stream.format.channel_count << L" " << strings.channels << L", "
+         << stream.format.frames_per_block << L" " << strings.frames_per_block
          << L"\r\n";
-    text << L"Capture consumer: "
+    text << strings.published_consumed << L": " << stream.stats.published_blocks
+         << L" / " << stream.stats.consumed_blocks << L"\r\n";
+    text << strings.dropped_blocks << L": " << stream.stats.dropped_blocks
+         << L"\r\n";
+    text << strings.capture_consumer << L": "
          << (stream.consumer_active
-                 ? std::wstring(L"Active (PID ") +
+                 ? std::wstring(strings.active) + L" (PID " +
                        std::to_wstring(stream.consumer_pid) + L")"
-                 : L"None")
+                 : strings.none)
          << L"\r\n";
   } else {
-    text << L"ASIO stream: Inactive\r\n";
+    text << strings.asio_stream << L": " << strings.inactive << L"\r\n";
   }
 
   const bool relay_running = relay_is_running();
@@ -718,24 +984,26 @@ void update_status(AppState* state) {
               static_cast<std::size_t>(selected) < state->endpoints.size()
           ? &state->endpoints[static_cast<std::size_t>(selected)]
           : nullptr;
-  text << L"\r\nBroadcast: ";
+  text << L"\r\n" << strings.broadcast << L": ";
   if (broadcast_endpoint != nullptr &&
       is_broadcast_endpoint(*broadcast_endpoint)) {
-    text << L"Ready (" << endpoint_kind_name(broadcast_endpoint->kind)
+    text << strings.ready << L" (" << endpoint_kind_name(broadcast_endpoint->kind)
          << L")\r\n";
   } else {
-    text << L"Not ready - install VB-CABLE or select VoiceMeeter\r\n";
+    text << strings.broadcast_not_ready << L"\r\n";
   }
-  text << L"Discord relay: " << (relay_running ? L"Running" : L"Stopped")
-       << L"\r\n";
-  text << L"Discord mode: Entire-screen share only\r\n";
-  text << L"Application-window share excludes the separate relay process.";
+  text << strings.discord_relay << L": "
+       << (relay_running ? strings.running : strings.stopped) << L"\r\n";
+  text << strings.discord_mode << L"\r\n";
+  text << strings.application_share_note;
   SetWindowTextW(state->status, text.str().c_str());
   SetWindowTextW(
-      state->relay_button, relay_running ? L"Stop relay" : L"Start relay");
+      state->relay_button,
+      relay_running ? strings.stop_relay : strings.start_relay);
 }
 
 void create_controls(AppState* state) {
+  const UiStrings& strings = ui_strings(state->language);
   state->font = CreateFontW(
       -16,
       0,
@@ -751,10 +1019,10 @@ void create_controls(AppState* state) {
       CLEARTYPE_QUALITY,
       DEFAULT_PITCH,
       L"Segoe UI");
-  HWND title = CreateWindowExW(
+  state->title = CreateWindowExW(
       0,
       L"STATIC",
-      L"SoundFork Control",
+      strings.window_title,
       WS_CHILD | WS_VISIBLE,
       18,
       14,
@@ -764,10 +1032,10 @@ void create_controls(AppState* state) {
       nullptr,
       nullptr,
       nullptr);
-  HWND backend_label = CreateWindowExW(
+  state->backend_label = CreateWindowExW(
       0,
       L"STATIC",
-      L"Hardware ASIO backend",
+      strings.backend_label,
       WS_CHILD | WS_VISIBLE,
       18,
       50,
@@ -790,10 +1058,10 @@ void create_controls(AppState* state) {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackendCombo)),
       nullptr,
       nullptr);
-  HWND apply = CreateWindowExW(
+  state->apply_button = CreateWindowExW(
       0,
       L"BUTTON",
-      L"Apply",
+      strings.apply,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       500,
       72,
@@ -803,10 +1071,10 @@ void create_controls(AppState* state) {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApplyBackend)),
       nullptr,
       nullptr);
-  HWND endpoint_label = CreateWindowExW(
+  state->endpoint_label = CreateWindowExW(
       0,
       L"STATIC",
-      L"Broadcast render endpoint (choose a virtual endpoint)",
+      strings.endpoint_label,
       WS_CHILD | WS_VISIBLE,
       18,
       111,
@@ -832,7 +1100,7 @@ void create_controls(AppState* state) {
   state->relay_button = CreateWindowExW(
       0,
       L"BUTTON",
-      L"Start relay",
+      strings.start_relay,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       500,
       133,
@@ -842,10 +1110,10 @@ void create_controls(AppState* state) {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kToggleRelay)),
       nullptr,
       nullptr);
-  HWND refresh = CreateWindowExW(
+  state->refresh_button = CreateWindowExW(
       0,
       L"BUTTON",
-      L"Refresh devices",
+      strings.refresh_devices,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       18,
       175,
@@ -858,7 +1126,7 @@ void create_controls(AppState* state) {
   state->vb_cable_button = CreateWindowExW(
       0,
       L"BUTTON",
-      L"Get VB-CABLE",
+      strings.get_vb_cable,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       160,
       175,
@@ -868,10 +1136,10 @@ void create_controls(AppState* state) {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGetVbCable)),
       nullptr,
       nullptr);
-  HWND note = CreateWindowExW(
+  state->note = CreateWindowExW(
       0,
       L"STATIC",
-      L"The control app is optional for ASIO playback. Closing it does not stop an active relay.",
+      strings.note,
       WS_CHILD | WS_VISIBLE,
       317,
       180,
@@ -895,19 +1163,93 @@ void create_controls(AppState* state) {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStatus)),
       nullptr,
       nullptr);
-  for (HWND control : {title,
-                       backend_label,
+  for (HWND control : {state->title,
+                       state->backend_label,
                        state->backend_combo,
-                       apply,
-                       endpoint_label,
+                       state->apply_button,
+                       state->endpoint_label,
                        state->endpoint_combo,
                        state->relay_button,
-                       refresh,
+                       state->refresh_button,
                        state->vb_cable_button,
-                       note,
+                       state->note,
                        state->status}) {
     set_control_font(control, state->font);
   }
+}
+
+void rebuild_language_menu(AppState* state) {
+  HMENU previous = GetMenu(state->window);
+  HMENU menu = CreateMenu();
+  HMENU language = CreatePopupMenu();
+  if (menu == nullptr || language == nullptr) {
+    if (menu != nullptr) {
+      DestroyMenu(menu);
+    }
+    if (language != nullptr) {
+      DestroyMenu(language);
+    }
+    return;
+  }
+  AppendMenuW(language, MF_STRING, kLanguageEnglish, L"English");
+  AppendMenuW(language, MF_STRING, kLanguageKorean, L"한국어");
+  CheckMenuRadioItem(
+      language,
+      kLanguageEnglish,
+      kLanguageKorean,
+      state->language == UiLanguage::korean ? kLanguageKorean
+                                            : kLanguageEnglish,
+      MF_BYCOMMAND);
+  AppendMenuW(
+      menu,
+      MF_POPUP,
+      reinterpret_cast<UINT_PTR>(language),
+      ui_strings(state->language).language_menu);
+  SetMenu(state->window, menu);
+  DrawMenuBar(state->window);
+  if (previous != nullptr) {
+    DestroyMenu(previous);
+  }
+}
+
+void apply_language(AppState* state, UiLanguage language, bool persist) {
+  std::wstring selected_endpoint_id;
+  const LRESULT selected =
+      SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
+  if (selected >= 0 &&
+      static_cast<std::size_t>(selected) < state->endpoints.size()) {
+    selected_endpoint_id =
+        state->endpoints[static_cast<std::size_t>(selected)].id;
+  }
+  state->language = language;
+  if (persist) {
+    (void)save_language(language);
+  }
+  const UiStrings& strings = ui_strings(language);
+  SetWindowTextW(state->window, strings.window_title);
+  SetWindowTextW(state->title, strings.window_title);
+  SetWindowTextW(state->backend_label, strings.backend_label);
+  SetWindowTextW(state->apply_button, strings.apply);
+  SetWindowTextW(state->endpoint_label, strings.endpoint_label);
+  SetWindowTextW(state->refresh_button, strings.refresh_devices);
+  SetWindowTextW(state->note, strings.note);
+  rebuild_language_menu(state);
+  populate_endpoint_combo(state);
+  if (!selected_endpoint_id.empty()) {
+    const auto endpoint = std::find_if(
+        state->endpoints.begin(),
+        state->endpoints.end(),
+        [&](const Endpoint& item) { return item.id == selected_endpoint_id; });
+    if (endpoint != state->endpoints.end()) {
+      SendMessageW(
+          state->endpoint_combo,
+          CB_SETCURSEL,
+          static_cast<WPARAM>(
+              std::distance(state->endpoints.begin(), endpoint)),
+          0);
+    }
+  }
+  update_status(state);
 }
 
 LRESULT CALLBACK window_proc(
@@ -928,6 +1270,7 @@ LRESULT CALLBACK window_proc(
   switch (message) {
     case WM_CREATE:
       create_controls(state);
+      rebuild_language_menu(state);
       populate_backend_combo(state);
       populate_endpoint_combo(state);
       update_status(state);
@@ -954,12 +1297,22 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
+      if (control == kLanguageEnglish || control == kLanguageKorean) {
+        apply_language(
+            state,
+            control == kLanguageKorean ? UiLanguage::korean
+                                       : UiLanguage::english,
+            true);
+        return 0;
+      }
+      const UiStrings& strings = ui_strings(state->language);
       if (control == kApplyBackend && HIWORD(wparam) == BN_CLICKED) {
         const LRESULT selected =
             SendMessageW(state->backend_combo, CB_GETCURSEL, 0, 0);
         if (selected < 0 ||
             static_cast<std::size_t>(selected) >= state->drivers.size()) {
-          MessageBoxW(window, L"Select an ASIO backend first.", L"SoundFork", MB_ICONWARNING);
+          MessageBoxW(
+              window, strings.select_backend, L"SoundFork", MB_ICONWARNING);
           return 0;
         }
         if (elevate_set_backend(
@@ -968,13 +1321,13 @@ LRESULT CALLBACK window_proc(
           update_status(state);
           MessageBoxW(
               window,
-              L"Backend updated. Restart the ASIO host if it is already open.",
+              strings.backend_updated,
               L"SoundFork",
               MB_ICONINFORMATION);
         } else {
           MessageBoxW(
               window,
-              L"Backend update was cancelled or failed.",
+              strings.backend_update_failed,
               L"SoundFork",
               MB_ICONWARNING);
         }
@@ -983,14 +1336,14 @@ LRESULT CALLBACK window_proc(
       if (control == kToggleRelay && HIWORD(wparam) == BN_CLICKED) {
         std::wstring error;
         if (relay_is_running()) {
-          if (!stop_relay(&error)) {
+          if (!stop_relay(state->language, &error)) {
             MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
           }
         } else {
           if (capture_consumer_is_active()) {
             MessageBoxW(
                 window,
-                L"Another capture consumer is active. Stop soundfork_capture_monitor or the other consumer first.",
+                strings.another_consumer,
                 L"SoundFork",
                 MB_ICONWARNING);
             return 0;
@@ -1001,7 +1354,7 @@ LRESULT CALLBACK window_proc(
               static_cast<std::size_t>(selected) >= state->endpoints.size()) {
             MessageBoxW(
                 window,
-                L"Select a virtual render endpoint first.",
+                strings.select_endpoint,
                 L"SoundFork",
                 MB_ICONWARNING);
             return 0;
@@ -1009,7 +1362,7 @@ LRESULT CALLBACK window_proc(
           const Endpoint& endpoint =
               state->endpoints[static_cast<std::size_t>(selected)];
           save_endpoint(endpoint.id);
-          if (!start_relay(endpoint, &error)) {
+          if (!start_relay(endpoint, state->language, &error)) {
             MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
           }
         }
@@ -1029,7 +1382,7 @@ LRESULT CALLBACK window_proc(
         if (reinterpret_cast<INT_PTR>(result) <= 32) {
           MessageBoxW(
               window,
-              L"Could not open the official VB-CABLE download page.",
+              strings.open_vb_cable_failed,
               L"SoundFork",
               MB_ICONERROR);
         }
@@ -1053,12 +1406,26 @@ LRESULT CALLBACK window_proc(
 
 int run_control_app(HINSTANCE instance, int show_command) {
   AppState state;
+  state.language = load_ui_language();
   WNDCLASSEXW window_class{sizeof(window_class)};
   window_class.style = CS_HREDRAW | CS_VREDRAW;
   window_class.lpfnWndProc = &window_proc;
   window_class.hInstance = instance;
   window_class.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-  window_class.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+  window_class.hIcon = static_cast<HICON>(LoadImageW(
+      instance,
+      MAKEINTRESOURCEW(IDI_SOUNDFORK_ICON),
+      IMAGE_ICON,
+      0,
+      0,
+      LR_DEFAULTSIZE));
+  window_class.hIconSm = static_cast<HICON>(LoadImageW(
+      instance,
+      MAKEINTRESOURCEW(IDI_SOUNDFORK_ICON),
+      IMAGE_ICON,
+      GetSystemMetrics(SM_CXSMICON),
+      GetSystemMetrics(SM_CYSMICON),
+      0));
   window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
   window_class.lpszClassName = kWindowClass;
   if (RegisterClassExW(&window_class) == 0) {
@@ -1067,7 +1434,7 @@ int run_control_app(HINSTANCE instance, int show_command) {
   HWND window = CreateWindowExW(
       0,
       kWindowClass,
-      L"SoundFork Control",
+      ui_strings(state.language).window_title,
       WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT,
       CW_USEDEFAULT,
@@ -1109,6 +1476,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
       std::wstring_view(arguments[2]) == L"--backend-clsid";
   const std::wstring requested_backend =
       register_driver ? std::wstring(arguments[3]) : std::wstring();
+  const bool initialize_language =
+      arguments != nullptr && argument_count == 3 &&
+      std::wstring_view(arguments[1]) == L"--initialize-language";
+
+  if (initialize_language) {
+    UiLanguage language{};
+    const bool valid = parse_ui_language(arguments[2], &language);
+    const bool result = valid && save_language(language, true);
+    LocalFree(arguments);
+    return result ? 0 : 1;
+  }
 
   if (register_driver || unregister_driver) {
     std::wstring error;
@@ -1122,7 +1500,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
   if (arguments != nullptr && argument_count == 3 &&
       std::wstring_view(arguments[1]) == L"--set-backend") {
     std::wstring error;
-    const bool result = set_backend(arguments[2], &error);
+    const bool result = set_backend(arguments[2], &error, load_ui_language());
     if (!result) {
       MessageBoxW(nullptr, error.c_str(), L"SoundFork", MB_ICONERROR);
     }
@@ -1135,8 +1513,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
 
   const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   if (FAILED(com_result)) {
+    const UiStrings& strings = ui_strings(load_ui_language());
     MessageBoxW(
-        nullptr, L"COM initialization failed.", L"SoundFork", MB_ICONERROR);
+        nullptr,
+        strings.com_initialization_failed,
+        L"SoundFork",
+        MB_ICONERROR);
     return 2;
   }
   if (endpoint_probe) {
@@ -1149,7 +1531,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
             EndpointKind::vb_cable ||
         classify_endpoint(L"VoiceMeeterDesktop(VB-Audio Voicemeeter VAIO)") !=
             EndpointKind::voicemeeter ||
-        classify_endpoint(L"Speakers (Physical DAC)") != EndpointKind::other) {
+        classify_endpoint(L"Speakers (Physical DAC)") != EndpointKind::other ||
+        language_from_windows_ui(MAKELANGID(LANG_KOREAN, SUBLANG_DEFAULT)) !=
+            UiLanguage::korean ||
+        language_from_windows_ui(MAKELANGID(LANG_JAPANESE, SUBLANG_DEFAULT)) !=
+            UiLanguage::english ||
+        ui_strings(UiLanguage::korean).apply[0] == L'\0') {
       CoUninitialize();
       return 3;
     }

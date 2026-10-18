@@ -14,6 +14,11 @@
 - `tests`: 가짜 ASIO 드라이버, 프록시·COM·공유 링 자동 테스트
 - `installer`: Inno Setup 기반 설치 프로그램
 
+제어판은 저장된 사용자 선택이 없으면 Windows UI가 한국어일 때만 한국어를 사용하고
+그 밖의 언어에서는 영어를 사용한다. 설치 프로그램이 선택한 언어는 최초 값으로만
+전달되며, 이후 **Language/언어** 메뉴에서 바꾼 값은
+`HKCU\Software\SoundFork\Language`에 유지된다.
+
 SoundFork는 DJMAX 전용 후킹 프로그램이 아니다. 표준 64비트 ASIO COM 인터페이스를
 사용하는 다른 게임과 DAW에서도 선택할 수 있다. 현재 실제 하드웨어 검증 환경만
 DJMAX RESPECT V와 FiiO K11 R2R이다.
@@ -86,6 +91,13 @@ DJMAX가 아니라 `soundfork_discord_relay.exe`다.
 Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물은
 `build/windows-msvc-x64/<Config>` 아래에 생성된다.
 
+앱 아이콘 원본은 `assets/soundfork-icon.png`이며 다중 크기 Windows 아이콘은
+다음 명령으로 다시 만들 수 있다.
+
+```powershell
+.\scripts\Build-Icon.ps1
+```
+
 설치 프로그램을 포함한 로컬 배포 패키지는 Inno Setup 6이 필요하다.
 
 ```powershell
@@ -109,7 +121,8 @@ samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록
 
 공유 링은 늦은 소비자와 소비자 중단 상황에서도 FiiO 콜백이 계속되는지 검증했다.
 등록된 COM 경로의 3초 소비 구간에서는 2,244블록 / 143,616프레임, 생산자 드롭
-0개를 기록했다.
+0개를 기록했다. 2026-10-19에는 GitHub Release Setup을 실제 Windows 환경에
+설치하고 Windows 제거 기능으로 정상 제거되는 것도 확인했다.
 
 ### 아직 주장하지 않는 항목
 

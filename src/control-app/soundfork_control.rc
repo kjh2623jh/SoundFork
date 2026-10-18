@@ -1,0 +1,3 @@
+#include "resource.h"
+
+IDI_SOUNDFORK_ICON ICON "../../assets/soundfork.ico"

@@ -27,6 +27,7 @@ automatic GitHub “Source code” archives are not executable Windows packages.
 - Selection of registered x64 ASIO drivers, including FiiO
 - Automatic preference for VB-CABLE with VoiceMeeter as a fallback
 - SoundFork Control for backend, stream, relay, and drop status
+- English and Korean control UI with Windows-language defaults and persistence
 - Setup and Start-menu uninstallation
 
 SoundFork is not tied to DJMAX. Other games and DAWs using standard x64 ASIO
@@ -51,7 +52,8 @@ not change Windows default playback or recording devices.
 4. Select **SoundFork** as the ASIO driver in the game or DAW.
 
 The control application is not required for playback. Closing its window does
-not stop DAC output or a relay that is already running.
+not stop DAC output or a relay that is already running. The top
+**Language/언어** menu changes the UI immediately and remembers the selection.
 
 ## Discord entire-screen sharing
 
@@ -82,6 +84,7 @@ Hardware ASIO drivers and VB-CABLE are not removed.
 - stereo output, restart behavior, and no clicks/pops/dropouts verified
 - game playback continues when the broadcast consumer stops
 - Discord entire-screen audio verified through VB-CABLE
+- Release Setup installation and Windows uninstallation verified
 - Discord application-window sharing is unsupported
 - OBS and physical loopback latency remain unverified
 

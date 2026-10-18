@@ -15,6 +15,11 @@ installation and Discord use.
 - `tests`: fake ASIO driver and proxy, COM, and shared-ring tests
 - `installer`: Inno Setup package definition
 
+With no saved preference, the control UI uses Korean only when the Windows UI
+language is Korean and falls back to English for every other language. Setup's
+selected language initializes the first value, while later changes through the
+**Language/언어** menu persist in `HKCU\Software\SoundFork\Language`.
+
 SoundFork is not DJMAX-specific process hooking. Any x64 game or DAW using the
 standard ASIO COM interface can select it. DJMAX RESPECT V and the FiiO K11 R2R
 are the current real-hardware validation environment.
@@ -83,6 +88,13 @@ development with C++** workload, and CMake 3.25 or newer.
 Release binaries use the static MSVC runtime. Outputs are written below
 `build/windows-msvc-x64/<Config>`.
 
+The icon source is `assets/soundfork-icon.png`. Regenerate the multi-size
+Windows icon with:
+
+```powershell
+.\scripts\Build-Icon.ps1
+```
+
 Creating Setup.exe locally requires Inno Setup 6.
 
 ```powershell
@@ -107,7 +119,9 @@ measurement.
 
 Late and stopped consumer tests confirmed that the FiiO callbacks continue.
 The installed COM path delivered 2,244 blocks / 143,616 frames with zero
-producer drops during a three-second consumer interval.
+producer drops during a three-second consumer interval. On 2026-10-19, the
+GitHub Release Setup was also installed on a real Windows system and removed
+successfully through Windows uninstallation.
 
 ### Not currently claimed
 

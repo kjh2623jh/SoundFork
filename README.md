@@ -25,6 +25,7 @@ GitHub의 자동 생성 “Source code” ZIP은 실행 가능한 Windows 배포
 - FiiO를 포함한 등록된 64비트 ASIO 드라이버 선택
 - VB-CABLE 우선, VoiceMeeter 대안 자동 감지
 - 백엔드 상태, 스트림 정보와 드롭 수를 보여주는 SoundFork Control
+- Windows UI 언어를 따르는 영어·한국어 제어판과 저장되는 언어 선택
 - 설치 프로그램과 시작 메뉴 제거 지원
 
 SoundFork는 DJMAX 전용 프로그램이 아니다. 표준 64비트 ASIO를 지원하는 다른 게임과
@@ -49,7 +50,8 @@ SoundFork는 FiiO, VB-CABLE 또는 VoiceMeeter를 포함하거나 제거하지 �
 4. 게임이나 DAW의 ASIO 드라이버로 **SoundFork**를 선택한다.
 
 컨트롤 앱은 재생에 필수 요소가 아니다. 창을 닫아도 게임의 DAC 출력과 이미 실행
-중인 릴레이는 계속 동작한다.
+중인 릴레이는 계속 동작한다. 상단 **Language/언어** 메뉴에서 표시 언어를 즉시
+바꿀 수 있으며 다음 실행에도 유지된다.
 
 ## Discord 전체 화면 공유
 
@@ -80,6 +82,7 @@ Windows **설정 → 앱 → 설치된 앱 → SoundFork → 제거** 또는 시
 - 스테레오 출력, 게임 재시작, 클릭·팝·드롭아웃 없음 확인
 - 방송 소비자 중단 시 게임 재생 유지 확인
 - Discord 전체 화면 공유 + VB-CABLE 오디오 확인
+- Release Setup 설치와 Windows 제거 정상 동작 확인
 - Discord 애플리케이션 창 공유는 지원하지 않음
 - OBS와 물리 루프백 지연 측정은 아직 미검증
 

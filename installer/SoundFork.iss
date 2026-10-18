@@ -26,6 +26,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 LicenseFile={#MySourceDir}\LICENSE
+SetupIconFile={#MySourceDir}\assets\soundfork.ico
 UninstallDisplayIcon={app}\soundfork_control.exe
 CloseApplications=yes
 RestartApplications=no
@@ -70,6 +71,7 @@ Name: "{group}\SoundFork Control"; Filename: "{app}\soundfork_control.exe"; Work
 Name: "{group}\Uninstall SoundFork"; Filename: "{uninstallexe}"
 
 [Run]
+Filename: "{app}\soundfork_control.exe"; Parameters: "--initialize-language {language}"; Flags: runhidden waituntilterminated runasoriginaluser
 Filename: "{app}\soundfork_control.exe"; Description: "{cm:LaunchControl}"; Flags: nowait postinstall skipifsilent
 Filename: "https://vb-audio.com/Cable/"; Description: "{cm:GetVbCable}"; Flags: shellexec postinstall skipifsilent; Check: ShouldOfferVbCable
 
