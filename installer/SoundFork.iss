@@ -88,6 +88,16 @@ var
   RequestedBackendClsid: String;
   ExistingBackendClsid: String;
   DefaultBackendIndex: Integer;
+  WizardRaisedOnce: Boolean;
+
+procedure BringWizardForward(Sender: TObject);
+begin
+  if WizardRaisedOnce then
+    Exit;
+  WizardRaisedOnce := True;
+  WizardForm.BringToFront;
+  BringToFrontAndRestore;
+end;
 
 procedure SwapStrings(var Left: String; var Right: String);
 var
@@ -197,6 +207,7 @@ var
   Index: Integer;
   RequestedIndex: Integer;
 begin
+  WizardForm.OnShow := @BringWizardForward;
   BackendPage := CreateInputOptionPage(
     wpSelectDir,
     ExpandConstant('{cm:BackendTitle}'),
