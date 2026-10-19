@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,7 +29,16 @@ if ($null -eq $cmakeCommand) {
 
 Push-Location $projectRoot
 try {
-    & $cmake --preset windows-msvc-x64
+    $configureArguments = @('--preset', 'windows-msvc-x64')
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        $configureArguments += '-USOUNDFORK_VERSION'
+    } else {
+        if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?$') {
+            throw "Version '$Version' is not a supported SoundFork release version."
+        }
+        $configureArguments += "-DSOUNDFORK_VERSION=$Version"
+    }
+    & $cmake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
 
     & $cmake --build --preset $Configuration.ToLowerInvariant()
@@ -42,4 +52,3 @@ try {
 } finally {
     Pop-Location
 }
-

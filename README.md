@@ -11,11 +11,11 @@ Discord와 OBS에서 캡처할 수 있게 합니다.
 
 ## 다운로드
 
-[**Windows x64 설치 파일 다운로드**](../../releases/download/v0.1.0-alpha.3/SoundFork-Setup-v0.1.0-alpha.3.exe) ·
-[ZIP 다운로드](../../releases/download/v0.1.0-alpha.3/SoundFork-v0.1.0-alpha.3-windows-x64.zip) ·
+[**Windows x64 설치 파일 다운로드**](../../releases/download/v0.1.0-beta.1/SoundFork-Setup-v0.1.0-beta.1.exe) ·
+[ZIP 다운로드](../../releases/download/v0.1.0-beta.1/SoundFork-v0.1.0-beta.1-windows-x64.zip) ·
 [모든 릴리스 보기](../../releases)
 
-현재 버전은 미서명 `v0.1.0-alpha.3`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
+현재 버전은 미서명 `v0.1.0-beta.1`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
 설치할 때는 GitHub가 자동 생성한 “Source code”가 아니라 `SoundFork-Setup` 파일을
 사용합니다.
 
@@ -31,14 +31,16 @@ VoiceMeeter의 가상 재생 엔드포인트도 사용할 수 있습니다. Soun
 
 ## 설치 및 재생
 
-1. `SoundFork-Setup-v0.1.0-alpha.3.exe`를 실행합니다.
+1. `SoundFork-Setup-v0.1.0-beta.1.exe`를 실행합니다.
 2. SoundFork가 사용할 하드웨어 ASIO 드라이버를 선택합니다.
 3. 게임이나 DAW의 ASIO 드라이버로 **SoundFork**를 선택합니다.
 4. 방송이나 녹화가 필요하면 **SoundFork Control**에서 가상 재생 엔드포인트를
    선택하고 **릴레이 시작**을 누릅니다.
 
-제어판을 닫아도 ASIO 재생과 이미 실행 중인 릴레이는 계속 동작합니다. 표시 언어는
-상단 **언어/Language** 메뉴에서 변경할 수 있습니다.
+Relay가 중지된 상태에서 제어판을 닫으면 제어판이 종료됩니다. Relay가 실행 중이면
+알림 영역으로 숨겨지며, 트레이 메뉴에서 제어판을 다시 열거나 Relay를 중지할 수
+있습니다. 표시 언어는 **설정 → 언어**에서 변경할 수 있으며, 새 버전은
+**도움말 → 업데이트 확인**에서 확인할 수 있습니다.
 
 ## Discord 전체 화면 공유
 

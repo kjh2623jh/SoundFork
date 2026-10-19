@@ -8,28 +8,40 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cwchar>
 #include <cwctype>
 #include <iomanip>
 #include <iterator>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/shared_ring.hpp"
 #include "control-app/resource.h"
+#include "control-app/update_checker.hpp"
+#include "soundfork_version.hpp"
 
 namespace {
 
 using Microsoft::WRL::ComPtr;
+using soundfork::control::UpdateResult;
+using soundfork::control::UpdateStatus;
+using soundfork::control::check_for_updates;
 
 constexpr wchar_t kWindowClass[] = L"SoundForkControlWindow";
 constexpr wchar_t kSoundForkClsid[] =
     L"{A04A0128-E43C-4D08-B701-87EC1A847A89}";
 constexpr UINT_PTR kRefreshTimer = 1;
+constexpr UINT kUpdateResultMessage = WM_APP + 1;
+constexpr UINT kTrayCallbackMessage = WM_APP + 2;
+constexpr UINT kTrayIconId = 1;
 
 constexpr int kBackendCombo = 1001;
 constexpr int kApplyBackend = 1002;
@@ -40,7 +52,17 @@ constexpr int kStatus = 1006;
 constexpr int kGetVbCable = 1007;
 constexpr int kLanguageEnglish = 2001;
 constexpr int kLanguageKorean = 2002;
+constexpr int kCheckForUpdates = 2101;
+constexpr int kOpenProject = 2102;
+constexpr int kShowAbout = 2103;
+constexpr int kTrayOpen = 2201;
+constexpr int kTrayToggleRelay = 2202;
+constexpr int kTrayExitControl = 2203;
+constexpr int kTrayStopAndExit = 2204;
 constexpr wchar_t kVbCableUrl[] = L"https://vb-audio.com/Cable/";
+constexpr wchar_t kProjectUrl[] = L"https://github.com/kjh2623jh/SoundFork";
+constexpr wchar_t kReleasesUrl[] =
+    L"https://github.com/kjh2623jh/SoundFork/releases";
 
 struct RegistryKey {
   HKEY value = nullptr;
@@ -69,7 +91,24 @@ enum class UiLanguage {
 
 struct UiStrings {
   const wchar_t* window_title;
+  const wchar_t* settings_menu;
   const wchar_t* language_menu;
+  const wchar_t* help_menu;
+  const wchar_t* check_for_updates;
+  const wchar_t* open_project;
+  const wchar_t* about;
+  const wchar_t* update_available;
+  const wchar_t* update_current;
+  const wchar_t* update_open_question;
+  const wchar_t* update_not_available;
+  const wchar_t* update_failed;
+  const wchar_t* open_project_failed;
+  const wchar_t* about_license;
+  const wchar_t* tray_open;
+  const wchar_t* tray_exit_control;
+  const wchar_t* tray_stop_and_exit;
+  const wchar_t* tray_hidden_title;
+  const wchar_t* tray_hidden_message;
   const wchar_t* backend_label;
   const wchar_t* apply;
   const wchar_t* endpoint_label;
@@ -124,7 +163,24 @@ struct UiStrings {
 const UiStrings& ui_strings(UiLanguage language) {
   static constexpr UiStrings english{
       L"SoundFork Control",
+      L"Settings",
       L"Language",
+      L"Help",
+      L"Check for updates...",
+      L"Open GitHub project",
+      L"About SoundFork",
+      L"A new SoundFork version is available: ",
+      L"Current version: ",
+      L"\n\nOpen the release download page?",
+      L"You already have the latest SoundFork version.",
+      L"Could not check for updates. Check your internet connection and try again.",
+      L"Could not open the SoundFork project page.",
+      L"Windows x64\nGPL-3.0-only\n\nLow-latency ASIO loopback bridge",
+      L"Open SoundFork Control",
+      L"Exit SoundFork Control",
+      L"Stop relay and exit",
+      L"SoundFork is still running",
+      L"The broadcast relay is still running in the notification area.",
       L"Hardware ASIO backend",
       L"Apply",
       L"Broadcast render endpoint (choose a virtual endpoint)",
@@ -176,7 +232,24 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"Could not update the SoundFork backend."};
   static constexpr UiStrings korean{
       L"SoundFork 제어판",
+      L"설정",
       L"언어",
+      L"도움말",
+      L"업데이트 확인...",
+      L"GitHub 프로젝트 열기",
+      L"SoundFork 정보",
+      L"새 SoundFork 버전이 있습니다: ",
+      L"현재 버전: ",
+      L"\n\n릴리스 다운로드 페이지를 여시겠습니까?",
+      L"현재 최신 SoundFork 버전을 사용하고 있습니다.",
+      L"업데이트를 확인할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요.",
+      L"SoundFork 프로젝트 페이지를 열 수 없습니다.",
+      L"Windows x64\nGPL-3.0-only\n\n저지연 ASIO 루프백 브리지",
+      L"SoundFork 제어판 열기",
+      L"SoundFork 제어판 종료",
+      L"릴레이 중지 후 종료",
+      L"SoundFork가 계속 실행 중입니다",
+      L"방송 릴레이가 알림 영역에서 계속 실행 중입니다.",
       L"하드웨어 ASIO 백엔드",
       L"적용",
       L"방송 출력 엔드포인트 (가상 장치 선택)",
@@ -250,7 +323,6 @@ struct AppState {
   HWND relay_button = nullptr;
   HWND vb_cable_button = nullptr;
   HWND status = nullptr;
-  HWND title = nullptr;
   HWND backend_label = nullptr;
   HWND apply_button = nullptr;
   HWND endpoint_label = nullptr;
@@ -260,7 +332,18 @@ struct AppState {
   UiLanguage language = UiLanguage::english;
   std::vector<AsioDriver> drivers;
   std::vector<Endpoint> endpoints;
+  std::atomic<bool> shutting_down{false};
+  bool update_check_in_progress = false;
+  std::mutex update_mutex;
+  soundfork::control::UpdateResult update_result;
+  std::thread update_thread;
+  HICON tray_icon = nullptr;
+  bool tray_icon_added = false;
+  bool tray_notification_shown = false;
+  bool force_exit = false;
 };
+
+UINT taskbar_created_message = 0;
 
 std::wstring read_registry_string(HKEY key, const wchar_t* name) {
   DWORD type = 0;
@@ -729,6 +812,7 @@ bool invoke_adjacent_driver_registration(
     bool register_driver,
     std::wstring_view backend_clsid,
     std::wstring* error) {
+  const RegistrationStatus previous = query_registration();
   const std::wstring driver_path =
       executable_directory() + L"\\soundfork_driver.dll";
   if (GetFileAttributesW(driver_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -779,10 +863,15 @@ bool invoke_adjacent_driver_registration(
   }
 
   if (register_driver && !set_backend(backend_clsid, error)) {
-    const auto rollback = reinterpret_cast<DllRegistrationEntry>(
-        GetProcAddress(module, "DllUnregisterServer"));
-    if (rollback != nullptr) {
-      (void)rollback();
+    if (previous.asio_registered && !previous.backend_clsid.empty()) {
+      std::wstring ignored_error;
+      (void)set_backend(previous.backend_clsid, &ignored_error);
+    } else {
+      const auto rollback = reinterpret_cast<DllRegistrationEntry>(
+          GetProcAddress(module, "DllUnregisterServer"));
+      if (rollback != nullptr) {
+        (void)rollback();
+      }
     }
     FreeLibrary(module);
     return false;
@@ -937,6 +1026,153 @@ void populate_endpoint_combo(AppState* state) {
   }
 }
 
+bool asio_stream_is_active() {
+  soundfork::capture::SharedRingObserver observer;
+  soundfork::capture::StreamStatus stream;
+  return observer.open() && observer.snapshot(&stream) &&
+         stream.producer_active;
+}
+
+std::wstring tray_tooltip(const AppState* state) {
+  const UiStrings& strings = ui_strings(state->language);
+  std::wstring text = L"SoundFork - ";
+  text += strings.discord_relay;
+  text += L": ";
+  text += relay_is_running() ? strings.running : strings.stopped;
+  return text;
+}
+
+bool add_tray_icon(AppState* state) {
+  NOTIFYICONDATAW data{sizeof(data)};
+  data.hWnd = state->window;
+  data.uID = kTrayIconId;
+  data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+  data.uCallbackMessage = kTrayCallbackMessage;
+  data.hIcon = state->tray_icon;
+  const std::wstring tooltip = tray_tooltip(state);
+  _snwprintf_s(
+      data.szTip, _countof(data.szTip), _TRUNCATE, L"%s", tooltip.c_str());
+  if (Shell_NotifyIconW(NIM_ADD, &data) == FALSE) {
+    state->tray_icon_added = false;
+    return false;
+  }
+  data.uVersion = NOTIFYICON_VERSION_4;
+  (void)Shell_NotifyIconW(NIM_SETVERSION, &data);
+  state->tray_icon_added = true;
+  return true;
+}
+
+void update_tray_icon(AppState* state) {
+  if (!state->tray_icon_added) {
+    return;
+  }
+  NOTIFYICONDATAW data{sizeof(data)};
+  data.hWnd = state->window;
+  data.uID = kTrayIconId;
+  data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+  data.hIcon = state->tray_icon;
+  const std::wstring tooltip = tray_tooltip(state);
+  _snwprintf_s(
+      data.szTip, _countof(data.szTip), _TRUNCATE, L"%s", tooltip.c_str());
+  (void)Shell_NotifyIconW(NIM_MODIFY, &data);
+}
+
+void remove_tray_icon(AppState* state) {
+  if (!state->tray_icon_added) {
+    return;
+  }
+  NOTIFYICONDATAW data{sizeof(data)};
+  data.hWnd = state->window;
+  data.uID = kTrayIconId;
+  (void)Shell_NotifyIconW(NIM_DELETE, &data);
+  state->tray_icon_added = false;
+}
+
+void show_tray_notification(AppState* state) {
+  if (!state->tray_icon_added || state->tray_notification_shown) {
+    return;
+  }
+  const UiStrings& strings = ui_strings(state->language);
+  NOTIFYICONDATAW data{sizeof(data)};
+  data.hWnd = state->window;
+  data.uID = kTrayIconId;
+  data.uFlags = NIF_INFO;
+  data.dwInfoFlags = NIIF_INFO;
+  _snwprintf_s(
+      data.szInfoTitle,
+      _countof(data.szInfoTitle),
+      _TRUNCATE,
+      L"%s",
+      strings.tray_hidden_title);
+  _snwprintf_s(
+      data.szInfo,
+      _countof(data.szInfo),
+      _TRUNCATE,
+      L"%s",
+      strings.tray_hidden_message);
+  if (Shell_NotifyIconW(NIM_MODIFY, &data) != FALSE) {
+    state->tray_notification_shown = true;
+  }
+}
+
+void show_control_window(AppState* state) {
+  ShowWindow(state->window, IsIconic(state->window) ? SW_RESTORE : SW_SHOW);
+  SetForegroundWindow(state->window);
+}
+
+void show_tray_menu(AppState* state) {
+  const UiStrings& strings = ui_strings(state->language);
+  const bool relay_running = relay_is_running();
+  const bool asio_active = asio_stream_is_active();
+  HMENU menu = CreatePopupMenu();
+  if (menu == nullptr) {
+    return;
+  }
+
+  std::wstring status = strings.asio_stream;
+  status += L": ";
+  status += asio_active ? strings.active : strings.inactive;
+  status += L"  ·  ";
+  status += strings.discord_relay;
+  status += L": ";
+  status += relay_running ? strings.running : strings.stopped;
+
+  AppendMenuW(menu, MF_STRING, kTrayOpen, strings.tray_open);
+  AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, status.c_str());
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(
+      menu,
+      MF_STRING,
+      kTrayToggleRelay,
+      relay_running ? strings.stop_relay : strings.start_relay);
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(
+      menu, MF_STRING, kTrayExitControl, strings.tray_exit_control);
+  AppendMenuW(
+      menu,
+      MF_STRING | (relay_running ? 0 : MF_GRAYED),
+      kTrayStopAndExit,
+      strings.tray_stop_and_exit);
+  SetMenuDefaultItem(menu, kTrayOpen, FALSE);
+
+  POINT cursor{};
+  GetCursorPos(&cursor);
+  SetForegroundWindow(state->window);
+  const UINT command = TrackPopupMenu(
+      menu,
+      TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+      cursor.x,
+      cursor.y,
+      0,
+      state->window,
+      nullptr);
+  DestroyMenu(menu);
+  PostMessageW(state->window, WM_NULL, 0, 0);
+  if (command != 0) {
+    PostMessageW(state->window, WM_COMMAND, command, 0);
+  }
+}
+
 void update_status(AppState* state) {
   const UiStrings& strings = ui_strings(state->language);
   const RegistrationStatus registration = query_registration();
@@ -1003,6 +1239,7 @@ void update_status(AppState* state) {
   SetWindowTextW(
       state->relay_button,
       relay_running ? strings.stop_relay : strings.start_relay);
+  update_tray_icon(state);
 }
 
 void create_controls(AppState* state) {
@@ -1022,26 +1259,13 @@ void create_controls(AppState* state) {
       CLEARTYPE_QUALITY,
       DEFAULT_PITCH,
       L"Segoe UI");
-  state->title = CreateWindowExW(
-      0,
-      L"STATIC",
-      strings.window_title,
-      WS_CHILD | WS_VISIBLE,
-      18,
-      14,
-      300,
-      28,
-      state->window,
-      nullptr,
-      nullptr,
-      nullptr);
   state->backend_label = CreateWindowExW(
       0,
       L"STATIC",
       strings.backend_label,
       WS_CHILD | WS_VISIBLE,
       18,
-      50,
+      14,
       180,
       22,
       state->window,
@@ -1054,7 +1278,7 @@ void create_controls(AppState* state) {
       nullptr,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
       18,
-      73,
+      37,
       470,
       220,
       state->window,
@@ -1067,7 +1291,7 @@ void create_controls(AppState* state) {
       strings.apply,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       500,
-      72,
+      36,
       100,
       28,
       state->window,
@@ -1080,7 +1304,7 @@ void create_controls(AppState* state) {
       strings.endpoint_label,
       WS_CHILD | WS_VISIBLE,
       18,
-      111,
+      75,
       440,
       22,
       state->window,
@@ -1093,7 +1317,7 @@ void create_controls(AppState* state) {
       nullptr,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
       18,
-      134,
+      98,
       470,
       240,
       state->window,
@@ -1106,7 +1330,7 @@ void create_controls(AppState* state) {
       strings.start_relay,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       500,
-      133,
+      97,
       100,
       28,
       state->window,
@@ -1119,7 +1343,7 @@ void create_controls(AppState* state) {
       strings.refresh_devices,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       18,
-      175,
+      139,
       130,
       28,
       state->window,
@@ -1132,7 +1356,7 @@ void create_controls(AppState* state) {
       strings.get_vb_cable,
       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
       160,
-      175,
+      139,
       145,
       28,
       state->window,
@@ -1145,9 +1369,9 @@ void create_controls(AppState* state) {
       strings.note,
       WS_CHILD | WS_VISIBLE,
       317,
-      180,
+      144,
       353,
-      22,
+      42,
       state->window,
       nullptr,
       nullptr,
@@ -1159,15 +1383,14 @@ void create_controls(AppState* state) {
       WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_READONLY |
           ES_AUTOVSCROLL | WS_VSCROLL,
       18,
-      215,
+      189,
       652,
-      235,
+      261,
       state->window,
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStatus)),
       nullptr,
       nullptr);
-  for (HWND control : {state->title,
-                       state->backend_label,
+  for (HWND control : {state->backend_label,
                        state->backend_combo,
                        state->apply_button,
                        state->endpoint_label,
@@ -1181,16 +1404,25 @@ void create_controls(AppState* state) {
   }
 }
 
-void rebuild_language_menu(AppState* state) {
+void rebuild_menu(AppState* state) {
   HMENU previous = GetMenu(state->window);
   HMENU menu = CreateMenu();
+  HMENU settings = CreatePopupMenu();
   HMENU language = CreatePopupMenu();
-  if (menu == nullptr || language == nullptr) {
+  HMENU help = CreatePopupMenu();
+  if (menu == nullptr || settings == nullptr || language == nullptr ||
+      help == nullptr) {
     if (menu != nullptr) {
       DestroyMenu(menu);
     }
+    if (settings != nullptr) {
+      DestroyMenu(settings);
+    }
     if (language != nullptr) {
       DestroyMenu(language);
+    }
+    if (help != nullptr) {
+      DestroyMenu(help);
     }
     return;
   }
@@ -1204,10 +1436,28 @@ void rebuild_language_menu(AppState* state) {
                                             : kLanguageEnglish,
       MF_BYCOMMAND);
   AppendMenuW(
-      menu,
+      settings,
       MF_POPUP,
       reinterpret_cast<UINT_PTR>(language),
       ui_strings(state->language).language_menu);
+  AppendMenuW(
+      menu,
+      MF_POPUP,
+      reinterpret_cast<UINT_PTR>(settings),
+      ui_strings(state->language).settings_menu);
+  AppendMenuW(
+      help,
+      MF_STRING | (state->update_check_in_progress ? MF_GRAYED : 0),
+      kCheckForUpdates,
+      ui_strings(state->language).check_for_updates);
+  AppendMenuW(help, MF_STRING, kOpenProject, ui_strings(state->language).open_project);
+  AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(help, MF_STRING, kShowAbout, ui_strings(state->language).about);
+  AppendMenuW(
+      menu,
+      MF_POPUP,
+      reinterpret_cast<UINT_PTR>(help),
+      ui_strings(state->language).help_menu);
   SetMenu(state->window, menu);
   DrawMenuBar(state->window);
   if (previous != nullptr) {
@@ -1230,13 +1480,12 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   }
   const UiStrings& strings = ui_strings(language);
   SetWindowTextW(state->window, strings.window_title);
-  SetWindowTextW(state->title, strings.window_title);
   SetWindowTextW(state->backend_label, strings.backend_label);
   SetWindowTextW(state->apply_button, strings.apply);
   SetWindowTextW(state->endpoint_label, strings.endpoint_label);
   SetWindowTextW(state->refresh_button, strings.refresh_devices);
   SetWindowTextW(state->note, strings.note);
-  rebuild_language_menu(state);
+  rebuild_menu(state);
   populate_endpoint_combo(state);
   if (!selected_endpoint_id.empty()) {
     const auto endpoint = std::find_if(
@@ -1269,13 +1518,19 @@ LRESULT CALLBACK window_proc(
   if (state == nullptr) {
     return DefWindowProcW(window, message, wparam, lparam);
   }
+  if (taskbar_created_message != 0 && message == taskbar_created_message) {
+    state->tray_icon_added = false;
+    (void)add_tray_icon(state);
+    return 0;
+  }
 
   switch (message) {
     case WM_CREATE:
       create_controls(state);
-      rebuild_language_menu(state);
+      rebuild_menu(state);
       populate_backend_combo(state);
       populate_endpoint_combo(state);
+      (void)add_tray_icon(state);
       update_status(state);
       SetTimer(window, kRefreshTimer, 1000, nullptr);
       return 0;
@@ -1286,9 +1541,9 @@ LRESULT CALLBACK window_proc(
         MoveWindow(
             state->status,
             18,
-            215,
+            189,
             std::max(200, width - 36),
-            std::max(120, height - 233),
+            std::max(120, height - 207),
             TRUE);
       }
       return 0;
@@ -1298,6 +1553,81 @@ LRESULT CALLBACK window_proc(
         update_status(state);
       }
       return 0;
+    case kTrayCallbackMessage: {
+      const UINT event = LOWORD(lparam);
+      if (event == WM_LBUTTONDBLCLK || event == NIN_KEYSELECT) {
+        show_control_window(state);
+      } else if (event == WM_CONTEXTMENU || event == WM_RBUTTONUP) {
+        show_tray_menu(state);
+      }
+      return 0;
+    }
+    case WM_CLOSE:
+      if (!state->force_exit && relay_is_running()) {
+        if (state->tray_icon_added || add_tray_icon(state)) {
+          ShowWindow(window, SW_HIDE);
+          show_tray_notification(state);
+        } else {
+          ShowWindow(window, SW_MINIMIZE);
+        }
+        return 0;
+      }
+      DestroyWindow(window);
+      return 0;
+    case kUpdateResultMessage: {
+      if (state->update_thread.joinable()) {
+        state->update_thread.join();
+      }
+      UpdateResult result;
+      {
+        const std::lock_guard<std::mutex> lock(state->update_mutex);
+        result = state->update_result;
+      }
+      state->update_check_in_progress = false;
+      rebuild_menu(state);
+      const UiStrings& strings = ui_strings(state->language);
+      if (result.status == UpdateStatus::available) {
+        std::wstring message_text = strings.update_available;
+        message_text += result.latest_tag;
+        message_text += L"\n";
+        message_text += strings.update_current;
+        message_text += L"v" SOUNDFORK_VERSION_WIDE;
+        message_text += strings.update_open_question;
+        if (MessageBoxW(
+                window,
+                message_text.c_str(),
+                L"SoundFork",
+                MB_ICONINFORMATION | MB_YESNO) == IDYES) {
+          std::wstring release_url = kReleasesUrl;
+          release_url += L"/tag/";
+          release_url += result.latest_tag;
+          const HINSTANCE opened = ShellExecuteW(
+              window,
+              L"open",
+              release_url.c_str(),
+              nullptr,
+              nullptr,
+              SW_SHOWNORMAL);
+          if (reinterpret_cast<INT_PTR>(opened) <= 32) {
+            MessageBoxW(
+                window,
+                strings.open_project_failed,
+                L"SoundFork",
+                MB_ICONERROR);
+          }
+        }
+      } else {
+        MessageBoxW(
+            window,
+            result.status == UpdateStatus::up_to_date
+                ? strings.update_not_available
+                : strings.update_failed,
+            L"SoundFork",
+            result.status == UpdateStatus::up_to_date ? MB_ICONINFORMATION
+                                                      : MB_ICONERROR);
+      }
+      return 0;
+    }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
       if (control == kLanguageEnglish || control == kLanguageKorean) {
@@ -1309,6 +1639,83 @@ LRESULT CALLBACK window_proc(
         return 0;
       }
       const UiStrings& strings = ui_strings(state->language);
+      if (control == kTrayOpen) {
+        show_control_window(state);
+        return 0;
+      }
+      if (control == kTrayToggleRelay) {
+        SendMessageW(
+            window, WM_COMMAND, MAKEWPARAM(kToggleRelay, BN_CLICKED), 0);
+        return 0;
+      }
+      if (control == kTrayExitControl) {
+        state->force_exit = true;
+        DestroyWindow(window);
+        return 0;
+      }
+      if (control == kTrayStopAndExit) {
+        std::wstring error;
+        if (relay_is_running() && !stop_relay(state->language, &error)) {
+          MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
+          return 0;
+        }
+        state->force_exit = true;
+        DestroyWindow(window);
+        return 0;
+      }
+      if (control == kCheckForUpdates) {
+        if (state->update_check_in_progress) {
+          return 0;
+        }
+        if (state->update_thread.joinable()) {
+          state->update_thread.join();
+        }
+        state->update_check_in_progress = true;
+        rebuild_menu(state);
+        try {
+          state->update_thread = std::thread([state, window]() {
+            const UpdateResult result = check_for_updates();
+            if (state->shutting_down.load(std::memory_order_acquire)) {
+              return;
+            }
+            {
+              const std::lock_guard<std::mutex> lock(state->update_mutex);
+              state->update_result = result;
+            }
+            if (!state->shutting_down.load(std::memory_order_acquire)) {
+              PostMessageW(window, kUpdateResultMessage, 0, 0);
+            }
+          });
+        } catch (const std::system_error&) {
+          state->update_check_in_progress = false;
+          rebuild_menu(state);
+          MessageBoxW(
+              window, strings.update_failed, L"SoundFork", MB_ICONERROR);
+        }
+        return 0;
+      }
+      if (control == kOpenProject) {
+        const HINSTANCE opened = ShellExecuteW(
+            window, L"open", kProjectUrl, nullptr, nullptr, SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(opened) <= 32) {
+          MessageBoxW(
+              window,
+              strings.open_project_failed,
+              L"SoundFork",
+              MB_ICONERROR);
+        }
+        return 0;
+      }
+      if (control == kShowAbout) {
+        std::wstring about_text = L"SoundFork v" SOUNDFORK_VERSION_WIDE L"\n\n";
+        about_text += strings.about_license;
+        MessageBoxW(
+            window,
+            about_text.c_str(),
+            strings.about,
+            MB_ICONINFORMATION | MB_OK);
+        return 0;
+      }
       if (control == kApplyBackend && HIWORD(wparam) == BN_CLICKED) {
         const LRESULT selected =
             SendMessageW(state->backend_combo, CB_GETCURSEL, 0, 0);
@@ -1394,7 +1801,9 @@ LRESULT CALLBACK window_proc(
       break;
     }
     case WM_DESTROY:
+      state->shutting_down.store(true, std::memory_order_release);
       KillTimer(window, kRefreshTimer);
+      remove_tray_icon(state);
       if (state->font != nullptr) {
         DeleteObject(state->font);
         state->font = nullptr;
@@ -1410,6 +1819,7 @@ LRESULT CALLBACK window_proc(
 int run_control_app(HINSTANCE instance, int show_command) {
   AppState state;
   state.language = load_ui_language();
+  taskbar_created_message = RegisterWindowMessageW(L"TaskbarCreated");
   WNDCLASSEXW window_class{sizeof(window_class)};
   window_class.style = CS_HREDRAW | CS_VREDRAW;
   window_class.lpfnWndProc = &window_proc;
@@ -1431,6 +1841,7 @@ int run_control_app(HINSTANCE instance, int show_command) {
       0));
   window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
   window_class.lpszClassName = kWindowClass;
+  state.tray_icon = window_class.hIconSm;
   if (RegisterClassExW(&window_class) == 0) {
     return 2;
   }
@@ -1457,6 +1868,10 @@ int run_control_app(HINSTANCE instance, int show_command) {
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
+  state.shutting_down.store(true, std::memory_order_release);
+  if (state.update_thread.joinable()) {
+    state.update_thread.join();
+  }
   return static_cast<int>(message.wParam);
 }
 
@@ -1472,8 +1887,11 @@ int WINAPI wWinMain(
   const bool self_test = arguments != nullptr && argument_count == 2 &&
                          std::wstring_view(arguments[1]) == L"--self-test";
   const bool endpoint_probe = arguments != nullptr && argument_count == 2 &&
-                              std::wstring_view(arguments[1]) ==
-                                  L"--has-broadcast-endpoint";
+                               std::wstring_view(arguments[1]) ==
+                                   L"--has-broadcast-endpoint";
+  const bool update_probe = arguments != nullptr && argument_count == 2 &&
+                            std::wstring_view(arguments[1]) ==
+                                L"--check-update";
   const bool unregister_driver =
       arguments != nullptr && argument_count == 2 &&
       std::wstring_view(arguments[1]) == L"--unregister-driver";
@@ -1493,6 +1911,12 @@ int WINAPI wWinMain(
     const bool result = valid && save_language(language, true);
     LocalFree(arguments);
     return result ? 0 : 1;
+  }
+
+  if (update_probe) {
+    const UpdateResult result = check_for_updates();
+    LocalFree(arguments);
+    return result.status == UpdateStatus::failed ? 1 : 0;
   }
 
   if (register_driver || unregister_driver) {
@@ -1543,7 +1967,9 @@ int WINAPI wWinMain(
             UiLanguage::korean ||
         language_from_windows_ui(MAKELANGID(LANG_JAPANESE, SUBLANG_DEFAULT)) !=
             UiLanguage::english ||
-        ui_strings(UiLanguage::korean).apply[0] == L'\0') {
+        ui_strings(UiLanguage::korean).apply[0] == L'\0' ||
+        ui_strings(UiLanguage::korean).tray_open[0] == L'\0' ||
+        !soundfork::control::update_parser_self_test()) {
       CoUninitialize();
       return 3;
     }

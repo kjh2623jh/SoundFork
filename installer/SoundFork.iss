@@ -42,7 +42,6 @@ english.BackendDescription=Select the hardware ASIO driver SoundFork will wrap.
 english.BackendSubCaption=SoundFork never modifies or removes this driver. FiiO ASIO Driver is preferred when available.
 english.NoBackend=No compatible x64 ASIO driver is registered. Install your DAC or audio interface ASIO driver first.
 english.InvalidSilentBackend=Silent setup requires /BACKENDCLSID={{GUID} identifying a registered x64 ASIO driver.
-english.UnregisterFailed=The existing SoundFork driver could not be unregistered. Close every ASIO host and try again.
 english.RegistrationFailed=SoundFork driver registration failed. Setup rolled back the partial registration.
 english.GetVbCable=Open the official VB-CABLE download page (recommended for Discord)
 english.LaunchControl=Launch SoundFork Control
@@ -51,7 +50,6 @@ korean.BackendDescription=SoundFork가 감쌀 하드웨어 ASIO 드라이버를 
 korean.BackendSubCaption=SoundFork는 선택한 드라이버를 수정하거나 제거하지 않습니다. FiiO ASIO Driver가 있으면 우선 선택됩니다.
 korean.NoBackend=호환되는 x64 ASIO 드라이버가 등록되어 있지 않습니다. DAC 또는 오디오 인터페이스의 ASIO 드라이버를 먼저 설치하세요.
 korean.InvalidSilentBackend=자동 설치에는 등록된 x64 ASIO 드라이버의 /BACKENDCLSID={{GUID}가 필요합니다.
-korean.UnregisterFailed=기존 SoundFork 드라이버의 등록을 해제하지 못했습니다. 모든 ASIO 호스트를 닫고 다시 시도하세요.
 korean.RegistrationFailed=SoundFork 드라이버 등록에 실패했습니다. 부분 등록은 롤백했습니다.
 korean.GetVbCable=VB-CABLE 공식 다운로드 페이지 열기 (Discord 권장)
 korean.LaunchControl=SoundFork Control 실행
@@ -88,6 +86,7 @@ var
   BackendNames: TArrayOfString;
   BackendClsids: TArrayOfString;
   RequestedBackendClsid: String;
+  ExistingBackendClsid: String;
   DefaultBackendIndex: Integer;
 
 procedure SwapStrings(var Left: String; var Right: String);
@@ -123,6 +122,12 @@ var
 begin
   SetArrayLength(BackendNames, 0);
   SetArrayLength(BackendClsids, 0);
+  ExistingBackendClsid := '';
+  RegQueryStringValue(
+    HKLM64,
+    AsioRoot + '\SoundFork',
+    'BackendCLSID',
+    ExistingBackendClsid);
   DefaultBackendIndex := -1;
   if not RegGetSubkeyNames(HKLM64, AsioRoot, Subkeys) then
     Exit;
@@ -153,9 +158,11 @@ begin
         SwapStrings(BackendClsids[Index], BackendClsids[Inner]);
       end;
 
-  for Index := 0 to Count - 1 do
-    if CompareText(BackendNames[Index], 'FiiO ASIO Driver') = 0 then
-      DefaultBackendIndex := Index;
+  DefaultBackendIndex := FindBackendByClsid(ExistingBackendClsid);
+  if DefaultBackendIndex < 0 then
+    for Index := 0 to Count - 1 do
+      if CompareText(BackendNames[Index], 'FiiO ASIO Driver') = 0 then
+        DefaultBackendIndex := Index;
   if (DefaultBackendIndex < 0) and (Count > 0) then
     DefaultBackendIndex := 0;
 end;
@@ -171,6 +178,9 @@ begin
   end;
 
   RequestedBackendClsid := ExpandConstant('{param:BACKENDCLSID|}');
+  if (RequestedBackendClsid = '') and
+     (FindBackendByClsid(ExistingBackendClsid) >= 0) then
+    RequestedBackendClsid := ExistingBackendClsid;
   if WizardSilent and
      ((RequestedBackendClsid = '') or
       (FindBackendByClsid(RequestedBackendClsid) < 0)) then
@@ -211,22 +221,19 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ExistingDriver: String;
+  ExistingRelay: String;
   ResultCode: Integer;
 begin
   Result := '';
-  ExistingDriver := ExpandConstant('{app}\soundfork_driver.dll');
-  if FileExists(ExistingDriver) then
-  begin
-    if (not Exec(
-          ExpandConstant('{sys}\regsvr32.exe'),
-          '/u /s "' + ExistingDriver + '"',
-          '',
-          SW_HIDE,
-          ewWaitUntilTerminated,
-          ResultCode)) or (ResultCode <> 0) then
-      Result := ExpandConstant('{cm:UnregisterFailed}');
-  end;
+  ExistingRelay := ExpandConstant('{app}\soundfork_discord_relay.exe');
+  if FileExists(ExistingRelay) then
+    Exec(
+      ExistingRelay,
+      '--stop',
+      ExpandConstant('{app}'),
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -244,16 +251,7 @@ begin
           SW_HIDE,
           ewWaitUntilTerminated,
           ResultCode)) or (ResultCode <> 0) then
-    begin
-      Exec(
-        ControlPath,
-        '--unregister-driver',
-        ExpandConstant('{app}'),
-        SW_HIDE,
-        ewWaitUntilTerminated,
-        ResultCode);
       RaiseException(ExpandConstant('{cm:RegistrationFailed}'));
-    end;
   end;
 end;
 

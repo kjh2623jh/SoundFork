@@ -11,7 +11,7 @@ installation and Discord use.
 - `asio-proxy`: x64 COM DLL exposed to ASIO hosts as `SoundFork`
 - `audio-bridge`: forwards hardware ASIO lifecycle calls and buffers
 - `capture-backend`: nonblocking shared ring, monitor, and WASAPI relay
-- `control-app`: backend selection, status, and relay controls
+- `control-app`: backend selection, status, relay controls, and system tray UI
 - `tests`: fake ASIO driver and proxy, COM, and shared-ring tests
 - `installer`: Inno Setup package definition
 
@@ -146,10 +146,10 @@ Windows icon with:
 Creating Setup.exe locally requires Inno Setup 6.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1
 
 # Verify only the ZIP without Inno Setup
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 -SkipInstaller
 ```
 
 With a code-signing certificate, the package script can SHA-256/RFC 3161 sign
@@ -157,7 +157,7 @@ and immediately verify every shipped EXE/DLL and Setup. Private keys are never
 stored in the repository.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 `
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
@@ -235,8 +235,8 @@ The following tag format produces Setup.exe, an executable ZIP, and SHA-256
 checksums:
 
 ```powershell
-git tag -a v0.1.0-alpha.2 -m 'SoundFork v0.1.0-alpha.2'
-git push origin v0.1.0-alpha.2
+git tag -a v0.1.0-beta.1 -m 'SoundFork v0.1.0-beta.1'
+git push origin v0.1.0-beta.1
 ```
 
 Supported suffixes are `alpha.N`, `beta.N`, and `rc.N`; they are published as

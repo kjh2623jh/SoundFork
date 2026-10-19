@@ -11,11 +11,11 @@ same audio to a virtual audio device for capture by Discord and OBS.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v0.1.0-alpha.2/SoundFork-Setup-v0.1.0-alpha.2.exe) ·
-[Download ZIP](../../releases/download/v0.1.0-alpha.2/SoundFork-v0.1.0-alpha.2-windows-x64.zip) ·
+[**Download Windows x64 Setup**](../../releases/download/v0.1.0-beta.1/SoundFork-Setup-v0.1.0-beta.1.exe) ·
+[Download ZIP](../../releases/download/v0.1.0-beta.1/SoundFork-v0.1.0-beta.1-windows-x64.zip) ·
 [View all releases](../../releases)
 
-The current version is the unsigned `v0.1.0-alpha.2`, so Windows SmartScreen may
+The current version is the unsigned `v0.1.0-beta.1`, so Windows SmartScreen may
 show a warning. For installation, use the `SoundFork-Setup` file rather than a
 GitHub-generated “Source code” archive.
 
@@ -31,14 +31,16 @@ these external devices and does not change Windows default audio devices.
 
 ## Installation and playback
 
-1. Run `SoundFork-Setup-v0.1.0-alpha.2.exe`.
+1. Run `SoundFork-Setup-v0.1.0-beta.1.exe`.
 2. Select the hardware ASIO driver SoundFork should use.
 3. Select **SoundFork** as the ASIO driver in the game or DAW.
 4. For broadcasting or recording, select a virtual render endpoint in
    **SoundFork Control** and press **Start relay**.
 
-Closing the control panel does not stop ASIO playback or an active relay. Use
-the top **Language/언어** menu to change the display language.
+Closing the control panel exits it when the relay is stopped. While the relay is
+running, the panel hides in the notification area; use its tray menu to reopen
+the panel or stop the relay. Change the display language from **Settings →
+Language** and check for new versions from **Help → Check for updates**.
 
 ## Discord entire-screen sharing
 

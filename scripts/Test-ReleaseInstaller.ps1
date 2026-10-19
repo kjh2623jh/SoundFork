@@ -33,6 +33,8 @@ if (-not $fullTestDirectory.StartsWith(
 
 $fakeName = 'SoundFork CI Fake ASIO'
 $fakeClsid = '{7C8656E5-9B2D-44E9-A43A-D767CF8B92F2}'
+$preferredName = 'FiiO ASIO Driver'
+$preferredClsid = '{916B700B-936B-4736-A8F8-57479A4394F8}'
 $soundForkClsid = '{A04A0128-E43C-4D08-B701-87EC1A847A89}'
 $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
     [Microsoft.Win32.RegistryHive]::LocalMachine,
@@ -44,6 +46,8 @@ try {
     foreach ($keyPath in @(
             "SOFTWARE\ASIO\$fakeName",
             "SOFTWARE\Classes\CLSID\$fakeClsid",
+            "SOFTWARE\ASIO\$preferredName",
+            "SOFTWARE\Classes\CLSID\$preferredClsid",
             'SOFTWARE\ASIO\SoundFork',
             "SOFTWARE\Classes\CLSID\$soundForkClsid")) {
         $existingKey = $baseKey.OpenSubKey($keyPath, $false)
@@ -61,6 +65,10 @@ try {
     try { $fakeAsio.SetValue('CLSID', $fakeClsid, [Microsoft.Win32.RegistryValueKind]::String) } finally { $fakeAsio.Dispose() }
     $fakeCom = $baseKey.CreateSubKey("SOFTWARE\Classes\CLSID\$fakeClsid\InprocServer32", $true)
     try { $fakeCom.SetValue('', "$env:SystemRoot\System32\kernel32.dll", [Microsoft.Win32.RegistryValueKind]::String) } finally { $fakeCom.Dispose() }
+    $preferredAsio = $baseKey.CreateSubKey("SOFTWARE\ASIO\$preferredName", $true)
+    try { $preferredAsio.SetValue('CLSID', $preferredClsid, [Microsoft.Win32.RegistryValueKind]::String) } finally { $preferredAsio.Dispose() }
+    $preferredCom = $baseKey.CreateSubKey("SOFTWARE\Classes\CLSID\$preferredClsid\InprocServer32", $true)
+    try { $preferredCom.SetValue('', "$env:SystemRoot\System32\kernel32.dll", [Microsoft.Win32.RegistryValueKind]::String) } finally { $preferredCom.Dispose() }
     $installArguments = @(
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
@@ -115,6 +123,35 @@ try {
         throw "Installed control app self-test failed with exit code $($selfTest.ExitCode)."
     }
 
+    # Reinstall without /BACKENDCLSID. This simulates an unattended in-place
+    # upgrade and proves that the existing non-FiiO backend remains selected
+    # even when a driver named "FiiO ASIO Driver" is also present.
+    $upgradeArguments = @(
+        '/VERYSILENT',
+        '/SUPPRESSMSGBOXES',
+        '/NORESTART',
+        "/DIR=`"$fullTestDirectory`""
+    )
+    $upgrade = Start-Process -FilePath $resolvedSetup -ArgumentList $upgradeArguments -Wait -PassThru -WindowStyle Hidden
+    if ($upgrade.ExitCode -ne 0) {
+        throw "In-place upgrade failed with exit code $($upgrade.ExitCode)."
+    }
+    $upgradedAsio = $baseKey.OpenSubKey('SOFTWARE\ASIO\SoundFork', $false)
+    if ($null -eq $upgradedAsio) {
+        throw 'SoundFork ASIO registry key disappeared during upgrade.'
+    }
+    try {
+        if ([string]$upgradedAsio.GetValue('BackendCLSID') -ne $fakeClsid) {
+            throw 'In-place upgrade did not preserve the existing ASIO backend.'
+        }
+    } finally {
+        $upgradedAsio.Dispose()
+    }
+    $uninstallers = @(Get-ChildItem -LiteralPath $fullTestDirectory -Filter 'unins*.exe' -File)
+    if ($uninstallers.Count -ne 1) {
+        throw "In-place upgrade produced $($uninstallers.Count) uninstallers instead of one."
+    }
+
     $uninstaller = Join-Path $fullTestDirectory 'unins000.exe'
     $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru -WindowStyle Hidden
     if ($uninstall.ExitCode -ne 0) {
@@ -140,6 +177,8 @@ try {
     if ($fakeKeysCreated) {
         $baseKey.DeleteSubKeyTree("SOFTWARE\ASIO\$fakeName", $false)
         $baseKey.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$fakeClsid", $false)
+        $baseKey.DeleteSubKeyTree("SOFTWARE\ASIO\$preferredName", $false)
+        $baseKey.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$preferredClsid", $false)
     }
     if ($soundForkMayHaveBeenCreated) {
         $baseKey.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$soundForkClsid", $false)

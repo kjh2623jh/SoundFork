@@ -2,6 +2,32 @@ cmake_minimum_required(VERSION 3.25)
 
 project(SoundFork VERSION 0.1.0 LANGUAGES CXX)
 
+set(
+  SOUNDFORK_VERSION
+  "${PROJECT_VERSION}-dev"
+  CACHE STRING
+  "User-visible SoundFork version"
+)
+if(NOT SOUNDFORK_VERSION MATCHES
+   "^[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc)\\.[0-9]+|-dev)?$")
+  message(FATAL_ERROR "Invalid SOUNDFORK_VERSION '${SOUNDFORK_VERSION}'")
+endif()
+
+set(SOUNDFORK_VERSION_REVISION 0)
+if(SOUNDFORK_VERSION MATCHES "-(alpha|beta|rc)\\.([0-9]+)$")
+  set(SOUNDFORK_VERSION_REVISION "${CMAKE_MATCH_2}")
+endif()
+configure_file(
+  src/version.hpp.in
+  generated/soundfork_version.hpp
+  @ONLY
+)
+configure_file(
+  src/control-app/soundfork_version.rc.in
+  generated/soundfork_version.rc
+  @ONLY
+)
+
 if(NOT WIN32)
   message(FATAL_ERROR "SoundFork currently supports Windows only")
 endif()
@@ -158,11 +184,14 @@ target_link_libraries(soundfork_host PRIVATE
 
 add_executable(soundfork_control WIN32
   src/control-app/control_main.cpp
+  src/control-app/update_checker.cpp
   src/control-app/soundfork_control.rc
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"
   src/capture-backend/shared_ring.cpp
 )
 target_include_directories(soundfork_control PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 target_link_libraries(soundfork_control PRIVATE
   soundfork_warnings
@@ -170,6 +199,7 @@ target_link_libraries(soundfork_control PRIVATE
   uuid
   advapi32
   shell32
+  winhttp
 )
 
 if(BUILD_TESTING)

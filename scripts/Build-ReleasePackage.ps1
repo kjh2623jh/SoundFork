@@ -45,7 +45,8 @@ if (-not $artifactRoot.StartsWith(
 }
 
 if (-not $SkipBuild) {
-    & (Join-Path $PSScriptRoot 'Build-SoundFork.ps1') -Configuration Release
+    & (Join-Path $PSScriptRoot 'Build-SoundFork.ps1') `
+        -Configuration Release -Version $Version
     if ($LASTEXITCODE -ne 0) {
         throw 'Release build failed.'
     }

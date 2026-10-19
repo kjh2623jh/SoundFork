@@ -10,7 +10,7 @@
 - `asio-proxy`: ASIO 호스트에 `SoundFork`로 노출되는 64비트 COM DLL
 - `audio-bridge`: 실제 하드웨어 ASIO 드라이버의 생명주기와 버퍼를 중계
 - `capture-backend`: 비차단 공유 링, 진단 모니터, WASAPI 방송 릴레이
-- `control-app`: 백엔드 선택, 상태 확인, 릴레이 시작·중지
+- `control-app`: 백엔드 선택, 상태 확인, 릴레이 시작·중지, 시스템 트레이 UI
 - `tests`: 가짜 ASIO 드라이버, 프록시·COM·공유 링 자동 테스트
 - `installer`: Inno Setup 기반 설치 프로그램
 
@@ -143,17 +143,17 @@ Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물�
 설치 프로그램을 포함한 로컬 배포 패키지는 Inno Setup 6이 필요하다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1
 
 # Inno Setup 없이 ZIP만 검사
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 -SkipInstaller
 ```
 
 코드 서명 인증서가 있으면 패키지 안의 EXE·DLL과 Setup을 SHA-256/RFC 3161 방식으로
 서명하고 즉시 검증할 수 있다. 인증서 비밀키는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 `
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
@@ -226,8 +226,8 @@ PR과 `main` push는 Windows x64 Debug/Release 빌드와 CTest를 실행하고 R
 실행 가능 ZIP과 SHA-256 파일을 생성한다.
 
 ```powershell
-git tag -a v0.1.0-alpha.2 -m 'SoundFork v0.1.0-alpha.2'
-git push origin v0.1.0-alpha.2
+git tag -a v0.1.0-beta.1 -m 'SoundFork v0.1.0-beta.1'
+git push origin v0.1.0-beta.1
 ```
 
 지원되는 접미사는 `alpha.N`, `beta.N`, `rc.N`이며 GitHub prerelease로 게시된다.
