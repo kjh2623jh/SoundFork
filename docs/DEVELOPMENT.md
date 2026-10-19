@@ -41,9 +41,16 @@ DJMAX RESPECT V와 FiiO K11 R2R이다.
 하나만 허용하며, 두 번째 `createBuffers`는 `ASE_InvalidMode`를 반환한다.
 
 48 kHz 스테레오 `ASIOSTInt32LSB`에서는 완료된 출력 블록을
-`Local\SoundFork.Audio.v1` 공유 메모리로 인터리브 복사한다. 링은 최대 8,192
+`Local\SoundFork.Audio.v2` 공유 메모리로 인터리브 복사한다. 링은 최대 8,192
 프레임 블록 64개와 소비자 하나를 지원한다. 소비자가 없거나 늦으면 캡처 블록만
 버리고 `dropped_blocks`를 증가시킨다. DAC 출력은 기다리지 않는다.
+
+공유 메모리 v2는 헤더·매핑 크기, 모든 오프셋과 포맷 체크섬을 검증한다. 생산자와
+소비자는 검증된 블록 크기를 프로세스 내부에 캐시하므로 다른 프로세스가 헤더를
+바꾸더라도 콜백의 복사 크기가 커지지 않는다. 세대 번호와 Interlocked 시퀀스로
+재설정 도중의 블록을 거부하며, 스트리밍 시작 전에 약 4 MiB 데이터 영역의 모든
+페이지를 할당하고 접근한다. 이는 같은 사용자 권한의 악성 프로세스를 막는 보안
+경계가 아니라, 손상된 헤더가 범위 밖 접근으로 이어지지 않게 하는 방어다.
 
 ### 실시간 콜백 규칙
 
@@ -56,6 +63,32 @@ DJMAX RESPECT V와 FiiO K11 R2R이다.
 - 방송 소비자의 처리 완료 대기
 
 자동 테스트는 캡처 발행을 포함한 콜백 10,000회에서 동적 할당이 0회인지 검증한다.
+
+### 지연의 의미
+
+게임 재생 경로는 DJMAX가 FiiO 소유 이중 버퍼에 직접 쓰고 같은 콜백 안에서 FiiO로
+반환된다. 큐, 별도 재생 스레드, 한 버퍼 주기 대기가 없으므로 SoundFork가 추가하는
+**버퍼 지연의 이론적 하한은 0 ms**다. 이는 실제 입출력 지연이 0 ms라는 뜻이 아니다.
+ASIO 드라이버, USB, DAC와 게임 자체의 지연은 그대로 존재하며 물리 루프백 측정은
+아직 수행하지 않았다. 프록시 사용 전후 모두 드라이버가 보고한 값은 168 samples였고
+체감 차이가 없었다는 사용자 확인만 있다.
+
+공유 메모리로 복사하는 CPU 실행 시간은 추가 버퍼 주기와 다른 개념이다. 2026-10-19
+로컬 Release 가속 테스트에서 4시간 등가 10,800,000콜백 중 4,096콜백마다 표본을
+취한 synthetic 콜백 시간은 평균 0.121 us, 최대 7.7 us였다. 이는 가짜 ASIO
+백엔드에서 측정한 해당 PC의 벽시계 결과이며 FiiO 실제 지연 측정값이 아니다.
+
+### 방송 Relay 안정성
+
+FiiO ASIO와 가상 WASAPI 장치는 서로 다른 클럭을 사용한다. Relay는 게임 경로 밖에서
+4블록을 목표로 하는 적응형 선형 리샘플링을 사용하고 보정량을 ±2,000 ppm으로
+제한한다. 48 kHz/64 samples에서 목표 4블록은 방송 경로에만 약 5.33 ms의 버퍼를
+의도적으로 추가한다. 큐가 오래 밀리면 Relay만 최신 4블록으로 재동기화한다.
+
+WASAPI가 `AUDCLNT_E_DEVICE_INVALIDATED` 등 장치 제거·서비스 재시작 오류를 반환하면
+Relay는 세션을 폐기하고 엔드포인트를 다시 열며 창 연결도 다시 설정한다. 이 과정에서
+ASIO 프록시나 FiiO 재생을 중지하지 않는다. 종료 시에는 Relay 큐 최소·최대, 무음
+프레임, 최대 클럭 보정, 재동기화, 폐기 블록, 장치 재연결과 생산자 드롭을 출력한다.
 
 ## Discord 동작 경계
 
@@ -92,10 +125,13 @@ OBS에서는 릴레이가 출력하는 가상 재생 엔드포인트를 **오디
 ```powershell
 .\scripts\Build-SoundFork.ps1 -Configuration Debug
 .\scripts\Build-SoundFork.ps1 -Configuration Release
+.\scripts\Test-SoundForkStaticAnalysis.ps1
 ```
 
 Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물은
-`build/windows-msvc-x64/<Config>` 아래에 생성된다.
+`build/windows-msvc-x64/<Config>` 아래에 생성된다. MSVC CFG, NX와 ASLR을
+활성화하며 배포 검사에서 PE 플래그와 Guard CF 테이블을 확인한다. 정적 분석은
+`/analyze /WX`로 실행하므로 경고를 오류로 처리한다.
 
 앱 아이콘 원본은 `assets/soundfork-icon.png`이며 다중 크기 Windows 아이콘은
 다음 명령으로 다시 만들 수 있다.
@@ -113,11 +149,23 @@ Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물�
 .\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 -SkipInstaller
 ```
 
+코드 서명 인증서가 있으면 패키지 안의 EXE·DLL과 Setup을 SHA-256/RFC 3161 방식으로
+서명하고 즉시 검증할 수 있다. 인증서 비밀키는 저장소에 넣지 않는다.
+
+```powershell
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 `
+  -CertificateThumbprint '<SHA1 thumbprint>' `
+  -TimestampUrl 'https://timestamp-provider.example'
+```
+
+현재 로컬 환경에는 코드 서명 인증서가 없으므로 실제 서명 성공을 주장하지 않는다.
+
 ## 테스트
 
-CTest는 프록시 코어, COM 서버, ASIO 호스트 열거, 공유 링, WASAPI 엔드포인트 열거,
-컨트롤 앱 자체 검사 등 6개 테스트를 실행한다. 2026-10-19 기준 Debug와 Release에서
-각각 6/6 통과했다.
+CTest는 프록시 코어, COM 서버, ASIO 호스트 열거, 공유 링, Relay 클럭, WASAPI
+엔드포인트 열거와 컨트롤 앱 자체 검사 등 7개 테스트를 실행한다. 2026-10-19 기준
+Debug와 Release에서 각각 7/7 통과했다. MSVC AddressSanitizer의 프록시·공유 링·Relay
+테스트와 `/analyze /WX` 전체 빌드도 통과했다.
 
 하드웨어 테스트에서는 FiiO ASIO Driver 6.16.0.0과 FiiO K11 R2R를 48 kHz / 64
 samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록시 경로 모두
@@ -132,10 +180,27 @@ samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록
 `CABLE Input` 출력을 OBS 데스크탑 오디오로 선택했을 때 오디오가 캡처되는 것도
 실사용 환경에서 확인했다.
 
+다음 명령은 4시간에 해당하는 10,800,000개의 48 kHz/64-sample 콜백과 ±1,500 ppm
+Relay 드리프트를 빠르게 시뮬레이션한다.
+
+```powershell
+.\scripts\Test-SoundForkSoak.ps1 -Hours 4
+```
+
+2026-10-19 로컬 가속 실행은 생산 드롭 0, 소비 언더런 0, 최대 큐 1블록과 시작·종료
+private bytes 동일을 기록했다. 이는 실제 시간으로 4시간 재생한 결과가 아니다. 실제
+FiiO·Discord·OBS 실시간 시험은 Relay를 시작한 뒤 다음 감시기를 함께 실행하며,
+최종 음질과 원격 청취는 사람이 확인해야 한다.
+
+```powershell
+.\scripts\Watch-SoundForkHardwareSoak.ps1 -Hours 4
+```
+
 ### 아직 주장하지 않는 항목
 
 - 공유 메모리 모니터에서 0이 아닌 DJMAX 곡 PCM 캡처 확인
-- 수 시간 규모의 캡처 soak 테스트
+- 실제 시간 4시간 FiiO·Discord·OBS 동시 soak 결과
+- 가상 WASAPI 장치의 실제 USB/드라이버 제거·재연결 결과
 - Discord 애플리케이션 창 공유 오디오
 - 실제 마이크와 전체 화면 릴레이의 동시 원격 확인
 - 물리 루프백 장비를 사용한 실제 지연 측정
@@ -156,8 +221,9 @@ samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록
 
 ## CI/CD
 
-PR과 `main` push는 Windows x64 Debug/Release 빌드와 CTest를 실행한다. 다음 형식의
-태그는 Setup.exe, 실행 가능 ZIP과 SHA-256 파일을 생성한다.
+PR과 `main` push는 Windows x64 Debug/Release 빌드와 CTest를 실행하고 Release에서
+경고를 오류로 취급하는 MSVC 정적 분석도 수행한다. 다음 형식의 태그는 Setup.exe,
+실행 가능 ZIP과 SHA-256 파일을 생성한다.
 
 ```powershell
 git tag -a v0.1.0-alpha.2 -m 'SoundFork v0.1.0-alpha.2'
@@ -172,7 +238,9 @@ README 두 개의 Setup 바로 다운로드 링크도 같은 태그로 갱신해
 Release workflow는 x64 PE와 런타임 의존성, 체크섬, 임시 ASIO 백엔드를 사용한
 설치·COM 등록·제거를 검증한 뒤에만 게시한다. 설치 테스트는 기존 SoundFork 키를
 발견하면 덮어쓰지 않고 중단한다. 실제 하드웨어와 Discord 원격 청취는 CI에서
-재현하지 않는다.
+재현하지 않는다. `WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PFX_PASSWORD`와
+`WINDOWS_TIMESTAMP_URL`이 모두 설정되면 서명 후 게시하며, 없으면 명확한 경고와
+함께 미서명 아티팩트를 만든다.
 
 ## 라이선스
 
