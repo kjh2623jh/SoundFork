@@ -64,6 +64,10 @@ stereo 48 kHz capture. OBS-only capture needs neither a virtual audio device nor
 the Discord relay. Start the relay as usual for simultaneous Discord sharing.
 Reuse the existing SoundFork source in other scenes instead of creating another.
 
+For later installation, updates or removal, use **SoundFork Control → Settings →
+OBS plugin**. The menu shows installed and included versions. Close OBS before
+file operations and approve the administrator prompt. Control volume and mute in OBS.
+
 The existing virtual-device method below is also supported. Choose one OBS
 capture method to avoid capturing the game twice.
 

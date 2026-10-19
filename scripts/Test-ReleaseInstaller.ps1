@@ -118,6 +118,12 @@ try {
     }
 
     $control = Join-Path $fullTestDirectory 'soundfork_control.exe'
+    # Payload must be available for later Control-panel installation even when
+    # the optional OBS task was not selected. Never touch the runner's OBS path.
+    $pluginPayload = Join-Path $fullTestDirectory 'obs-plugin\soundfork-obs\bin\64bit\soundfork-obs.dll'
+    if (-not (Test-Path -LiteralPath $pluginPayload -PathType Leaf)) {
+        throw 'The private OBS payload was not installed for Control-panel management.'
+    }
     $selfTest = Start-Process -FilePath $control -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
     if ($selfTest.ExitCode -ne 0) {
         throw "Installed control app self-test failed with exit code $($selfTest.ExitCode)."

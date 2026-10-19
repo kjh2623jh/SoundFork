@@ -16,8 +16,10 @@ target_include_directories(soundfork_obs_api SYSTEM INTERFACE
 )
 target_link_libraries(soundfork_obs_api INTERFACE "${SOUNDFORK_OBS_SDK_ROOT}/lib/obs.lib")
 
+configure_file(src/obs-plugin/soundfork_obs_version.rc.in generated/soundfork_obs_version.rc @ONLY)
 add_library(soundfork_obs MODULE
   src/obs-plugin/soundfork_obs.cpp
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_obs_version.rc"
   src/capture-backend/hub_client.cpp
   src/capture-backend/relay_clock.cpp
   src/capture-backend/shared_ring.cpp
@@ -26,6 +28,18 @@ target_include_directories(soundfork_obs PRIVATE src)
 target_link_libraries(soundfork_obs PRIVATE soundfork_obs_api soundfork_warnings)
 set_target_properties(soundfork_obs PROPERTIES PREFIX "" OUTPUT_NAME "soundfork-obs")
 add_dependencies(soundfork_obs soundfork_capture_hub)
+
+# Keep a private payload beside Control for later install/update, even when the
+# user did not select the optional OBS installer task. Also supports dev builds.
+set(_obs_bundle "$<TARGET_FILE_DIR:soundfork_control>/obs-plugin/soundfork-obs")
+add_custom_target(soundfork_obs_bundle ALL
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${_obs_bundle}/bin/64bit"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:soundfork_obs>" "${_obs_bundle}/bin/64bit/soundfork-obs.dll"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:soundfork_capture_hub>" "${_obs_bundle}/bin/64bit/soundfork_capture_hub.exe"
+  COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data" "${_obs_bundle}/data"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md" "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.en.md" "${_obs_bundle}"
+  DEPENDS soundfork_obs soundfork_capture_hub
+  VERBATIM)
 
 install(TARGETS soundfork_obs LIBRARY DESTINATION obs-plugin/soundfork-obs/bin/64bit COMPONENT ObsPlugin)
 install(PROGRAMS "$<TARGET_FILE:soundfork_capture_hub>"

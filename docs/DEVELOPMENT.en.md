@@ -162,6 +162,25 @@ The optional installer task installs to
 copy the plugin DLL and hub EXE to its `obs-plugins\64bit`, and the plugin's
 `data` contents to `data\obs-plugins\soundfork-obs`.
 
+Setup always keeps a private payload at `{app}\obs-plugin\soundfork-obs`, even
+when the OBS task is unchecked. **Settings → OBS plugin** reads installed and
+included DLL version resources and offers install/update/remove. Source volume
+and mute remain in OBS, with no separate delivery toggle in Control.
+
+An explicit menu action launches the same Control EXE through `runas` with a
+fixed command. The elevated CLI accepts no source/destination paths. It refuses
+operations while OBS or a SoundFork OBS capture client is running. The destination
+is derived from the ProgramData Known Folder. Reparse points are rejected and
+directory handles prevent ancestor replacement. Only seven known files are staged,
+backed up and replaced; failed operations roll back earlier changes. Removal also
+preserves unknown files. Recovery files remain in the transaction directory if
+rollback itself fails. Whole-app uninstallation cleans up the plugin too and
+stops if OBS is open or plugin removal fails. Temporary-folder automated tests do
+not replace manual UAC approval/cancellation and installer lifecycle verification.
+The ASIO DLL, callbacks and playback path are unchanged by this management feature.
+Directory symlink rejection tests are skipped when Windows privileges are unavailable;
+this happened in the current local run. Real symlink/junction validation remains manual.
+
 Requires OBS Studio 32.2.2+ x64 and stereo 48 kHz `ASIOSTInt32LSB` capture.
 Create one SoundFork source and reuse it across scenes; multiple independent
 OBS processes are not supported. Discord still requires the virtual-device relay.

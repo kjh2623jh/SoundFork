@@ -25,10 +25,14 @@
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/shared_ring.hpp"
 #include "control-app/resource.h"
+#include "control-app/obs_plugin_manager.hpp"
+#include "control-app/obs_plugin_strings.hpp"
 #include "control-app/update_checker.hpp"
 #include "soundfork_version.hpp"
 
 namespace {
+
+namespace obs_plugin = soundfork::control::obs_plugin;
 
 using Microsoft::WRL::ComPtr;
 using soundfork::control::UpdateResult;
@@ -41,6 +45,7 @@ constexpr wchar_t kSoundForkClsid[] =
 constexpr UINT_PTR kRefreshTimer = 1;
 constexpr UINT kUpdateResultMessage = WM_APP + 1;
 constexpr UINT kTrayCallbackMessage = WM_APP + 2;
+constexpr UINT kObsPluginResultMessage = WM_APP + 3;
 constexpr UINT kTrayIconId = 1;
 
 constexpr int kBackendCombo = 1001;
@@ -59,6 +64,11 @@ constexpr int kTrayOpen = 2201;
 constexpr int kTrayToggleRelay = 2202;
 constexpr int kTrayExitControl = 2203;
 constexpr int kTrayStopAndExit = 2204;
+constexpr int kObsInstalledStatus = 2301;
+constexpr int kObsBundledStatus = 2302;
+constexpr int kObsInstall = 2303;
+constexpr int kObsRemove = 2304;
+constexpr int kObsInformation = 2305;
 constexpr wchar_t kVbCableUrl[] = L"https://vb-audio.com/Cable/";
 constexpr wchar_t kProjectUrl[] = L"https://github.com/kjh2623jh/SoundFork";
 constexpr wchar_t kReleasesUrl[] =
@@ -337,6 +347,12 @@ struct AppState {
   std::mutex update_mutex;
   soundfork::control::UpdateResult update_result;
   std::thread update_thread;
+  obs_plugin::Status obs_status;
+  HMENU obs_menu = nullptr;
+  bool obs_operation_in_progress = false;
+  bool obs_operation_install = false;
+  std::atomic<DWORD> obs_result{0};
+  std::thread obs_thread;
   HICON tray_icon = nullptr;
   bool tray_icon_added = false;
   bool tray_notification_shown = false;
@@ -914,6 +930,87 @@ bool elevate_set_backend(HWND owner, std::wstring_view clsid) {
   return exit_code == 0;
 }
 
+std::wstring obs_installed_text(const AppState* state) {
+  const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+  if (!state->obs_status.present) return text.absent;
+  if (!state->obs_status.complete) return text.incomplete;
+  return state->obs_status.installed_version.empty() ? text.unknown : state->obs_status.installed_version;
+}
+
+void update_obs_menu(AppState* state) {
+  if (state->obs_menu == nullptr) return;
+  const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+  const auto installed = std::wstring(text.installed_version) + obs_installed_text(state);
+  const auto bundled = std::wstring(text.bundled_version) +
+      (state->obs_status.bundled ? state->obs_status.bundled_version : text.not_bundled);
+  ModifyMenuW(state->obs_menu, kObsInstalledStatus, MF_BYCOMMAND | MF_STRING | MF_GRAYED,
+              kObsInstalledStatus, installed.c_str());
+  ModifyMenuW(state->obs_menu, kObsBundledStatus, MF_BYCOMMAND | MF_STRING | MF_GRAYED,
+              kObsBundledStatus, bundled.c_str());
+  const UINT install_flags = MF_BYCOMMAND | MF_STRING |
+      (state->obs_operation_in_progress || !state->obs_status.bundled || !state->obs_status.safe ? MF_GRAYED : 0);
+  ModifyMenuW(state->obs_menu, kObsInstall, install_flags, kObsInstall,
+      state->obs_operation_in_progress ? text.working :
+      (state->obs_status.present ? text.update : text.install));
+  EnableMenuItem(state->obs_menu, kObsRemove, MF_BYCOMMAND |
+      (state->obs_operation_in_progress || !state->obs_status.present || !state->obs_status.safe ? MF_GRAYED : MF_ENABLED));
+}
+
+void refresh_obs_status(AppState* state) {
+  state->obs_status = obs_plugin::inspect(obs_plugin::locate(executable_directory()));
+  update_obs_menu(state);
+}
+
+void start_obs_operation(AppState* state, bool install) {
+  if (state->obs_operation_in_progress) return;
+  const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+  if (obs_plugin::obs_is_running()) {
+    MessageBoxW(state->window, text.close_obs, text.menu, MB_OK | MB_ICONINFORMATION);
+    return;
+  }
+  if (!install && MessageBoxW(state->window, text.remove_question, text.menu,
+                             MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return;
+  if (state->obs_thread.joinable()) state->obs_thread.join();
+  state->obs_operation_in_progress = true;
+  state->obs_operation_install = install;
+  update_obs_menu(state);
+  try {
+    const auto executable = executable_path();
+    state->obs_thread = std::thread([state, executable, install] {
+      DWORD result = static_cast<DWORD>(obs_plugin::Error::file_operation);
+      const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+      if (SUCCEEDED(com)) {
+        SHELLEXECUTEINFOW execute{sizeof(execute)};
+        execute.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+        execute.hwnd = state->window;
+        execute.lpVerb = L"runas";
+        execute.lpFile = executable.c_str();
+        execute.lpParameters = install ? L"--install-obs-plugin" : L"--remove-obs-plugin";
+        execute.nShow = SW_HIDE;
+        if (ShellExecuteExW(&execute)) {
+          if (execute.hProcess != nullptr) {
+            DWORD wait = WAIT_TIMEOUT;
+            while (!state->shutting_down.load(std::memory_order_acquire) &&
+                   (wait = WaitForSingleObject(execute.hProcess, 100)) == WAIT_TIMEOUT) {}
+            if (wait == WAIT_OBJECT_0) (void)GetExitCodeProcess(execute.hProcess, &result);
+            CloseHandle(execute.hProcess);
+          }
+        } else if (GetLastError() == ERROR_CANCELLED) {
+          result = ERROR_CANCELLED;
+        }
+        CoUninitialize();
+      }
+      state->obs_result.store(result, std::memory_order_release);
+      if (!state->shutting_down.load(std::memory_order_acquire))
+        PostMessageW(state->window, kObsPluginResultMessage, 0, 0);
+    });
+  } catch (...) {
+    state->obs_operation_in_progress = false;
+    update_obs_menu(state);
+    MessageBoxW(state->window, text.failed, text.menu, MB_ICONERROR);
+  }
+}
+
 void set_control_font(HWND control, HFONT font) {
   SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
@@ -1224,6 +1321,9 @@ void update_status(AppState* state) {
     text << strings.asio_stream << L": " << strings.inactive << L"\r\n";
   }
 
+  const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+  text << obs_text.menu << L": " << obs_installed_text(state) << L"\r\n";
+
   const bool relay_running = relay_is_running();
   const LRESULT selected =
       SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
@@ -1419,8 +1519,9 @@ void rebuild_menu(AppState* state) {
   HMENU settings = CreatePopupMenu();
   HMENU language = CreatePopupMenu();
   HMENU help = CreatePopupMenu();
+  HMENU obs = CreatePopupMenu();
   if (menu == nullptr || settings == nullptr || language == nullptr ||
-      help == nullptr) {
+      help == nullptr || obs == nullptr) {
     if (menu != nullptr) {
       DestroyMenu(menu);
     }
@@ -1433,6 +1534,7 @@ void rebuild_menu(AppState* state) {
     if (help != nullptr) {
       DestroyMenu(help);
     }
+    if (obs != nullptr) DestroyMenu(obs);
     return;
   }
   AppendMenuW(language, MF_STRING, kLanguageEnglish, L"English");
@@ -1449,6 +1551,17 @@ void rebuild_menu(AppState* state) {
       MF_POPUP,
       reinterpret_cast<UINT_PTR>(language),
       ui_strings(state->language).language_menu);
+  const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+  AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsInstalledStatus, L"");
+  AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsBundledStatus, L"");
+  AppendMenuW(obs, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(obs, MF_STRING, kObsInstall, obs_text.install);
+  AppendMenuW(obs, MF_STRING, kObsRemove, obs_text.remove);
+  AppendMenuW(obs, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(obs, MF_STRING, kObsInformation, obs_text.information);
+  state->obs_menu = obs;
+  update_obs_menu(state);
+  AppendMenuW(settings, MF_POPUP, reinterpret_cast<UINT_PTR>(obs), obs_text.menu);
   AppendMenuW(
       menu,
       MF_POPUP,
@@ -1535,6 +1648,7 @@ LRESULT CALLBACK window_proc(
 
   switch (message) {
     case WM_CREATE:
+      refresh_obs_status(state);
       create_controls(state);
       rebuild_menu(state);
       populate_backend_combo(state);
@@ -1542,6 +1656,9 @@ LRESULT CALLBACK window_proc(
       (void)add_tray_icon(state);
       update_status(state);
       SetTimer(window, kRefreshTimer, 1000, nullptr);
+      return 0;
+    case WM_INITMENU:
+      if (!state->obs_operation_in_progress) refresh_obs_status(state);
       return 0;
     case WM_SIZE: {
       const int width = LOWORD(lparam);
@@ -1583,6 +1700,28 @@ LRESULT CALLBACK window_proc(
       }
       DestroyWindow(window);
       return 0;
+    case kObsPluginResultMessage: {
+      if (state->obs_thread.joinable()) state->obs_thread.join();
+      state->obs_operation_in_progress = false;
+      refresh_obs_status(state);
+      update_status(state);
+      const auto code = state->obs_result.load(std::memory_order_acquire);
+      const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+      const wchar_t* message_text = text.failed;
+      switch (static_cast<obs_plugin::Error>(code)) {
+        case obs_plugin::Error::none: message_text = state->obs_operation_install ? text.installed : text.removed; break;
+        case obs_plugin::Error::obs_running: message_text = text.close_obs; break;
+        case obs_plugin::Error::bundle_missing: message_text = text.missing; break;
+        case obs_plugin::Error::unsafe_path: message_text = text.unsafe; break;
+        case obs_plugin::Error::rollback_failed: message_text = text.rollback; break;
+        case obs_plugin::Error::busy: message_text = text.busy; break;
+        default: break;
+      }
+      if (code == ERROR_CANCELLED) message_text = text.cancelled;
+      MessageBoxW(window, message_text, text.menu,
+          code == 0 || code == ERROR_CANCELLED ? MB_ICONINFORMATION : MB_ICONWARNING);
+      return 0;
+    }
     case kUpdateResultMessage: {
       if (state->update_thread.joinable()) {
         state->update_thread.join();
@@ -1639,6 +1778,17 @@ LRESULT CALLBACK window_proc(
     }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
+      if (control == kObsInstall || control == kObsRemove) {
+        start_obs_operation(state, control == kObsInstall);
+        return 0;
+      }
+      if (control == kObsInformation) {
+        const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+        const auto description = std::wstring(text.installed_version) + obs_installed_text(state) +
+            L"\n\n" + text.usage + obs_plugin::locate(executable_directory()).installed.native();
+        MessageBoxW(window, description.c_str(), text.menu, MB_ICONINFORMATION);
+        return 0;
+      }
       if (control == kLanguageEnglish || control == kLanguageKorean) {
         apply_language(
             state,
@@ -1790,6 +1940,7 @@ LRESULT CALLBACK window_proc(
         return 0;
       }
       if (control == kRefresh && HIWORD(wparam) == BN_CLICKED) {
+        refresh_obs_status(state);
         populate_backend_combo(state);
         populate_endpoint_combo(state);
         update_status(state);
@@ -1881,6 +2032,7 @@ int run_control_app(HINSTANCE instance, int show_command) {
   if (state.update_thread.joinable()) {
     state.update_thread.join();
   }
+  if (state.obs_thread.joinable()) state.obs_thread.join();
   return static_cast<int>(message.wParam);
 }
 
@@ -1913,6 +2065,25 @@ int WINAPI wWinMain(
   const bool initialize_language =
       arguments != nullptr && argument_count == 3 &&
       std::wstring_view(arguments[1]) == L"--initialize-language";
+
+  if (arguments != nullptr && argument_count == 2 &&
+      (std::wstring_view(arguments[1]) == L"--install-obs-plugin" ||
+       std::wstring_view(arguments[1]) == L"--remove-obs-plugin" ||
+       std::wstring_view(arguments[1]) == L"--can-manage-obs-plugin")) {
+    const auto com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(com)) { LocalFree(arguments); return static_cast<int>(obs_plugin::Error::file_operation); }
+    const bool probe = std::wstring_view(arguments[1]) == L"--can-manage-obs-plugin";
+    const bool install = std::wstring_view(arguments[1]) == L"--install-obs-plugin";
+    LocalFree(arguments);
+    int code = static_cast<int>(obs_plugin::Error::file_operation);
+    try {
+      const auto paths = obs_plugin::locate(executable_directory());
+      code = probe ? ((!obs_plugin::inspect(paths).present || !obs_plugin::obs_is_running()) ? 0 : 1)
+                   : static_cast<int>(obs_plugin::manage(install, paths).error);
+    } catch (...) {}
+    CoUninitialize();
+    return code;
+  }
 
   if (initialize_language) {
     UiLanguage language{};
@@ -1978,10 +2149,17 @@ int WINAPI wWinMain(
             UiLanguage::english ||
         ui_strings(UiLanguage::korean).apply[0] == L'\0' ||
         ui_strings(UiLanguage::korean).tray_open[0] == L'\0' ||
+        soundfork::control::obs_plugin_strings(true).menu[0] == L'\0' ||
         !soundfork::control::update_parser_self_test()) {
       CoUninitialize();
       return 3;
     }
+#ifdef SOUNDFORK_EXPECT_OBS_PAYLOAD
+    if (!obs_plugin::inspect(obs_plugin::locate(executable_directory())).bundled) {
+      CoUninitialize();
+      return 4;
+    }
+#endif
     (void)query_registration();
     (void)enumerate_asio_drivers();
     (void)enumerate_endpoints();

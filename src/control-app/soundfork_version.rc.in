@@ -25,6 +25,7 @@ BEGIN
             VALUE "OriginalFilename", "soundfork_control.exe\0"
             VALUE "ProductName", "SoundFork\0"
             VALUE "ProductVersion", "@SOUNDFORK_VERSION@\0"
+            VALUE "Comments", "SoundFork.ObsPluginManagement/1\0"
         END
     END
     BLOCK "VarFileInfo"
@@ -32,4 +33,3 @@ BEGIN
         VALUE "Translation", 0x0409, 1200
     END
 END
-

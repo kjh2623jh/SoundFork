@@ -45,5 +45,6 @@ jobs:
             build/windows-msvc-x64/Release/soundfork_discord_relay.exe
             build/windows-msvc-x64/Release/soundfork_capture_hub.exe
             build/windows-msvc-x64/Release/soundfork-obs.dll
+            build/windows-msvc-x64/Release/obs-plugin/
             build/windows-msvc-x64/Release/soundfork_capture_monitor.exe
             build/windows-msvc-x64/Release/soundfork_host.exe

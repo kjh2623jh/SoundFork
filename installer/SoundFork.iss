@@ -55,6 +55,10 @@ korean.GetVbCable=VB-CABLE 공식 다운로드 페이지 열기 (Discord 권장)
 korean.LaunchControl=SoundFork Control 실행
 english.InstallObsPlugin=Install the OBS audio source plugin (OBS Studio 32.2.2 or later)
 korean.InstallObsPlugin=OBS 오디오 소스 플러그인 설치 (OBS Studio 32.2.2 이상)
+english.CloseObsBeforeUninstall=Close OBS before uninstalling SoundFork so its OBS plugin can be removed.
+korean.CloseObsBeforeUninstall=OBS 플러그인을 제거할 수 있도록 OBS를 종료한 후 SoundFork 제거를 다시 실행하세요.
+english.ObsRemoveFailed=The OBS plugin could not be removed. Close OBS and check the plugin folder permissions before retrying.
+korean.ObsRemoveFailed=OBS 플러그인을 제거할 수 없습니다. OBS 종료 여부와 플러그인 폴더 권한을 확인한 후 다시 시도하세요.
 
 [Tasks]
 #if FileExists(MySourceDir + "\obs-plugin\soundfork-obs\bin\64bit\soundfork-obs.dll")
@@ -67,6 +71,7 @@ Source: "{#MySourceDir}\bin\soundfork_control.exe"; DestDir: "{app}"; Flags: ign
 Source: "{#MySourceDir}\bin\soundfork_discord_relay.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_capture_hub.exe"; DestDir: "{app}"; Flags: ignoreversion
 #if FileExists(MySourceDir + "\obs-plugin\soundfork-obs\bin\64bit\soundfork-obs.dll")
+Source: "{#MySourceDir}\obs-plugin\soundfork-obs\*"; DestDir: "{app}\obs-plugin\soundfork-obs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#MySourceDir}\obs-plugin\soundfork-obs\*"; DestDir: "{commonappdata}\obs-studio\plugins\soundfork-obs"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: obsplugin
 #endif
 Source: "{#MySourceDir}\bin\soundfork_host.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
@@ -100,6 +105,38 @@ var
   ExistingBackendClsid: String;
   DefaultBackendIndex: Integer;
   WizardRaisedOnce: Boolean;
+
+function InitializeUninstall: Boolean;
+var
+  ControlPath: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+  ControlPath := ExpandConstant('{app}\soundfork_control.exe');
+  if not FileExists(ControlPath) then
+    Exit;
+  if (not Exec(ControlPath, '--can-manage-obs-plugin', ExpandConstant('{app}'),
+               SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
+  begin
+    MsgBox(ExpandConstant('{cm:CloseObsBeforeUninstall}'), mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ControlPath: String;
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    ControlPath := ExpandConstant('{app}\soundfork_control.exe');
+    if FileExists(ControlPath) and
+       ((not Exec(ControlPath, '--remove-obs-plugin', ExpandConstant('{app}'),
+                  SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0)) then
+      RaiseException(ExpandConstant('{cm:ObsRemoveFailed}'));
+  end;
+end;
 
 procedure BringWizardForward(Sender: TObject);
 begin

@@ -207,6 +207,10 @@ target_link_libraries(soundfork_host PRIVATE
   advapi32
 )
 
+add_library(soundfork_obs_manager STATIC src/control-app/obs_plugin_manager.cpp)
+target_include_directories(soundfork_obs_manager PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(soundfork_obs_manager PUBLIC soundfork_warnings version shell32 ole32 uuid)
+
 add_executable(soundfork_control WIN32
   src/control-app/control_main.cpp
   src/control-app/update_checker.cpp
@@ -219,6 +223,7 @@ target_include_directories(soundfork_control PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 target_link_libraries(soundfork_control PRIVATE
+  soundfork_obs_manager
   soundfork_warnings
   ole32
   uuid
@@ -226,6 +231,18 @@ target_link_libraries(soundfork_control PRIVATE
   shell32
   winhttp
 )
+
+if(SOUNDFORK_BUILD_OBS_PLUGIN)
+  target_compile_definitions(soundfork_control PRIVATE SOUNDFORK_EXPECT_OBS_PAYLOAD)
+  add_dependencies(soundfork_control soundfork_obs_bundle)
+endif()
+
+if(BUILD_TESTING)
+  add_executable(soundfork_obs_manager_tests tests/obs_plugin_manager_tests.cpp)
+  target_link_libraries(soundfork_obs_manager_tests PRIVATE soundfork_obs_manager)
+  add_dependencies(soundfork_obs_manager_tests soundfork_control)
+  add_test(NAME soundfork_obs_manager_tests COMMAND soundfork_obs_manager_tests "$<TARGET_FILE:soundfork_control>")
+endif()
 
 if(BUILD_TESTING)
   add_test(NAME soundfork_proxy_tests COMMAND soundfork_tests)

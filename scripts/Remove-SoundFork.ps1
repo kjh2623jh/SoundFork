@@ -41,7 +41,35 @@ if (-not $fullInstallDirectory.StartsWith($programFiles + [IO.Path]::DirectorySe
     throw "InstallDirectory must be a child of '$programFiles'."
 }
 
+function Assert-NoReparsePoints([string]$Path) {
+    $candidate = [IO.Path]::GetFullPath($Path)
+    while ($candidate) {
+        if (Test-Path -LiteralPath $candidate) {
+            if ((Get-Item -LiteralPath $candidate -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing to remove files through a link: $candidate"
+            }
+        }
+        $candidate = [IO.Path]::GetDirectoryName($candidate)
+    }
+}
+Assert-NoReparsePoints $fullInstallDirectory
+$payloadFiles = @('bin\64bit\soundfork-obs.dll', 'bin\64bit\soundfork_capture_hub.exe',
+    'data\locale\en-US.ini', 'data\locale\ko-KR.ini', 'LICENSE',
+    'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.en.md')
+$payload = Join-Path $fullInstallDirectory 'obs-plugin\soundfork-obs'
+foreach ($file in $payloadFiles) { Assert-NoReparsePoints (Join-Path $payload $file) }
+
 if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundFork')) {
+    $control = Join-Path $fullInstallDirectory 'soundfork_control.exe'
+    # Older controls open a GUI for unknown commands. Check the explicit PE
+    # capability marker rather than guessing from a version or payload files.
+    if ((Test-Path -LiteralPath $control -PathType Leaf) -and
+        (Get-Item -LiteralPath $control).VersionInfo.Comments -eq 'SoundFork.ObsPluginManagement/1') {
+        $pluginRemoval = Start-Process -FilePath $control -ArgumentList '--remove-obs-plugin' -Wait -PassThru -WindowStyle Hidden
+        if ($pluginRemoval.ExitCode -ne 0) {
+            throw "OBS plugin removal failed (code $($pluginRemoval.ExitCode)). Close OBS and retry before removing SoundFork."
+        }
+    }
     if ($registeredDll -and (Test-Path -LiteralPath $registeredDll -PathType Leaf)) {
         & (Join-Path $PSScriptRoot 'Unregister-SoundFork.ps1') -DllPath $registeredDll -Confirm:$false
     } else {
@@ -63,9 +91,25 @@ if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundF
     foreach ($file in $knownFiles) {
         Remove-Item -LiteralPath (Join-Path $fullInstallDirectory $file) -Force -ErrorAction SilentlyContinue
     }
+    foreach ($file in $payloadFiles) {
+        Remove-Item -LiteralPath (Join-Path $payload $file) -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($directory in @('bin\64bit', 'bin', 'data\locale', 'data', '')) {
+        $target = if ($directory) { Join-Path $payload $directory } else { $payload }
+        if ((Test-Path -LiteralPath $target -PathType Container) -and
+            -not @(Get-ChildItem -LiteralPath $target -Force).Count) {
+            Remove-Item -LiteralPath $target -ErrorAction SilentlyContinue
+        }
+    }
+    $payloadParent = Join-Path $fullInstallDirectory 'obs-plugin'
+    if ((Test-Path -LiteralPath $payloadParent -PathType Container) -and
+        -not @(Get-ChildItem -LiteralPath $payloadParent -Force).Count) {
+        Remove-Item -LiteralPath $payloadParent -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $fullInstallDirectory) {
-        Remove-Item -LiteralPath $fullInstallDirectory -ErrorAction SilentlyContinue
-        if (Test-Path -LiteralPath $fullInstallDirectory) {
+        if (-not @(Get-ChildItem -LiteralPath $fullInstallDirectory -Force).Count) {
+            Remove-Item -LiteralPath $fullInstallDirectory -ErrorAction SilentlyContinue
+        } else {
             Write-Warning "'$fullInstallDirectory' contains unknown files and was left in place."
         }
     }

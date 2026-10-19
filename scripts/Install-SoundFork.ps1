@@ -41,6 +41,23 @@ foreach ($file in $requiredFiles) {
     }
 }
 
+$payloadFiles = @(
+    'bin\64bit\soundfork-obs.dll', 'bin\64bit\soundfork_capture_hub.exe',
+    'data\locale\en-US.ini', 'data\locale\ko-KR.ini', 'LICENSE',
+    'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.en.md'
+)
+$payloadSource = @(
+    (Join-Path $resolvedBuild 'obs-plugin\soundfork-obs'),
+    (Join-Path (Split-Path -Parent $resolvedBuild) 'obs-plugin\soundfork-obs')
+) | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'bin\64bit\soundfork-obs.dll') -PathType Leaf } | Select-Object -First 1
+if ($payloadSource) {
+    foreach ($file in $payloadFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $payloadSource $file) -PathType Leaf)) {
+            throw "Incomplete OBS payload: $file"
+        }
+    }
+}
+
 $blockingProcesses = @(
     Get-Process -Name 'soundfork_discord_relay', 'soundfork_capture_hub', 'soundfork_capture_monitor', 'soundfork_control' -ErrorAction SilentlyContinue
 )
@@ -54,11 +71,31 @@ $programFiles = [IO.Path]::GetFullPath([Environment]::GetFolderPath('ProgramFile
 if (-not $fullInstallDirectory.StartsWith($programFiles + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw "InstallDirectory must be a child of '$programFiles'."
 }
+if ($payloadSource) {
+    foreach ($file in $payloadFiles) {
+        $candidate = [IO.Path]::GetFullPath((Join-Path $fullInstallDirectory "obs-plugin\soundfork-obs\$file"))
+        while ($candidate) {
+            if ((Test-Path -LiteralPath $candidate) -and
+                ((Get-Item -LiteralPath $candidate -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw "Refusing to install files through a link: $candidate"
+            }
+            $candidate = [IO.Path]::GetDirectoryName($candidate)
+        }
+    }
+}
 
 if ($PSCmdlet.ShouldProcess($fullInstallDirectory, "Install SoundFork and register backend '$BackendName'")) {
     New-Item -ItemType Directory -Path $fullInstallDirectory -Force | Out-Null
     foreach ($file in $requiredFiles) {
         Copy-Item -LiteralPath (Join-Path $resolvedBuild $file) -Destination (Join-Path $fullInstallDirectory $file) -Force
+    }
+    if ($payloadSource) {
+        $payloadDestination = Join-Path $fullInstallDirectory 'obs-plugin\soundfork-obs'
+        foreach ($file in $payloadFiles) {
+            $target = Join-Path $payloadDestination $file
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $payloadSource $file) -Destination $target -Force
+        }
     }
 
     $installedDll = Join-Path $fullInstallDirectory 'soundfork_driver.dll'
