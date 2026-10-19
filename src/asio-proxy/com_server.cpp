@@ -114,7 +114,10 @@ HRESULT create_key(HKEY root, const std::wstring& path, HKEY* key) {
 
 std::wstring clsid_string() {
   wchar_t text[64]{};
-  StringFromGUID2(kSoundForkClsid, text, static_cast<int>(std::size(text)));
+  if (StringFromGUID2(
+          kSoundForkClsid, text, static_cast<int>(std::size(text))) == 0) {
+    return {};
+  }
   return text;
 }
 
@@ -126,6 +129,9 @@ HRESULT register_server() {
   }
 
   const std::wstring clsid = clsid_string();
+  if (clsid.empty()) {
+    return E_FAIL;
+  }
   const std::wstring class_path = L"SOFTWARE\\Classes\\CLSID\\" + clsid;
   HKEY class_key = nullptr;
   HRESULT result = create_key(HKEY_LOCAL_MACHINE, class_path, &class_key);
@@ -168,6 +174,9 @@ HRESULT register_server() {
 
 HRESULT unregister_server() {
   const std::wstring clsid = clsid_string();
+  if (clsid.empty()) {
+    return E_FAIL;
+  }
   const std::wstring class_path = L"SOFTWARE\\Classes\\CLSID\\" + clsid;
 
   const LSTATUS asio_status = RegDeleteTreeW(HKEY_LOCAL_MACHINE, kDriverRegistryPath);
@@ -196,8 +205,9 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
   return TRUE;
 }
 
+_Check_return_
 STDAPI DllGetClassObject(
-    REFCLSID clsid, REFIID riid, void** object) {
+    _In_ REFCLSID clsid, _In_ REFIID riid, _Outptr_ LPVOID FAR* object) {
   if (!IsEqualCLSID(clsid, soundfork::kSoundForkClsid)) {
     return CLASS_E_CLASSNOTAVAILABLE;
   }
@@ -215,7 +225,8 @@ STDAPI DllGetClassObject(
   return result;
 }
 
-STDAPI DllCanUnloadNow() {
+__control_entrypoint(DllExport)
+STDAPI DllCanUnloadNow(void) {
   return soundfork::ProxyDriver::live_instances() == 0 &&
                  soundfork::g_factory_instances.load(std::memory_order_relaxed) == 0 &&
                  soundfork::g_server_locks.load(std::memory_order_relaxed) == 0

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string_view>
 
 #include "capture-backend/shared_ring.hpp"
@@ -54,10 +55,11 @@ int wmain(int argc, wchar_t** argv) {
              << format.channel_count << L" channels, "
              << format.frames_per_block << L" frames/block, Int32LSB\n";
 
-  std::array<std::int32_t,
-             soundfork::capture::kMaxFramesPerBlock *
-                 soundfork::capture::kChannelCount>
-      samples{};
+  using SampleBuffer = std::array<
+      std::int32_t,
+      soundfork::capture::kMaxFramesPerBlock *
+          soundfork::capture::kChannelCount>;
+  auto samples = std::make_unique<SampleBuffer>();
   std::uint64_t blocks = 0;
   std::uint64_t frames = 0;
   std::int64_t peak = 0;
@@ -66,7 +68,7 @@ int wmain(int argc, wchar_t** argv) {
   while (GetTickCount64() < run_deadline) {
     std::uint32_t frames_read = 0;
     if (!reader.read_int32_stereo(
-            samples.data(), samples.size(), &frames_read)) {
+            samples->data(), samples->size(), &frames_read)) {
       Sleep(1);
       continue;
     }
@@ -76,8 +78,9 @@ int wmain(int argc, wchar_t** argv) {
         static_cast<std::size_t>(frames_read) * format.channel_count;
     for (std::size_t index = 0; index < sample_count; ++index) {
       const std::int64_t magnitude =
-          samples[index] < 0 ? -static_cast<std::int64_t>(samples[index])
-                             : static_cast<std::int64_t>(samples[index]);
+          (*samples)[index] < 0
+              ? -static_cast<std::int64_t>((*samples)[index])
+              : static_cast<std::int64_t>((*samples)[index]);
       peak = (std::max)(peak, magnitude);
     }
   }

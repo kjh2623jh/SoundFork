@@ -37,6 +37,11 @@ foreach ($name in $binaries) {
     if ($LASTEXITCODE -ne 0 -or $headers -notmatch '8664 machine \(x64\)') {
         throw "$name is not a valid x64 PE image."
     }
+    if ($headers -notmatch 'Control Flow Guard' -or
+        $headers -notmatch 'NX compatible' -or
+        $headers -notmatch 'Dynamic base') {
+        throw "$name is missing CFG, NX, or ASLR protection."
+    }
     $dependencies = (& $dumpbin /dependents $path 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) {
         throw "Could not inspect dependencies for $name."
@@ -45,4 +50,4 @@ foreach ($name in $binaries) {
         throw "$name has an unexpected dynamic MSVC runtime dependency: $($Matches[0].Trim())"
     }
 }
-Write-Host 'Release binaries are x64 and use no dynamic MSVC runtime DLLs.'
+Write-Host 'Release binaries are x64, CFG/NX/ASLR enabled, and use no dynamic MSVC runtime DLLs.'

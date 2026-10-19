@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -69,14 +70,15 @@ void test_linear_relay_source() {
         "publish failed");
   }
 
-  soundfork::capture::RelayAudioSource source(reader.format());
+  auto source =
+      std::make_unique<soundfork::capture::RelayAudioSource>(reader.format());
   std::array<std::int32_t, 256> output{};
-  require(source.render(reader, output.data(), 128, 1.0), "render failed");
+  require(source->render(reader, output.data(), 128, 1.0), "render failed");
   for (std::int32_t frame = 0; frame < 128; ++frame) {
     require(output[frame * 2] == frame, "left resample mismatch");
     require(output[frame * 2 + 1] == -frame, "right resample mismatch");
   }
-  require(source.metrics().silent_frames == 0, "unexpected relay underflow");
+  require(source->metrics().silent_frames == 0, "unexpected relay underflow");
 }
 
 void test_reconnect_error_policy() {

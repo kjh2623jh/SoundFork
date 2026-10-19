@@ -806,6 +806,9 @@ bool elevate_set_backend(HWND owner, std::wstring_view clsid) {
   if (!ShellExecuteExW(&execute)) {
     return false;
   }
+  if (execute.hProcess == nullptr) {
+    return false;
+  }
   WaitForSingleObject(execute.hProcess, INFINITE);
   DWORD exit_code = 1;
   GetExitCodeProcess(execute.hProcess, &exit_code);
@@ -1459,7 +1462,11 @@ int run_control_app(HINSTANCE instance, int show_command) {
 
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
+int WINAPI wWinMain(
+    _In_ HINSTANCE instance,
+    _In_opt_ HINSTANCE,
+    _In_ LPWSTR,
+    _In_ int show_command) {
   int argument_count = 0;
   LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
   const bool self_test = arguments != nullptr && argument_count == 2 &&

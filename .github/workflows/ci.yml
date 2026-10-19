@@ -27,6 +27,11 @@ jobs:
         shell: pwsh
         run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}'
 
+      - name: MSVC static analysis
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: ./scripts/Test-SoundForkStaticAnalysis.ps1 -Configuration Release
+
       - name: Upload Release binaries
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

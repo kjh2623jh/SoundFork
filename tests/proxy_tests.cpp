@@ -123,7 +123,9 @@ void test_zero_copy_and_callbacks() {
       "createBuffers failed");
 
   soundfork::test::FakeAsioDriver* fake = factory.last_created();
-  require(fake != nullptr, "fake backend was not created");
+  if (fake == nullptr) {
+    throw std::runtime_error("fake backend was not created");
+  }
   for (long channel = 0; channel < 2; ++channel) {
     for (long index = 0; index < 2; ++index) {
       require(
@@ -258,7 +260,8 @@ void test_query_interface() {
 
 }  // namespace
 
-void* operator new(std::size_t size) {
+_NODISCARD _Ret_notnull_ _Post_writable_byte_size_(size) _VCRT_ALLOCATOR
+void* __CRTDECL operator new(std::size_t size) {
   if (g_track_allocations.load(std::memory_order_acquire)) {
     g_callback_allocations.fetch_add(1, std::memory_order_relaxed);
   }
@@ -268,7 +271,8 @@ void* operator new(std::size_t size) {
   throw std::bad_alloc();
 }
 
-void* operator new[](std::size_t size) {
+_NODISCARD _Ret_notnull_ _Post_writable_byte_size_(size) _VCRT_ALLOCATOR
+void* __CRTDECL operator new[](std::size_t size) {
   return ::operator new(size);
 }
 

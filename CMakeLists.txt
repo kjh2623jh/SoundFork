@@ -21,6 +21,7 @@ if(MSVC)
 endif()
 
 include(CTest)
+option(SOUNDFORK_ENABLE_STATIC_ANALYSIS "Enable MSVC code analysis" OFF)
 
 add_library(soundfork_warnings INTERFACE)
 target_compile_definitions(soundfork_warnings INTERFACE
@@ -29,7 +30,13 @@ target_compile_definitions(soundfork_warnings INTERFACE
   _CRT_SECURE_NO_WARNINGS
 )
 if(MSVC)
-  target_compile_options(soundfork_warnings INTERFACE /W4 /permissive- /utf-8 /EHsc)
+  target_compile_options(soundfork_warnings INTERFACE
+    /W4 /permissive- /utf-8 /EHsc /sdl /guard:cf
+  )
+  target_link_options(soundfork_warnings INTERFACE /guard:cf)
+  if(SOUNDFORK_ENABLE_STATIC_ANALYSIS)
+    target_compile_options(soundfork_warnings INTERFACE /analyze /WX)
+  endif()
 endif()
 
 set(SOUNDFORK_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk/common")
