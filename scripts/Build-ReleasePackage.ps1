@@ -46,7 +46,7 @@ if (-not $artifactRoot.StartsWith(
 
 if (-not $SkipBuild) {
     & (Join-Path $PSScriptRoot 'Build-SoundFork.ps1') `
-        -Configuration Release -Version $Version
+        -Configuration Release -Version $Version -WithObsPlugin
     if ($LASTEXITCODE -ne 0) {
         throw 'Release build failed.'
     }
@@ -89,7 +89,7 @@ if ($LASTEXITCODE -ne 0) {
 $signScript = Join-Path $PSScriptRoot 'Sign-SoundFork.ps1'
 if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
     $binariesToSign = @(
-        Get-ChildItem (Join-Path $packageRoot 'bin') -File |
+        Get-ChildItem $packageRoot -File -Recurse |
             Where-Object { $_.Extension -in @('.exe', '.dll') } |
             Select-Object -ExpandProperty FullName
     )

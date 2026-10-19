@@ -9,7 +9,8 @@
 
 - `asio-proxy`: ASIO 호스트에 `SoundFork`로 노출되는 64비트 COM DLL
 - `audio-bridge`: 실제 하드웨어 ASIO 드라이버의 생명주기와 버퍼를 중계
-- `capture-backend`: 비차단 공유 링, 진단 모니터, WASAPI 방송 릴레이
+- `capture-backend`: 비차단 공유 링, 캡처 분배 프로세스, 진단 모니터, WASAPI 방송 릴레이
+- `obs-plugin`: OBS 공식 소스 API를 통한 직접 오디오 입력
 - `control-app`: 백엔드 선택, 상태 확인, 릴레이 시작·중지, 시스템 트레이 UI
 - `tests`: 가짜 ASIO 드라이버, 프록시·COM·공유 링 자동 테스트
 - `installer`: Inno Setup 기반 설치 프로그램
@@ -29,10 +30,12 @@ DJMAX RESPECT V와 FiiO K11 R2R이다.
 64비트 ASIO 호스트
   -> soundfork_driver.dll
       +-> 하드웨어 ASIO 드라이버 -> DAC
-      +-> 공유 메모리 SPSC 링 -> soundfork_discord_relay.exe
-                                  -> 가상 오디오 재생 엔드포인트
-                                      +-> Discord 전체 화면 공유
-                                      +-> OBS 오디오 출력 캡처
+      +-> 공유 메모리 SPSC 링 -> soundfork_capture_hub.exe
+                                  +-> 전용 SPSC 링 -> OBS SoundFork 오디오 소스
+                                  +-> 전용 SPSC 링 -> soundfork_discord_relay.exe
+                                                       -> 가상 재생 엔드포인트
+                                                           +-> Discord 전체 화면 공유
+                                                           +-> OBS 기존 장치 캡처
 ```
 
 `createBuffers`는 하위 드라이버가 제공한 버퍼 포인터를 호스트에 그대로 노출한다.
@@ -44,6 +47,19 @@ DJMAX RESPECT V와 FiiO K11 R2R이다.
 `Local\SoundFork.Audio.v2` 공유 메모리로 인터리브 복사한다. 링은 최대 8,192
 프레임 블록 64개와 소비자 하나를 지원한다. 소비자가 없거나 늦으면 캡처 블록만
 버리고 `dropped_blocks`를 증가시킨다. DAC 출력은 기다리지 않는다.
+
+새 캡처 허브가 원본 링의 단일 소비자가 되고, 별도 프로세스에서 OBS와 Relay용
+독립 링 두 개로 분배한다. ASIO 생산자와 재생 콜백은 변경하지 않는다. 허브는 각
+출력을 기다리지 않으므로 OBS 큐가 가득 차도 Relay와 DAC를 막지 않는다. 링 이름은
+`Local\SoundFork.CaptureHub.v1.OBS`와 `.Relay`이고 포맷·경계 검증은 원본과 동일하다.
+허브가 추가하는 폴링·복사·스케줄링 지연은 방송 경로에만 존재하며 0 ms를 보장하지 않는다.
+
+Relay와 OBS 소스가 필요할 때 같은 폴더의 `soundfork_capture_hub.exe`를 숨김 실행한다.
+프로세스 단일 실행은 이름 있는 뮤텍스로, 사용 중 여부는 커널 이벤트 핸들의 수명으로
+관리한다. 양쪽 소비자가 모두 종료되면 약 2초 후 허브도 종료된다. 게임이 재시작하거나
+허브가 종료되면 소비자는 다시 연결한다. 50 ms 간격으로 원본 스트림의 세대 번호와
+프로세스 생존을 확인하며 동일 포맷 재시작도 감지한다. 진단 모니터는 원본 링의 단일
+소비자이므로 허브와 동시에 사용하지 않는다. 제어판의 읽기 전용 관찰은 계속 가능하다.
 
 공유 메모리 v2는 헤더·매핑 크기, 모든 오프셋과 포맷 체크섬을 검증한다. 생산자와
 소비자는 검증된 블록 크기를 프로세스 내부에 캐시하므로 다른 프로세스가 헤더를
@@ -126,7 +142,47 @@ OBS에서는 릴레이가 출력하는 가상 재생 엔드포인트를 **오디
 .\scripts\Build-SoundFork.ps1 -Configuration Debug
 .\scripts\Build-SoundFork.ps1 -Configuration Release
 .\scripts\Test-SoundForkStaticAnalysis.ps1
+
+# OBS 플러그인과 실제 libobs 통합 테스트까지 포함
+.\scripts\Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+.\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin
 ```
+
+OBS SDK 준비 스크립트는 공식 32.2.2 소스와 Windows 배포 파일의 고정 SHA-256을
+검증한다. 같은 버전의 OBS가 설치되어 있으면 로컬 DLL을 빌드·테스트에만 재사용한다.
+OBS ABI를 자체 선언하지 않고 공식 헤더와 추출한 DLL의 export로 생성한 import
+라이브러리를 사용한다. OBS DLL 자체는 SoundFork 패키지에 포함하지 않는다.
+
+### OBS 직접 캡처
+
+설치 프로그램의 선택 항목은 플러그인을
+`%ProgramData%\obs-studio\plugins\soundfork-obs`에 설치한다. ZIP 사용자는
+`obs-plugin\soundfork-obs` 폴더를 이 경로로 복사한다. OBS를 종료한 상태에서 설치·업데이트한다.
+OBS portable 모드에서는 ProgramData 플러그인을 검색하지 않으므로 portable OBS의
+`obs-plugins\64bit`에 플러그인 DLL과 허브 EXE를, `data\obs-plugins\soundfork-obs`에
+플러그인의 `data` 내용을 배치해야 한다.
+
+OBS Studio 32.2.2 이상 x64, 스테레오 48 kHz `ASIOSTInt32LSB` 복제를 지원한다.
+OBS 안에서는 SoundFork 소스를 하나만 생성하고 다른 장면에서는 기존 소스를 사용한다.
+서로 다른 OBS 프로세스 여러 개의 동시 직접 캡처는 지원하지 않는다. Discord에는
+기존 가상 장치 Relay가 계속 필요하다. 기존 버전 Relay와 새 플러그인을 섞지 말고
+같은 빌드의 구성 요소를 사용한다.
+
+OBS 작업 스레드는 480프레임/10 ms 패킷을 공식 `obs_source_output_audio`에 전달한다.
+허브 실행과 재실행은 별도 관리 스레드에서 처리해 프로세스 생성이 오디오 전달을
+지연시키지 않도록 한다. 게임이 없으면 허브의 폴링 주기는 50 ms로 낮아진다.
+OBS 단조 시계의 연속 타임스탬프를 사용하며 목표 잔여 큐 4블록과 ±2,000 ppm의
+클럭 보정을 적용한다. 시작 시 한 패킷과 목표 큐가 쌓일 때까지 무음을 전달한다.
+이는 게임 재생 경로의 버퍼가 아니다. 50 ms 이상의 작업 스레드 지연이나 오래된 큐는
+OBS 경로만 재동기화한다. OBS 로그에 패킷·무음 프레임·최대 큐·폐기 블록·재동기화·
+최대 클럭 보정 통계를 남긴다. 가상 장치를 생략해도 OBS 내부 버퍼와 영상 동기화는
+존재하므로 실제 지연 감소량은 비교 녹화로 확인해야 한다.
+
+자동 테스트는 격리된 `SOUNDFORK_CAPTURE_SCOPE` 환경변수와 테스트 전용 링을 사용한다.
+허브 테스트는 양쪽 PCM 일치, 느린 OBS의 Relay 비간섭, 동일 포맷 게임 재시작,
+허브 강제 종료 후 복구와 자동 종료를 검증한다. 실제 libobs 통합 테스트는 DLL 로드, 소스 생성, 좌우 PCM,
+타임스탬프 증가, Relay 동시 수신을 검증한다. 실제 OBS UI에서 FiiO·Discord 동시
+녹화, 영상 싱크, 수 시간 재생, 설치·제거는 별도 수동 검증 항목이다.
 
 Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물은
 `build/windows-msvc-x64/<Config>` 아래에 생성된다. MSVC CFG, NX와 ASLR을

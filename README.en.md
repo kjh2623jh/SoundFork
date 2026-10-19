@@ -55,6 +55,18 @@ relay and is not supported.
 
 ## OBS capture
 
+Development builds include an optional **SoundFork Audio** source plugin. It is
+not included in the existing `v0.1.0-beta.1` download.
+
+Select **Install the OBS audio source plugin** in the new installer, restart OBS,
+and add a **SoundFork Audio** source. Requires OBS Studio 32.2.2 or later and
+stereo 48 kHz capture. OBS-only capture needs neither a virtual audio device nor
+the Discord relay. Start the relay as usual for simultaneous Discord sharing.
+Reuse the existing SoundFork source in other scenes instead of creating another.
+
+The existing virtual-device method below is also supported. Choose one OBS
+capture method to avoid capturing the game twice.
+
 1. Select `CABLE Input` in **SoundFork Control** and start the relay.
 2. Add an **Audio Output Capture** source in OBS and select `CABLE Input`.
 

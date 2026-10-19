@@ -31,6 +31,7 @@ $requiredFiles = @(
     'soundfork_host.exe',
     'soundfork_capture_monitor.exe',
     'soundfork_discord_relay.exe',
+    'soundfork_capture_hub.exe',
     'soundfork_control.exe'
 )
 foreach ($file in $requiredFiles) {
@@ -41,7 +42,7 @@ foreach ($file in $requiredFiles) {
 }
 
 $blockingProcesses = @(
-    Get-Process -Name 'soundfork_discord_relay', 'soundfork_capture_monitor', 'soundfork_control' -ErrorAction SilentlyContinue
+    Get-Process -Name 'soundfork_discord_relay', 'soundfork_capture_hub', 'soundfork_capture_monitor', 'soundfork_control' -ErrorAction SilentlyContinue
 )
 if ($blockingProcesses.Count) {
     $names = ($blockingProcesses | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '

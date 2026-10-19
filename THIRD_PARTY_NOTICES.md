@@ -28,6 +28,18 @@ SHA-256 체크섬:
 ASIO는 Steinberg Media Technologies GmbH의 상표다. SoundFork는 ASIO 로고를
 사용하지 않으며 제품 이름에도 ASIO를 포함하지 않는다.
 
+## 선택적 OBS 오디오 소스
+
+선택형 플러그인은 OBS Studio 32.2.2 공식 헤더를 사용합니다. 해당 헤더는
+GPL-2.0-or-later와 각 파일의 고지를 따릅니다. 소스 및 SDK 런타임은 Git에서 제외된
+빌드 폴더에만 다운로드합니다. 배포물에는 SoundFork의 GPL-3.0-only 플러그인과
+캡처 허브만 포함하며 OBS 런타임 DLL은 포함하지 않습니다.
+
+- 원본: <https://github.com/obsproject/obs-studio/tree/32.2.2>
+- 라이선스: <https://github.com/obsproject/obs-studio/blob/32.2.2/COPYING>
+- 소스 SHA-256: `ec81fb66b03e75ddb3076b576f62679c39262e0e9960cef3e17a40dc5d68e6b4`
+- Windows x64 SHA-256: `4d6e40e3ab155f56b30de517380566a206d74b63cdf5ad49aa596924768f97e1`
+
 ## 선택적 VB-Audio 소프트웨어
 
 SoundFork는 별도로 설치된 VB-CABLE 또는 VoiceMeeter 렌더 엔드포인트를 감지해

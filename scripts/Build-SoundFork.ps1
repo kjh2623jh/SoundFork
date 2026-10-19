@@ -2,7 +2,8 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
-    [string]$Version
+    [string]$Version,
+    [switch]$WithObsPlugin
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,13 @@ if ($null -eq $cmakeCommand) {
 Push-Location $projectRoot
 try {
     $configureArguments = @('--preset', 'windows-msvc-x64')
+    if ($WithObsPlugin) {
+        & (Join-Path $PSScriptRoot 'Prepare-ObsSdk.ps1')
+        $configureArguments += '-DSOUNDFORK_BUILD_OBS_PLUGIN=ON'
+        $configureArguments += "-DSOUNDFORK_OBS_SDK_ROOT=$(Join-Path $projectRoot 'build\obs-sdk')"
+    } else {
+        $configureArguments += '-DSOUNDFORK_BUILD_OBS_PLUGIN=OFF'
+    }
     if ([string]::IsNullOrWhiteSpace($Version)) {
         $configureArguments += '-USOUNDFORK_VERSION'
     } else {

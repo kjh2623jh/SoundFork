@@ -676,8 +676,17 @@ bool relay_is_running() {
 bool capture_consumer_is_active() {
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus status;
-  return observer.open() && observer.snapshot(&status) &&
-         status.consumer_active;
+  if (!observer.open() || !observer.snapshot(&status) || !status.consumer_active) {
+    return false;
+  }
+  // The capture hub owns the input ring when OBS is already capturing. Relay
+  // joins a separate hub output and is allowed to start in that case.
+  HANDLE ready = OpenEventW(SYNCHRONIZE, FALSE,
+      L"Local\\SoundFork.CaptureHub.v1.Ready");
+  if (ready == nullptr) return true;
+  const bool hub_ready = WaitForSingleObject(ready, 0) == WAIT_OBJECT_0;
+  CloseHandle(ready);
+  return !hub_ready;
 }
 
 std::wstring executable_path() {

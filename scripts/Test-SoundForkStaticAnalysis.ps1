@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [switch]$WithObsPlugin
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,7 +26,12 @@ if ($null -ne $cmakeCommand) {
     }
 }
 
-& $cmake -S $repositoryRoot -B $buildDirectory -A x64 `
+$obsArguments = @('-DSOUNDFORK_BUILD_OBS_PLUGIN=OFF')
+if ($WithObsPlugin) {
+    & (Join-Path $PSScriptRoot 'Prepare-ObsSdk.ps1')
+    $obsArguments = @('-DSOUNDFORK_BUILD_OBS_PLUGIN=ON', "-DSOUNDFORK_OBS_SDK_ROOT=$(Join-Path $repositoryRoot 'build\obs-sdk')")
+}
+& $cmake -S $repositoryRoot -B $buildDirectory -A x64 @obsArguments `
     -DBUILD_TESTING=ON `
     -DSOUNDFORK_ENABLE_STATIC_ANALYSIS=ON
 if ($LASTEXITCODE -ne 0) {

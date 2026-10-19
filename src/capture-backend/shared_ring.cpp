@@ -247,6 +247,12 @@ SharedRingReader::~SharedRingReader() {
   close();
 }
 
+bool SharedRingPublisher::consumer_active() const noexcept {
+  if (!is_open()) return false;
+  const auto* shared = header(view_);
+  return load32(&shared->consumer_active) != 0;
+}
+
 bool SharedRingReader::open(
     const wchar_t* mapping_name, bool start_at_latest) noexcept {
   close();
@@ -299,6 +305,7 @@ bool SharedRingReader::open(
     return false;
   }
   shared->consumer_pid = GetCurrentProcessId();
+  generation_ = generation;
   if (start_at_latest) {
     InterlockedExchange64(
         &shared->read_sequence, load64(&shared->write_sequence));
@@ -314,6 +321,7 @@ void SharedRingReader::close() noexcept {
   }
   owns_consumer_ = false;
   format_ = {};
+  generation_ = 0;
   if (view_ != nullptr) {
     UnmapViewOfFile(view_);
     view_ = nullptr;
@@ -352,7 +360,7 @@ bool SharedRingReader::read_int32_stereo(
   }
 
   const LONG64 generation = load64(&shared->generation);
-  if ((generation & 1) != 0) {
+  if ((generation & 1) != 0 || generation != generation_) {
     return false;
   }
   const std::size_t slot = static_cast<std::size_t>(read) % kCapacityBlocks;
@@ -375,6 +383,18 @@ bool SharedRingReader::is_open() const noexcept {
 
 StreamFormat SharedRingReader::format() const noexcept {
   return format_;
+}
+
+bool SharedRingReader::stream_active() const noexcept {
+  if (!is_open()) {
+    return false;
+  }
+  const auto* shared = header(view_);
+  return load64(&shared->generation) == generation_ &&
+         load32(&shared->ready) != 0 &&
+         load32(&shared->producer_active) != 0 &&
+         header_matches_format(shared, format_) &&
+         process_is_alive(shared->producer_pid);
 }
 
 StreamStats SharedRingReader::stats() const noexcept {

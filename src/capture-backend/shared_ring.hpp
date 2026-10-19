@@ -52,6 +52,8 @@ class SharedRingPublisher final {
       const std::int32_t* right) noexcept;
   bool is_open() const noexcept;
   StreamStats stats() const noexcept;
+  // Advisory presence flag for the hub. Reader::open handles stale owners.
+  bool consumer_active() const noexcept;
 
  private:
   HANDLE mapping_ = nullptr;
@@ -78,6 +80,7 @@ class SharedRingReader final {
       std::uint32_t* frames_read) noexcept;
   bool is_open() const noexcept;
   StreamFormat format() const noexcept;
+  bool stream_active() const noexcept;
   StreamStats stats() const noexcept;
   std::uint64_t queued_blocks() const noexcept;
   std::uint64_t discard_oldest(std::uint64_t keep_blocks) noexcept;
@@ -87,6 +90,7 @@ class SharedRingReader final {
   void* view_ = nullptr;
   bool owns_consumer_ = false;
   StreamFormat format_{};
+  std::int64_t generation_ = 0;
 };
 
 // Read-only observer used by the control application. It never claims the

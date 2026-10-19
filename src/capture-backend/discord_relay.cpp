@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "capture-backend/shared_ring.hpp"
+#include "capture-backend/hub_client.hpp"
 #include "capture-backend/relay_clock.hpp"
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_recovery.hpp"
@@ -342,6 +343,10 @@ SessionOutcome run_render_session(
   const HANDLE wait_handles[] = {audio_event.value, stop_event};
   SessionOutcome outcome = SessionOutcome::complete;
   while (persistent || GetTickCount64() < run_deadline) {
+    if (!reader->stream_active()) {
+      outcome = SessionOutcome::reconnect;
+      break;
+    }
     const DWORD wait_result = WaitForMultipleObjects(
         static_cast<DWORD>(std::size(wait_handles)),
         wait_handles,
@@ -531,6 +536,7 @@ int wmain(int argc, wchar_t** argv) {
       return 10;
     }
 
+    soundfork::capture::HubClient hub(soundfork::capture::HubRole::relay);
     soundfork::capture::SharedRingReader reader;
     HWND target_window = nullptr;
     std::wstring matched_title;
@@ -544,7 +550,8 @@ int wmain(int argc, wchar_t** argv) {
         target_window = find_window(window_title, &matched_title);
       }
       if (!reader.is_open()) {
-        reader.open();
+        hub.ensure_running();
+        reader.open(hub.mapping_name());
       }
       if ((system_share || target_window != nullptr) && reader.is_open()) {
         break;
@@ -572,6 +579,21 @@ int wmain(int argc, wchar_t** argv) {
     while (persistent || GetTickCount64() < run_deadline) {
       if (WaitForSingleObject(stop_event.value, 0) == WAIT_OBJECT_0) {
         break;
+      }
+      if (!reader.stream_active()) {
+        reader.close();
+        hub.ensure_running();
+        if (!reader.open(hub.mapping_name())) {
+          if (WaitForSingleObject(stop_event.value, 50) == WAIT_OBJECT_0) break;
+          continue;
+        }
+        const auto current_format = reader.format();
+        if (current_format.sample_rate != 48000 ||
+            current_format.channel_count != 2) {
+          reader.close();
+          if (WaitForSingleObject(stop_event.value, 250) == WAIT_OBJECT_0) break;
+          continue;
+        }
       }
       const std::vector<EndpointRecord> current_endpoints =
           enumerate_endpoints(enumerator.Get());

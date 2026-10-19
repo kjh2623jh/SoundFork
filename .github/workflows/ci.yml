@@ -25,12 +25,12 @@ jobs:
 
       - name: Build and test
         shell: pwsh
-        run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}'
+        run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}' -WithObsPlugin
 
       - name: MSVC static analysis
         if: matrix.configuration == 'Release'
         shell: pwsh
-        run: ./scripts/Test-SoundForkStaticAnalysis.ps1 -Configuration Release
+        run: ./scripts/Test-SoundForkStaticAnalysis.ps1 -Configuration Release -WithObsPlugin
 
       - name: Upload Release binaries
         if: matrix.configuration == 'Release'
@@ -43,5 +43,7 @@ jobs:
             build/windows-msvc-x64/Release/soundfork_driver.dll
             build/windows-msvc-x64/Release/soundfork_control.exe
             build/windows-msvc-x64/Release/soundfork_discord_relay.exe
+            build/windows-msvc-x64/Release/soundfork_capture_hub.exe
+            build/windows-msvc-x64/Release/soundfork-obs.dll
             build/windows-msvc-x64/Release/soundfork_capture_monitor.exe
             build/windows-msvc-x64/Release/soundfork_host.exe

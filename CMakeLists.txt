@@ -48,6 +48,8 @@ endif()
 
 include(CTest)
 option(SOUNDFORK_ENABLE_STATIC_ANALYSIS "Enable MSVC code analysis" OFF)
+option(SOUNDFORK_BUILD_OBS_PLUGIN "Build the optional OBS audio source" OFF)
+set(SOUNDFORK_OBS_SDK_ROOT "" CACHE PATH "Prepared OBS headers and import library")
 
 add_library(soundfork_warnings INTERFACE)
 target_compile_definitions(soundfork_warnings INTERFACE
@@ -144,6 +146,7 @@ add_executable(soundfork_discord_relay
   src/capture-backend/discord_relay.cpp
   src/capture-backend/relay_clock.cpp
   src/capture-backend/shared_ring.cpp
+  src/capture-backend/hub_client.cpp
 )
 target_include_directories(soundfork_discord_relay PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -153,6 +156,28 @@ target_link_libraries(soundfork_discord_relay PRIVATE
   ole32
   uuid
 )
+
+add_executable(soundfork_capture_hub
+  src/capture-backend/capture_hub.cpp
+  src/capture-backend/hub_client.cpp
+  src/capture-backend/shared_ring.cpp
+)
+target_include_directories(soundfork_capture_hub PRIVATE src)
+target_link_libraries(soundfork_capture_hub PRIVATE soundfork_warnings)
+add_dependencies(soundfork_discord_relay soundfork_capture_hub)
+
+add_executable(soundfork_hub_tests
+  tests/capture_hub_tests.cpp
+  src/capture-backend/hub_client.cpp
+  src/capture-backend/shared_ring.cpp
+)
+target_include_directories(soundfork_hub_tests PRIVATE src)
+target_link_libraries(soundfork_hub_tests PRIVATE soundfork_warnings)
+add_dependencies(soundfork_hub_tests soundfork_capture_hub)
+
+if(SOUNDFORK_BUILD_OBS_PLUGIN)
+  include(cmake/ObsPlugin.cmake)
+endif()
 
 add_executable(soundfork_relay_tests
   tests/relay_clock_tests.cpp
@@ -210,6 +235,8 @@ if(BUILD_TESTING)
   )
   add_test(NAME soundfork_host_list COMMAND soundfork_host --list)
   add_test(NAME soundfork_capture_ring_tests COMMAND soundfork_capture_tests)
+  add_test(NAME soundfork_capture_hub_tests COMMAND soundfork_hub_tests)
+  set_tests_properties(soundfork_capture_hub_tests PROPERTIES TIMEOUT 30)
   add_test(NAME soundfork_relay_clock_tests COMMAND soundfork_relay_tests)
   add_test(
     NAME soundfork_discord_relay_list
@@ -223,6 +250,7 @@ install(TARGETS
   soundfork_host
   soundfork_capture_monitor
   soundfork_discord_relay
+  soundfork_capture_hub
   soundfork_control
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION bin

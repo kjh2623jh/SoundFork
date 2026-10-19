@@ -53,11 +53,22 @@ korean.InvalidSilentBackend=자동 설치에는 등록된 x64 ASIO 드라이버�
 korean.RegistrationFailed=SoundFork 드라이버 등록에 실패했습니다. 부분 등록은 롤백했습니다.
 korean.GetVbCable=VB-CABLE 공식 다운로드 페이지 열기 (Discord 권장)
 korean.LaunchControl=SoundFork Control 실행
+english.InstallObsPlugin=Install the OBS audio source plugin (OBS Studio 32.2.2 or later)
+korean.InstallObsPlugin=OBS 오디오 소스 플러그인 설치 (OBS Studio 32.2.2 이상)
+
+[Tasks]
+#if FileExists(MySourceDir + "\obs-plugin\soundfork-obs\bin\64bit\soundfork-obs.dll")
+Name: "obsplugin"; Description: "{cm:InstallObsPlugin}"; Flags: unchecked
+#endif
 
 [Files]
 Source: "{#MySourceDir}\bin\soundfork_driver.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_control.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_discord_relay.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MySourceDir}\bin\soundfork_capture_hub.exe"; DestDir: "{app}"; Flags: ignoreversion
+#if FileExists(MySourceDir + "\obs-plugin\soundfork-obs\bin\64bit\soundfork-obs.dll")
+Source: "{#MySourceDir}\obs-plugin\soundfork-obs\*"; DestDir: "{commonappdata}\obs-studio\plugins\soundfork-obs"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: obsplugin
+#endif
 Source: "{#MySourceDir}\bin\soundfork_host.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_capture_monitor.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#MySourceDir}\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion

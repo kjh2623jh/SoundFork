@@ -25,6 +25,18 @@ SHA-256 checksums:
 ASIO is a trademark of Steinberg Media Technologies GmbH. SoundFork does not
 use the ASIO logo, and ASIO is not part of the SoundFork product name.
 
+## Optional OBS audio source
+
+The optional plugin uses official OBS Studio 32.2.2 headers (GPL-2.0-or-later,
+with notices in individual files). Source archives and SDK runtimes are downloaded
+only into ignored build directories. SoundFork distributes its own GPL-3.0-only
+plugin and capture hub, not OBS runtime DLLs.
+
+- Upstream source: <https://github.com/obsproject/obs-studio/tree/32.2.2>
+- License: <https://github.com/obsproject/obs-studio/blob/32.2.2/COPYING>
+- Source archive SHA-256: `ec81fb66b03e75ddb3076b576f62679c39262e0e9960cef3e17a40dc5d68e6b4`
+- Windows x64 archive SHA-256: `4d6e40e3ab155f56b30de517380566a206d74b63cdf5ad49aa596924768f97e1`
+
 ## Optional VB-Audio software
 
 SoundFork can detect and use an independently installed VB-CABLE or VoiceMeeter

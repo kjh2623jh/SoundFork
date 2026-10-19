@@ -10,7 +10,8 @@ installation and Discord use.
 
 - `asio-proxy`: x64 COM DLL exposed to ASIO hosts as `SoundFork`
 - `audio-bridge`: forwards hardware ASIO lifecycle calls and buffers
-- `capture-backend`: nonblocking shared ring, monitor, and WASAPI relay
+- `capture-backend`: nonblocking shared rings, capture hub, monitor, and WASAPI relay
+- `obs-plugin`: direct audio input through the official OBS source API
 - `control-app`: backend selection, status, relay controls, and system tray UI
 - `tests`: fake ASIO driver and proxy, COM, and shared-ring tests
 - `installer`: Inno Setup package definition
@@ -30,10 +31,12 @@ are the current real-hardware validation environment.
 x64 ASIO host
   -> soundfork_driver.dll
       +-> hardware ASIO driver -> DAC
-      +-> shared-memory SPSC ring -> soundfork_discord_relay.exe
-                                     -> virtual audio render endpoint
-                                         +-> Discord entire-screen share
-                                         +-> OBS Audio Output Capture
+      +-> shared-memory SPSC ring -> soundfork_capture_hub.exe
+                                     +-> private SPSC ring -> OBS SoundFork Audio
+                                     +-> private SPSC ring -> Discord relay
+                                                              -> virtual endpoint
+                                                                  +-> Discord screen share
+                                                                  +-> OBS device capture
 ```
 
 `createBuffers` exposes the downstream driver's buffer pointers directly to the
@@ -129,7 +132,58 @@ development with C++** workload, and CMake 3.25 or newer.
 .\scripts\Build-SoundFork.ps1 -Configuration Debug
 .\scripts\Build-SoundFork.ps1 -Configuration Release
 .\scripts\Test-SoundForkStaticAnalysis.ps1
+
+# Include the OBS plugin and real libobs integration tests
+.\scripts\Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+.\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin
 ```
+
+### Optional OBS direct capture
+
+The hub is the sole consumer of the original ASIO capture ring. It distributes
+PCM to independent bounded SPSC outputs, `Local\SoundFork.CaptureHub.v1.OBS`
+and `.Relay`, entirely outside the game process. The ASIO publisher and playback
+callbacks are unchanged. A full OBS output drops only its own blocks. Hub polling,
+copying and scheduling add broadcast-only delay; no zero-delay claim is made.
+Relay and the plugin launch the hub hidden from their own directory. Kernel
+event leases keep it alive while either consumer exists; it exits roughly two
+seconds after both close. Generation and process checks detect same-format game
+restarts and hub failures. The original diagnostic monitor still needs exclusive
+access to the input ring. Read-only control observers remain compatible.
+
+The SDK script verifies pinned SHA-256 hashes of official OBS 32.2.2 source and
+Windows archives, or reuses a locally installed runtime of that version for tests.
+It uses official headers and generates an import library from DLL exports instead
+of declaring an ABI. OBS runtime DLLs are never included in SoundFork packages.
+
+The optional installer task installs to
+`%ProgramData%\obs-studio\plugins\soundfork-obs`. ZIP users copy
+`obs-plugin\soundfork-obs` there with OBS closed. Portable OBS skips ProgramData:
+copy the plugin DLL and hub EXE to its `obs-plugins\64bit`, and the plugin's
+`data` contents to `data\obs-plugins\soundfork-obs`.
+
+Requires OBS Studio 32.2.2+ x64 and stereo 48 kHz `ASIOSTInt32LSB` capture.
+Create one SoundFork source and reuse it across scenes; multiple independent
+OBS processes are not supported. Discord still requires the virtual-device relay.
+Use matching versions of the relay and plugin rather than mixing old binaries.
+
+The OBS worker sends 480-frame/10 ms packets to `obs_source_output_audio` with a
+continuous OBS monotonic timestamp timeline. A four-block residual queue and
+bounded ±2,000 ppm resampling compensate clock drift in capture only. Startup
+waits for one packet plus that target queue while sending silence. Stalls over
+50 ms and excessive queues resynchronize the OBS path. Shutdown logs packet,
+silent-frame, maximum-queue, discarded-block, resync and clock-correction metrics.
+OBS buffering and video sync remain; any latency reduction needs measurement.
+Process launch/recovery runs on a separate supervisor thread so startup cannot
+block timed audio delivery. Hub polling slows to 50 ms while no game is active.
+
+Automated tests use isolated `SOUNDFORK_CAPTURE_SCOPE` names. Hub tests verify
+matching stereo PCM, stalled-consumer isolation, same-format restart, recovery
+after forcibly terminating the private test hub, and automatic
+exit. Real libobs integration verifies DLL loading, source creation, stereo PCM,
+increasing timestamps and concurrent relay reception. Real OBS UI recordings
+with FiiO and Discord, A/V sync, hours-long playback and installer lifecycle
+remain manual validation items.
 
 Release binaries use the static MSVC runtime. Outputs are written below
 `build/windows-msvc-x64/<Config>`. MSVC CFG, NX, and ASLR are enabled, and the

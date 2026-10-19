@@ -16,7 +16,7 @@ if (-not [Environment]::Is64BitProcess) {
 }
 
 $running = @(
-    Get-Process -Name 'soundfork_discord_relay', 'soundfork_capture_monitor', 'soundfork_control' -ErrorAction SilentlyContinue
+    Get-Process -Name 'soundfork_discord_relay', 'soundfork_capture_hub', 'soundfork_capture_monitor', 'soundfork_control' -ErrorAction SilentlyContinue
 )
 if ($running.Count) {
     $names = ($running | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ', '
@@ -57,6 +57,7 @@ if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundF
         'soundfork_host.exe',
         'soundfork_capture_monitor.exe',
         'soundfork_discord_relay.exe',
+        'soundfork_capture_hub.exe',
         'soundfork_control.exe'
     )
     foreach ($file in $knownFiles) {

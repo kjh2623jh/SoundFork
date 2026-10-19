@@ -90,6 +90,7 @@ $isInstalledCopy = $driverExists -and ([IO.Path]::GetFullPath($driverDll)).Start
 $relayProcesses = @(Get-Process -Name 'soundfork_discord_relay' -ErrorAction SilentlyContinue)
 $monitorProcesses = @(Get-Process -Name 'soundfork_capture_monitor' -ErrorAction SilentlyContinue)
 $controlProcesses = @(Get-Process -Name 'soundfork_control' -ErrorAction SilentlyContinue)
+$hubProcesses = @(Get-Process -Name 'soundfork_capture_hub' -ErrorAction SilentlyContinue)
 
 $state = if ($asioRegistered -and $comRegistered -and $driverExists -and $backendName) {
     'Ready'
@@ -107,5 +108,6 @@ $state = if ($asioRegistered -and $comRegistered -and $driverExists -and $backen
     Backend = if ($backendName) { $backendName } elseif ($backendClsid) { "Unknown ($backendClsid)" } else { '(not configured)' }
     ControlApp = if ($controlProcesses.Count) { "Running (PID $($controlProcesses.Id -join ', '))" } else { 'Stopped' }
     DiscordRelay = if ($relayProcesses.Count) { "Running (PID $($relayProcesses.Id -join ', '))" } else { 'Stopped' }
+    CaptureHub = if ($hubProcesses.Count) { "Running (PID $($hubProcesses.Id -join ', '))" } else { 'Stopped' }
     CaptureMonitor = if ($monitorProcesses.Count) { "Running (PID $($monitorProcesses.Id -join ', '))" } else { 'Stopped' }
 }

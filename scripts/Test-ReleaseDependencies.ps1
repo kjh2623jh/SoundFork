@@ -25,9 +25,13 @@ $binaries = @(
     'soundfork_driver.dll',
     'soundfork_control.exe',
     'soundfork_discord_relay.exe',
+    'soundfork_capture_hub.exe',
     'soundfork_capture_monitor.exe',
     'soundfork_host.exe'
 )
+if (Test-Path -LiteralPath (Join-Path $resolvedBin 'soundfork-obs.dll')) {
+    $binaries += 'soundfork-obs.dll'
+}
 foreach ($name in $binaries) {
     $path = Join-Path $resolvedBin $name
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {

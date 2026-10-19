@@ -1,0 +1,48 @@
+# Consume official OBS headers, not a hand-written ABI. The preparation script
+# pins and checks upstream archives; no OBS runtime is redistributed.
+if(NOT EXISTS "${SOUNDFORK_OBS_SDK_ROOT}/lib/obs.lib")
+  message(FATAL_ERROR "Run scripts/Prepare-ObsSdk.ps1, then set SOUNDFORK_OBS_SDK_ROOT")
+endif()
+set(OBS_RELEASE_CANDIDATE 0)
+set(OBS_BETA 0)
+configure_file(
+  "${SOUNDFORK_OBS_SDK_ROOT}/obs-studio-32.2.2-sources/libobs/obsconfig.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/obsconfig.h"
+)
+add_library(soundfork_obs_api INTERFACE)
+target_include_directories(soundfork_obs_api SYSTEM INTERFACE
+  "${SOUNDFORK_OBS_SDK_ROOT}/obs-studio-32.2.2-sources/libobs"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
+target_link_libraries(soundfork_obs_api INTERFACE "${SOUNDFORK_OBS_SDK_ROOT}/lib/obs.lib")
+
+add_library(soundfork_obs MODULE
+  src/obs-plugin/soundfork_obs.cpp
+  src/capture-backend/hub_client.cpp
+  src/capture-backend/relay_clock.cpp
+  src/capture-backend/shared_ring.cpp
+)
+target_include_directories(soundfork_obs PRIVATE src)
+target_link_libraries(soundfork_obs PRIVATE soundfork_obs_api soundfork_warnings)
+set_target_properties(soundfork_obs PROPERTIES PREFIX "" OUTPUT_NAME "soundfork-obs")
+add_dependencies(soundfork_obs soundfork_capture_hub)
+
+install(TARGETS soundfork_obs LIBRARY DESTINATION obs-plugin/soundfork-obs/bin/64bit COMPONENT ObsPlugin)
+install(PROGRAMS "$<TARGET_FILE:soundfork_capture_hub>"
+  DESTINATION obs-plugin/soundfork-obs/bin/64bit COMPONENT ObsPlugin)
+install(DIRECTORY src/obs-plugin/data/ DESTINATION obs-plugin/soundfork-obs/data COMPONENT ObsPlugin)
+install(FILES LICENSE THIRD_PARTY_NOTICES.md THIRD_PARTY_NOTICES.en.md
+  DESTINATION obs-plugin/soundfork-obs COMPONENT ObsPlugin)
+
+if(BUILD_TESTING)
+  add_executable(soundfork_obs_tests tests/obs_plugin_tests.cpp
+    src/capture-backend/shared_ring.cpp src/capture-backend/hub_client.cpp)
+  target_include_directories(soundfork_obs_tests PRIVATE src)
+  target_link_libraries(soundfork_obs_tests PRIVATE soundfork_obs_api soundfork_warnings)
+  add_dependencies(soundfork_obs_tests soundfork_obs)
+  add_test(NAME soundfork_obs_plugin_tests COMMAND soundfork_obs_tests
+    "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data")
+  set_tests_properties(soundfork_obs_plugin_tests PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${SOUNDFORK_OBS_SDK_ROOT}/runtime"
+    TIMEOUT 30)
+endif()
