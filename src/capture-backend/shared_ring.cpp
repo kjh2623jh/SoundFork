@@ -1,5 +1,6 @@
 #include "capture-backend/shared_ring.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 #include "capture-backend/shared_ring_layout.hpp"
@@ -385,6 +386,45 @@ StreamStats SharedRingReader::stats() const noexcept {
       static_cast<std::uint64_t>(load64(&shared->write_sequence)),
       static_cast<std::uint64_t>(load64(&shared->read_sequence)),
       static_cast<std::uint64_t>(load64(&shared->dropped_blocks))};
+}
+
+std::uint64_t SharedRingReader::queued_blocks() const noexcept {
+  if (view_ == nullptr) {
+    return 0;
+  }
+  const SharedHeader* shared = header(view_);
+  if (load32(&shared->ready) == 0 || !header_matches_format(shared, format_)) {
+    return 0;
+  }
+  const LONG64 read = load64(&shared->read_sequence);
+  const LONG64 write = load64(&shared->write_sequence);
+  if (write <= read) {
+    return 0;
+  }
+  return (std::min)(
+      static_cast<std::uint64_t>(write - read),
+      static_cast<std::uint64_t>(kCapacityBlocks));
+}
+
+std::uint64_t SharedRingReader::discard_oldest(
+    std::uint64_t keep_blocks) noexcept {
+  if (view_ == nullptr) {
+    return 0;
+  }
+  SharedHeader* shared = header(view_);
+  if (load32(&shared->ready) == 0 || !header_matches_format(shared, format_)) {
+    return 0;
+  }
+  keep_blocks = (std::min)(
+      keep_blocks, static_cast<std::uint64_t>(kCapacityBlocks));
+  const LONG64 read = load64(&shared->read_sequence);
+  const LONG64 write = load64(&shared->write_sequence);
+  if (write <= read + static_cast<LONG64>(keep_blocks)) {
+    return 0;
+  }
+  const LONG64 replacement = write - static_cast<LONG64>(keep_blocks);
+  InterlockedExchange64(&shared->read_sequence, replacement);
+  return static_cast<std::uint64_t>(replacement - read);
 }
 
 SharedRingObserver::~SharedRingObserver() {

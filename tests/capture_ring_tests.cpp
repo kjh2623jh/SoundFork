@@ -121,6 +121,14 @@ void test_shared_ring() {
       !publisher.publish_int32_stereo(left.data(), right.data()),
       "full ring did not drop the block");
   require(publisher.stats().dropped_blocks == 1, "drop counter mismatch");
+  require(
+      reader.queued_blocks() == soundfork::capture::kCapacityBlocks,
+      "queued block count mismatch");
+  require(reader.discard_oldest(4) == 60, "stale block discard mismatch");
+  require(reader.queued_blocks() == 4, "discard did not retain four blocks");
+  require(
+      publisher.publish_int32_stereo(left.data(), right.data()),
+      "publisher did not recover after relay discard");
 
   publisher.close();
   require(!publisher.is_open(), "publisher close failed");

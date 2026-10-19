@@ -10,15 +10,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cwctype>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "capture-backend/shared_ring.hpp"
+#include "capture-backend/relay_clock.hpp"
 #include "capture-backend/relay_control.hpp"
 
 namespace {
@@ -419,14 +423,17 @@ int wmain(int argc, wchar_t** argv) {
       return 8;
     }
 
-    std::array<std::int32_t,
-               soundfork::capture::kMaxFramesPerBlock *
-                   soundfork::capture::kChannelCount>
-        source{};
-    std::uint32_t source_frames = 0;
-    std::uint32_t source_offset = 0;
+    auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
+    soundfork::capture::RelayClockController clock(
+        format.sample_rate, format.frames_per_block);
+    bool prebuffered = false;
     std::uint64_t rendered_frames = 0;
-    std::uint64_t silent_frames = 0;
+    std::uint64_t minimum_queue_frames =
+        (std::numeric_limits<std::uint64_t>::max)();
+    std::uint64_t maximum_queue_frames = 0;
+    std::uint64_t resync_count = 0;
+    std::uint64_t discarded_blocks = 0;
+    double maximum_correction_ppm = 0.0;
     const ULONGLONG run_deadline =
         GetTickCount64() + static_cast<ULONGLONG>(duration_seconds) * 1000;
     const HANDLE wait_handles[] = {audio_event, stop_event.value};
@@ -453,35 +460,51 @@ int wmain(int argc, wchar_t** argv) {
         continue;
       }
       auto* destination = reinterpret_cast<std::int32_t*>(raw_destination);
-      bool all_silent = true;
-      for (UINT32 frame = 0; frame < available; ++frame) {
-        if (source_offset >= source_frames) {
-          source_offset = 0;
-          source_frames = 0;
-          reader.read_int32_stereo(
-              source.data(), source.size(), &source_frames);
-        }
-        if (source_offset < source_frames) {
-          destination[frame * 2] = source[source_offset * 2];
-          destination[frame * 2 + 1] = source[source_offset * 2 + 1];
-          ++source_offset;
-          all_silent = false;
-        } else {
-          destination[frame * 2] = 0;
-          destination[frame * 2 + 1] = 0;
-          ++silent_frames;
-        }
+      std::uint64_t queue_frames = source->buffered_frames(reader);
+      if (queue_frames >
+          static_cast<std::uint64_t>(format.frames_per_block) * 48U) {
+        discarded_blocks += reader.discard_oldest(4);
+        source->reset();
+        clock.reset();
+        ++resync_count;
+        queue_frames = source->buffered_frames(reader);
+      }
+      minimum_queue_frames = (std::min)(minimum_queue_frames, queue_frames);
+      maximum_queue_frames = (std::max)(maximum_queue_frames, queue_frames);
+      if (!prebuffered && queue_frames >= clock.target_frames()) {
+        prebuffered = true;
+      }
+
+      bool any_audio = false;
+      if (prebuffered) {
+        const double ratio = clock.update(queue_frames, available);
+        maximum_correction_ppm = (std::max)(
+            maximum_correction_ppm, std::abs(clock.correction_ppm()));
+        any_audio = source->render(reader, destination, available, ratio);
+      } else {
+        std::fill_n(destination, static_cast<std::size_t>(available) * 2, 0);
       }
       render_client->ReleaseBuffer(
-          available, all_silent ? AUDCLNT_BUFFERFLAGS_SILENT : 0);
+          available, any_audio ? 0 : AUDCLNT_BUFFERFLAGS_SILENT);
       rendered_frames += available;
     }
 
     audio_client->Stop();
     CloseHandle(audio_event);
     const auto stats = reader.stats();
+    const auto source_metrics = source->metrics();
+    if (minimum_queue_frames ==
+        (std::numeric_limits<std::uint64_t>::max)()) {
+      minimum_queue_frames = 0;
+    }
     std::wcout << L"Rendered frames: " << rendered_frames
-               << L"\nUnderflow/silent frames: " << silent_frames
+               << L"\nUnderflow/silent frames: "
+               << source_metrics.silent_frames
+               << L"\nRelay queue frames (min/max): " << minimum_queue_frames
+               << L"/" << maximum_queue_frames
+               << L"\nMaximum clock correction: " << maximum_correction_ppm
+               << L" ppm\nRelay resyncs: " << resync_count
+               << L"\nDiscarded stale blocks: " << discarded_blocks
                << L"\nCapture dropped blocks: " << stats.dropped_blocks << L'\n';
   }
   return exit_code;

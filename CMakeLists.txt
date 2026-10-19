@@ -109,6 +109,7 @@ target_link_libraries(soundfork_capture_tests PRIVATE soundfork_warnings)
 
 add_executable(soundfork_discord_relay
   src/capture-backend/discord_relay.cpp
+  src/capture-backend/relay_clock.cpp
   src/capture-backend/shared_ring.cpp
 )
 target_include_directories(soundfork_discord_relay PRIVATE
@@ -119,6 +120,16 @@ target_link_libraries(soundfork_discord_relay PRIVATE
   ole32
   uuid
 )
+
+add_executable(soundfork_relay_tests
+  tests/relay_clock_tests.cpp
+  src/capture-backend/relay_clock.cpp
+  src/capture-backend/shared_ring.cpp
+)
+target_include_directories(soundfork_relay_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+target_link_libraries(soundfork_relay_tests PRIVATE soundfork_warnings)
 target_include_directories(soundfork_host PRIVATE "${SOUNDFORK_SDK_DIR}")
 target_include_directories(soundfork_host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(soundfork_host PRIVATE
@@ -152,6 +163,7 @@ if(BUILD_TESTING)
   )
   add_test(NAME soundfork_host_list COMMAND soundfork_host --list)
   add_test(NAME soundfork_capture_ring_tests COMMAND soundfork_capture_tests)
+  add_test(NAME soundfork_relay_clock_tests COMMAND soundfork_relay_tests)
   add_test(
     NAME soundfork_discord_relay_list
     COMMAND soundfork_discord_relay --list-endpoints

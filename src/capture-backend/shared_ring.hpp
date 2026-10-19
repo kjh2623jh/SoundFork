@@ -79,6 +79,8 @@ class SharedRingReader final {
   bool is_open() const noexcept;
   StreamFormat format() const noexcept;
   StreamStats stats() const noexcept;
+  std::uint64_t queued_blocks() const noexcept;
+  std::uint64_t discard_oldest(std::uint64_t keep_blocks) noexcept;
 
  private:
   HANDLE mapping_ = nullptr;
