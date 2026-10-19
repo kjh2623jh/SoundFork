@@ -31,7 +31,9 @@ x64 ASIO host
   -> soundfork_driver.dll
       +-> hardware ASIO driver -> DAC
       +-> shared-memory SPSC ring -> soundfork_discord_relay.exe
-                                     -> VB-CABLE -> Discord screen share
+                                     -> virtual audio render endpoint
+                                         +-> Discord entire-screen share
+                                         +-> OBS Audio Output Capture
 ```
 
 `createBuffers` exposes the downstream driver's buffer pointers directly to the
@@ -69,6 +71,11 @@ with the DJMAX HWND through Windows 11 `IAudioViewManagerService` was also
 tested, but Discord did not include that external stream in application-window
 sharing. SoundFork uses neither code injection nor private Discord APIs.
 
+In OBS, select the relay's virtual render endpoint as an **Audio Output Capture**
+source or under **Settings → Audio → Desktop Audio**. With VB-CABLE, that endpoint
+is `CABLE Input`. `CABLE Output` is a recording endpoint and therefore does not
+appear in those device lists.
+
 Public references:
 
 - <https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share>
@@ -98,10 +105,10 @@ Windows icon with:
 Creating Setup.exe locally requires Inno Setup 6.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.1
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2
 
 # Verify only the ZIP without Inno Setup
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 -SkipInstaller
 ```
 
 ## Testing
@@ -121,7 +128,8 @@ Late and stopped consumer tests confirmed that the FiiO callbacks continue.
 The installed COM path delivered 2,244 blocks / 143,616 frames with zero
 producer drops during a three-second consumer interval. On 2026-10-19, the
 GitHub Release Setup was also installed on a real Windows system and removed
-successfully through Windows uninstallation.
+successfully through Windows uninstallation. OBS also captured audio in a
+real-use test when Desktop Audio was set to the relay's `CABLE Input` endpoint.
 
 ### Not currently claimed
 
@@ -129,7 +137,6 @@ successfully through Windows uninstallation.
 - multi-hour capture soak testing
 - Discord application-window audio
 - simultaneous remote verification of a real microphone and the screen relay
-- OBS integration
 - physical loopback latency measurement
 
 ## Registration and installation
@@ -153,8 +160,8 @@ The following tag format produces Setup.exe, an executable ZIP, and SHA-256
 checksums:
 
 ```powershell
-git tag -a v0.1.0-alpha.1 -m 'SoundFork v0.1.0-alpha.1'
-git push origin v0.1.0-alpha.1
+git tag -a v0.1.0-alpha.2 -m 'SoundFork v0.1.0-alpha.2'
+git push origin v0.1.0-alpha.2
 ```
 
 Supported suffixes are `alpha.N`, `beta.N`, and `rc.N`; they are published as

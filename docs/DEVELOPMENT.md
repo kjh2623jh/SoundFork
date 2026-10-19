@@ -30,7 +30,9 @@ DJMAX RESPECT V와 FiiO K11 R2R이다.
   -> soundfork_driver.dll
       +-> 하드웨어 ASIO 드라이버 -> DAC
       +-> 공유 메모리 SPSC 링 -> soundfork_discord_relay.exe
-                                  -> VB-CABLE -> Discord 전체 화면 공유
+                                  -> 가상 오디오 재생 엔드포인트
+                                      +-> Discord 전체 화면 공유
+                                      +-> OBS 오디오 출력 캡처
 ```
 
 `createBuffers`는 하위 드라이버가 제공한 버퍼 포인터를 호스트에 그대로 노출한다.
@@ -72,6 +74,10 @@ DJMAX가 아니라 `soundfork_discord_relay.exe`다.
 외부 릴레이 스트림이 포함되지 않았다. Discord 코드 주입이나 비공개 API는 사용하지
 않는다.
 
+OBS에서는 릴레이가 출력하는 가상 재생 엔드포인트를 **오디오 출력 캡처** 소스 또는
+**설정 → 오디오 → 데스크탑 오디오**로 선택한다. VB-CABLE 기준으로는 `CABLE Input`이
+해당 엔드포인트다. `CABLE Output`은 녹음 엔드포인트이므로 이 목록에는 나타나지 않는다.
+
 관련 공개 문서:
 
 - <https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share>
@@ -101,10 +107,10 @@ Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물�
 설치 프로그램을 포함한 로컬 배포 패키지는 Inno Setup 6이 필요하다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.1
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2
 
 # Inno Setup 없이 ZIP만 검사
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-alpha.2 -SkipInstaller
 ```
 
 ## 테스트
@@ -122,7 +128,9 @@ samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록
 공유 링은 늦은 소비자와 소비자 중단 상황에서도 FiiO 콜백이 계속되는지 검증했다.
 등록된 COM 경로의 3초 소비 구간에서는 2,244블록 / 143,616프레임, 생산자 드롭
 0개를 기록했다. 2026-10-19에는 GitHub Release Setup을 실제 Windows 환경에
-설치하고 Windows 제거 기능으로 정상 제거되는 것도 확인했다.
+설치하고 Windows 제거 기능으로 정상 제거되는 것도 확인했다. SoundFork 릴레이의
+`CABLE Input` 출력을 OBS 데스크탑 오디오로 선택했을 때 오디오가 캡처되는 것도
+실사용 환경에서 확인했다.
 
 ### 아직 주장하지 않는 항목
 
@@ -130,7 +138,6 @@ samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록
 - 수 시간 규모의 캡처 soak 테스트
 - Discord 애플리케이션 창 공유 오디오
 - 실제 마이크와 전체 화면 릴레이의 동시 원격 확인
-- OBS 연동
 - 물리 루프백 장비를 사용한 실제 지연 측정
 
 ## 등록과 설치
@@ -153,8 +160,8 @@ PR과 `main` push는 Windows x64 Debug/Release 빌드와 CTest를 실행한다. 
 태그는 Setup.exe, 실행 가능 ZIP과 SHA-256 파일을 생성한다.
 
 ```powershell
-git tag -a v0.1.0-alpha.1 -m 'SoundFork v0.1.0-alpha.1'
-git push origin v0.1.0-alpha.1
+git tag -a v0.1.0-alpha.2 -m 'SoundFork v0.1.0-alpha.2'
+git push origin v0.1.0-alpha.2
 ```
 
 지원되는 접미사는 `alpha.N`, `beta.N`, `rc.N`이며 GitHub prerelease로 게시된다.
