@@ -8,6 +8,7 @@
 #include <string>
 
 #include "capture-backend/relay_clock.hpp"
+#include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/shared_ring.hpp"
 
 namespace {
@@ -78,6 +79,20 @@ void test_linear_relay_source() {
   require(source.metrics().silent_frames == 0, "unexpected relay underflow");
 }
 
+void test_reconnect_error_policy() {
+  require(
+      soundfork::capture::recoverable_audio_error(
+          AUDCLNT_E_DEVICE_INVALIDATED),
+      "device invalidation was not recoverable");
+  require(
+      soundfork::capture::recoverable_audio_error(
+          AUDCLNT_E_SERVICE_NOT_RUNNING),
+      "audio service restart was not recoverable");
+  require(
+      !soundfork::capture::recoverable_audio_error(E_INVALIDARG),
+      "programming error was incorrectly recoverable");
+}
+
 }  // namespace
 
 int main() {
@@ -85,6 +100,7 @@ int main() {
     test_four_hour_drift(1500.0);
     test_four_hour_drift(-1500.0);
     test_linear_relay_source();
+    test_reconnect_error_policy();
     std::cout << "SoundFork relay clock tests passed\n";
     return 0;
   } catch (const std::exception& error) {

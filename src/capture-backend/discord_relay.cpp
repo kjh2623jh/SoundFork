@@ -24,6 +24,7 @@
 #include "capture-backend/shared_ring.hpp"
 #include "capture-backend/relay_clock.hpp"
 #include "capture-backend/relay_control.hpp"
+#include "capture-backend/relay_recovery.hpp"
 
 namespace {
 
@@ -190,6 +191,248 @@ bool succeeded_asio_style(HRESULT result, const wchar_t* operation) {
   return false;
 }
 
+enum class SessionOutcome {
+  complete,
+  stopped,
+  reconnect,
+  fatal,
+};
+
+struct RelayMetrics {
+  std::uint64_t rendered_frames = 0;
+  std::uint64_t silent_frames = 0;
+  std::uint64_t minimum_queue_frames =
+      (std::numeric_limits<std::uint64_t>::max)();
+  std::uint64_t maximum_queue_frames = 0;
+  std::uint64_t resync_count = 0;
+  std::uint64_t discarded_blocks = 0;
+  std::uint64_t reconnect_count = 0;
+  double maximum_correction_ppm = 0.0;
+};
+
+SessionOutcome run_render_session(
+    IMMDevice* endpoint,
+    std::wstring_view selected_name,
+    bool system_share,
+    HWND target_window,
+    std::wstring_view matched_title,
+    bool persistent,
+    ULONGLONG run_deadline,
+    HANDLE stop_event,
+    soundfork::capture::SharedRingReader* reader,
+    RelayMetrics* metrics) {
+  if (endpoint == nullptr || reader == nullptr || metrics == nullptr) {
+    return SessionOutcome::fatal;
+  }
+
+  ComPtr<IAudioClient> audio_client;
+  HRESULT result = endpoint->Activate(
+      __uuidof(IAudioClient),
+      CLSCTX_ALL,
+      nullptr,
+      reinterpret_cast<void**>(audio_client.GetAddressOf()));
+  if (FAILED(result)) {
+    succeeded_asio_style(result, L"IAudioClient activation");
+    return soundfork::capture::recoverable_audio_error(result)
+               ? SessionOutcome::reconnect
+               : SessionOutcome::fatal;
+  }
+
+  WAVEFORMATEXTENSIBLE wave_format{};
+  wave_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+  wave_format.Format.nChannels = 2;
+  wave_format.Format.nSamplesPerSec = 48000;
+  wave_format.Format.wBitsPerSample = 32;
+  wave_format.Format.nBlockAlign = 8;
+  wave_format.Format.nAvgBytesPerSec = 48000 * 8;
+  wave_format.Format.cbSize =
+      sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+  wave_format.Samples.wValidBitsPerSample = 32;
+  wave_format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+  wave_format.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+
+  constexpr DWORD kStreamFlags =
+      AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST |
+      AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+      AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+  result = audio_client->Initialize(
+      AUDCLNT_SHAREMODE_SHARED,
+      kStreamFlags,
+      0,
+      0,
+      &wave_format.Format,
+      nullptr);
+  if (FAILED(result)) {
+    succeeded_asio_style(result, L"IAudioClient initialization");
+    return soundfork::capture::recoverable_audio_error(result)
+               ? SessionOutcome::reconnect
+               : SessionOutcome::fatal;
+  }
+
+  if (!system_share) {
+    ComPtr<IAudioViewManagerService> view_manager;
+    result = audio_client->GetService(IID_PPV_ARGS(&view_manager));
+    if (SUCCEEDED(result)) {
+      result = view_manager->SetAudioStreamWindow(target_window);
+    }
+    if (FAILED(result)) {
+      std::wcerr
+          << L"This Windows build cannot associate relay audio with the "
+             L"selected window.\n";
+      return soundfork::capture::recoverable_audio_error(result)
+                 ? SessionOutcome::reconnect
+                 : SessionOutcome::fatal;
+    }
+  }
+
+  HandleCloser audio_event{CreateEventW(nullptr, FALSE, FALSE, nullptr)};
+  if (audio_event.value == nullptr) {
+    return SessionOutcome::fatal;
+  }
+  result = audio_client->SetEventHandle(audio_event.value);
+  if (FAILED(result)) {
+    succeeded_asio_style(result, L"SetEventHandle");
+    return soundfork::capture::recoverable_audio_error(result)
+               ? SessionOutcome::reconnect
+               : SessionOutcome::fatal;
+  }
+
+  ComPtr<IAudioRenderClient> render_client;
+  UINT32 endpoint_buffer_frames = 0;
+  result = audio_client->GetBufferSize(&endpoint_buffer_frames);
+  if (SUCCEEDED(result)) {
+    result = audio_client->GetService(IID_PPV_ARGS(&render_client));
+  }
+  BYTE* initial_buffer = nullptr;
+  if (SUCCEEDED(result)) {
+    result = render_client->GetBuffer(endpoint_buffer_frames, &initial_buffer);
+  }
+  if (SUCCEEDED(result)) {
+    result = render_client->ReleaseBuffer(
+        endpoint_buffer_frames, AUDCLNT_BUFFERFLAGS_SILENT);
+  }
+  if (FAILED(result)) {
+    succeeded_asio_style(result, L"Initial render buffer");
+    return soundfork::capture::recoverable_audio_error(result)
+               ? SessionOutcome::reconnect
+               : SessionOutcome::fatal;
+  }
+
+  std::wcout << L"Endpoint: " << selected_name << L'\n';
+  if (system_share) {
+    std::wcout << L"Mode: entire-screen/system audio\n";
+  } else {
+    std::wcout << L"Associated window: " << matched_title << L'\n';
+  }
+  std::wcout << L"Format: 48000 Hz, stereo Int32LSB\n";
+  result = audio_client->Start();
+  if (FAILED(result)) {
+    succeeded_asio_style(result, L"IAudioClient start");
+    return soundfork::capture::recoverable_audio_error(result)
+               ? SessionOutcome::reconnect
+               : SessionOutcome::fatal;
+  }
+
+  const auto format = reader->format();
+  auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
+  soundfork::capture::RelayClockController clock(
+      format.sample_rate, format.frames_per_block);
+  bool prebuffered = false;
+  std::uint64_t prebuffer_silent_frames = 0;
+  const HANDLE wait_handles[] = {audio_event.value, stop_event};
+  SessionOutcome outcome = SessionOutcome::complete;
+  while (persistent || GetTickCount64() < run_deadline) {
+    const DWORD wait_result = WaitForMultipleObjects(
+        static_cast<DWORD>(std::size(wait_handles)),
+        wait_handles,
+        FALSE,
+        200);
+    if (wait_result == WAIT_OBJECT_0 + 1) {
+      outcome = SessionOutcome::stopped;
+      break;
+    }
+    if (wait_result == WAIT_TIMEOUT) {
+      UINT32 ignored_padding = 0;
+      result = audio_client->GetCurrentPadding(&ignored_padding);
+      if (FAILED(result)) {
+        outcome = soundfork::capture::recoverable_audio_error(result)
+                      ? SessionOutcome::reconnect
+                      : SessionOutcome::fatal;
+        break;
+      }
+      continue;
+    }
+    if (wait_result != WAIT_OBJECT_0) {
+      outcome = SessionOutcome::reconnect;
+      break;
+    }
+
+    UINT32 padding = 0;
+    result = audio_client->GetCurrentPadding(&padding);
+    if (FAILED(result)) {
+      outcome = soundfork::capture::recoverable_audio_error(result)
+                    ? SessionOutcome::reconnect
+                    : SessionOutcome::fatal;
+      break;
+    }
+    if (padding >= endpoint_buffer_frames) {
+      continue;
+    }
+    const UINT32 available = endpoint_buffer_frames - padding;
+    BYTE* raw_destination = nullptr;
+    result = render_client->GetBuffer(available, &raw_destination);
+    if (FAILED(result)) {
+      outcome = soundfork::capture::recoverable_audio_error(result)
+                    ? SessionOutcome::reconnect
+                    : SessionOutcome::fatal;
+      break;
+    }
+
+    auto* destination = reinterpret_cast<std::int32_t*>(raw_destination);
+    std::uint64_t queue_frames = source->buffered_frames(*reader);
+    if (queue_frames >
+        static_cast<std::uint64_t>(format.frames_per_block) * 48U) {
+      metrics->discarded_blocks += reader->discard_oldest(4);
+      source->reset();
+      clock.reset();
+      ++metrics->resync_count;
+      queue_frames = source->buffered_frames(*reader);
+    }
+    metrics->minimum_queue_frames =
+        (std::min)(metrics->minimum_queue_frames, queue_frames);
+    metrics->maximum_queue_frames =
+        (std::max)(metrics->maximum_queue_frames, queue_frames);
+    if (!prebuffered && queue_frames >= clock.target_frames()) {
+      prebuffered = true;
+    }
+
+    bool any_audio = false;
+    if (prebuffered) {
+      const double ratio = clock.update(queue_frames, available);
+      metrics->maximum_correction_ppm = (std::max)(
+          metrics->maximum_correction_ppm, std::abs(clock.correction_ppm()));
+      any_audio = source->render(*reader, destination, available, ratio);
+    } else {
+      std::fill_n(destination, static_cast<std::size_t>(available) * 2, 0);
+      prebuffer_silent_frames += available;
+    }
+    result = render_client->ReleaseBuffer(
+        available, any_audio ? 0 : AUDCLNT_BUFFERFLAGS_SILENT);
+    if (FAILED(result)) {
+      outcome = soundfork::capture::recoverable_audio_error(result)
+                    ? SessionOutcome::reconnect
+                    : SessionOutcome::fatal;
+      break;
+    }
+    metrics->rendered_frames += available;
+  }
+
+  audio_client->Stop();
+  metrics->silent_frames +=
+      prebuffer_silent_frames + source->metrics().silent_frames;
+  return outcome;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -288,14 +531,6 @@ int wmain(int argc, wchar_t** argv) {
       return 10;
     }
 
-    std::wstring selected_name;
-    ComPtr<IMMDevice> endpoint = select_endpoint(
-        enumerator.Get(), endpoints, endpoint_name, &selected_name);
-    if (endpoint == nullptr) {
-      std::wcerr << L"Requested render endpoint was not found\n";
-      return 4;
-    }
-
     soundfork::capture::SharedRingReader reader;
     HWND target_window = nullptr;
     std::wstring matched_title;
@@ -331,180 +566,65 @@ int wmain(int argc, wchar_t** argv) {
       return 7;
     }
 
-    ComPtr<IAudioClient> audio_client;
-    result = endpoint->Activate(
-        __uuidof(IAudioClient),
-        CLSCTX_ALL,
-        nullptr,
-        reinterpret_cast<void**>(audio_client.GetAddressOf()));
-    if (!succeeded_asio_style(result, L"IAudioClient activation")) {
-      return 8;
-    }
-
-    WAVEFORMATEXTENSIBLE wave_format{};
-    wave_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-    wave_format.Format.nChannels = 2;
-    wave_format.Format.nSamplesPerSec = 48000;
-    wave_format.Format.wBitsPerSample = 32;
-    wave_format.Format.nBlockAlign = 8;
-    wave_format.Format.nAvgBytesPerSec = 48000 * 8;
-    wave_format.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
-    wave_format.Samples.wValidBitsPerSample = 32;
-    wave_format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
-    wave_format.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
-
-    constexpr DWORD kStreamFlags =
-        AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST |
-        AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-        AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-    result = audio_client->Initialize(
-        AUDCLNT_SHAREMODE_SHARED,
-        kStreamFlags,
-        0,
-        0,
-        &wave_format.Format,
-        nullptr);
-    if (!succeeded_asio_style(result, L"IAudioClient initialization")) {
-      return 8;
-    }
-
-    if (!system_share) {
-      ComPtr<IAudioViewManagerService> view_manager;
-      result = audio_client->GetService(IID_PPV_ARGS(&view_manager));
-      if (!succeeded_asio_style(result, L"IAudioViewManagerService query") ||
-          !succeeded_asio_style(
-              view_manager->SetAudioStreamWindow(target_window),
-              L"Audio stream/window association")) {
-        std::wcerr
-            << L"This Windows build cannot associate relay audio with DJMAX.\n";
-        return 9;
-      }
-    }
-
-    HANDLE audio_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (audio_event == nullptr ||
-        !succeeded_asio_style(
-            audio_client->SetEventHandle(audio_event), L"SetEventHandle")) {
-      if (audio_event != nullptr) {
-        CloseHandle(audio_event);
-      }
-      return 8;
-    }
-
-    ComPtr<IAudioRenderClient> render_client;
-    UINT32 endpoint_buffer_frames = 0;
-    result = audio_client->GetBufferSize(&endpoint_buffer_frames);
-    if (SUCCEEDED(result)) {
-      result = audio_client->GetService(IID_PPV_ARGS(&render_client));
-    }
-    BYTE* initial_buffer = nullptr;
-    if (SUCCEEDED(result)) {
-      result = render_client->GetBuffer(endpoint_buffer_frames, &initial_buffer);
-    }
-    if (SUCCEEDED(result)) {
-      result = render_client->ReleaseBuffer(
-          endpoint_buffer_frames, AUDCLNT_BUFFERFLAGS_SILENT);
-    }
-    if (!succeeded_asio_style(result, L"Initial render buffer")) {
-      CloseHandle(audio_event);
-      return 8;
-    }
-
-    std::wcout << L"Endpoint: " << selected_name << L'\n';
-    if (system_share) {
-      std::wcout << L"Mode: entire-screen/system audio\n";
-    } else {
-      std::wcout << L"Associated window: " << matched_title << L'\n';
-    }
-    std::wcout << L"Format: 48000 Hz, stereo Int32LSB\n";
-    result = audio_client->Start();
-    if (!succeeded_asio_style(result, L"IAudioClient start")) {
-      CloseHandle(audio_event);
-      return 8;
-    }
-
-    auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
-    soundfork::capture::RelayClockController clock(
-        format.sample_rate, format.frames_per_block);
-    bool prebuffered = false;
-    std::uint64_t rendered_frames = 0;
-    std::uint64_t minimum_queue_frames =
-        (std::numeric_limits<std::uint64_t>::max)();
-    std::uint64_t maximum_queue_frames = 0;
-    std::uint64_t resync_count = 0;
-    std::uint64_t discarded_blocks = 0;
-    double maximum_correction_ppm = 0.0;
     const ULONGLONG run_deadline =
         GetTickCount64() + static_cast<ULONGLONG>(duration_seconds) * 1000;
-    const HANDLE wait_handles[] = {audio_event, stop_event.value};
+    RelayMetrics metrics;
     while (persistent || GetTickCount64() < run_deadline) {
-      const DWORD wait_result = WaitForMultipleObjects(
-          static_cast<DWORD>(std::size(wait_handles)),
-          wait_handles,
-          FALSE,
-          200);
-      if (wait_result == WAIT_OBJECT_0 + 1) {
+      if (WaitForSingleObject(stop_event.value, 0) == WAIT_OBJECT_0) {
         break;
       }
-      if (wait_result != WAIT_OBJECT_0) {
+      const std::vector<EndpointRecord> current_endpoints =
+          enumerate_endpoints(enumerator.Get());
+      std::wstring selected_name;
+      ComPtr<IMMDevice> endpoint = select_endpoint(
+          enumerator.Get(), current_endpoints, endpoint_name, &selected_name);
+      if (endpoint == nullptr) {
+        if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
+          break;
+        }
         continue;
       }
-      UINT32 padding = 0;
-      if (FAILED(audio_client->GetCurrentPadding(&padding)) ||
-          padding >= endpoint_buffer_frames) {
-        continue;
+      const SessionOutcome outcome = run_render_session(
+          endpoint.Get(),
+          selected_name,
+          system_share,
+          target_window,
+          matched_title,
+          persistent,
+          run_deadline,
+          stop_event.value,
+          &reader,
+          &metrics);
+      if (outcome == SessionOutcome::fatal) {
+        return 8;
       }
-      const UINT32 available = endpoint_buffer_frames - padding;
-      BYTE* raw_destination = nullptr;
-      if (FAILED(render_client->GetBuffer(available, &raw_destination))) {
-        continue;
+      if (outcome == SessionOutcome::complete ||
+          outcome == SessionOutcome::stopped) {
+        break;
       }
-      auto* destination = reinterpret_cast<std::int32_t*>(raw_destination);
-      std::uint64_t queue_frames = source->buffered_frames(reader);
-      if (queue_frames >
-          static_cast<std::uint64_t>(format.frames_per_block) * 48U) {
-        discarded_blocks += reader.discard_oldest(4);
-        source->reset();
-        clock.reset();
-        ++resync_count;
-        queue_frames = source->buffered_frames(reader);
+      ++metrics.reconnect_count;
+      std::wcerr << L"Audio endpoint disconnected; waiting to reconnect\n";
+      if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
+        break;
       }
-      minimum_queue_frames = (std::min)(minimum_queue_frames, queue_frames);
-      maximum_queue_frames = (std::max)(maximum_queue_frames, queue_frames);
-      if (!prebuffered && queue_frames >= clock.target_frames()) {
-        prebuffered = true;
-      }
-
-      bool any_audio = false;
-      if (prebuffered) {
-        const double ratio = clock.update(queue_frames, available);
-        maximum_correction_ppm = (std::max)(
-            maximum_correction_ppm, std::abs(clock.correction_ppm()));
-        any_audio = source->render(reader, destination, available, ratio);
-      } else {
-        std::fill_n(destination, static_cast<std::size_t>(available) * 2, 0);
-      }
-      render_client->ReleaseBuffer(
-          available, any_audio ? 0 : AUDCLNT_BUFFERFLAGS_SILENT);
-      rendered_frames += available;
     }
 
-    audio_client->Stop();
-    CloseHandle(audio_event);
     const auto stats = reader.stats();
-    const auto source_metrics = source->metrics();
-    if (minimum_queue_frames ==
+    if (metrics.minimum_queue_frames ==
         (std::numeric_limits<std::uint64_t>::max)()) {
-      minimum_queue_frames = 0;
+      metrics.minimum_queue_frames = 0;
     }
-    std::wcout << L"Rendered frames: " << rendered_frames
+    std::wcout << L"Rendered frames: " << metrics.rendered_frames
                << L"\nUnderflow/silent frames: "
-               << source_metrics.silent_frames
-               << L"\nRelay queue frames (min/max): " << minimum_queue_frames
-               << L"/" << maximum_queue_frames
-               << L"\nMaximum clock correction: " << maximum_correction_ppm
-               << L" ppm\nRelay resyncs: " << resync_count
-               << L"\nDiscarded stale blocks: " << discarded_blocks
+               << metrics.silent_frames
+               << L"\nRelay queue frames (min/max): "
+               << metrics.minimum_queue_frames << L"/"
+               << metrics.maximum_queue_frames
+               << L"\nMaximum clock correction: "
+               << metrics.maximum_correction_ppm
+               << L" ppm\nRelay resyncs: " << metrics.resync_count
+               << L"\nEndpoint reconnects: " << metrics.reconnect_count
+               << L"\nDiscarded stale blocks: " << metrics.discarded_blocks
                << L"\nCapture dropped blocks: " << stats.dropped_blocks << L'\n';
   }
   return exit_code;
