@@ -7,6 +7,7 @@
 #include <string>
 
 #include "capture-backend/shared_ring.hpp"
+#include "capture-backend/shared_ring_layout.hpp"
 
 namespace {
 
@@ -77,6 +78,37 @@ void test_shared_ring() {
     require(output[frame * 2] == left[frame], "left sample mismatch");
     require(output[frame * 2 + 1] == right[frame], "right sample mismatch");
   }
+
+  HANDLE mapping = OpenFileMappingW(
+      FILE_MAP_ALL_ACCESS, FALSE, mapping_name.c_str());
+  if (mapping == nullptr) {
+    throw std::runtime_error("test could not reopen shared mapping");
+  }
+  void* view = MapViewOfFile(
+      mapping,
+      FILE_MAP_ALL_ACCESS,
+      0,
+      0,
+      soundfork::capture::detail::kMappingBytes);
+  if (view == nullptr) {
+    CloseHandle(mapping);
+    throw std::runtime_error("test could not map shared layout");
+  }
+  auto* shared = static_cast<soundfork::capture::detail::SharedHeader*>(view);
+  const std::uint32_t original_frames = shared->frames_per_block;
+  shared->frames_per_block = soundfork::capture::kMaxFramesPerBlock;
+  require(
+      !publisher.publish_int32_stereo(left.data(), right.data()),
+      "publisher trusted a modified shared format");
+  std::uint32_t rejected_frames = 123;
+  require(
+      !reader.read_int32_stereo(
+          output.data(), output.size(), &rejected_frames) &&
+          rejected_frames == 0,
+      "reader trusted a modified shared format");
+  shared->frames_per_block = original_frames;
+  UnmapViewOfFile(view);
+  CloseHandle(mapping);
 
   for (std::uint32_t block = 0;
        block < soundfork::capture::kCapacityBlocks;

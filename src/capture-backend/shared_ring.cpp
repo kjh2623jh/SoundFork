@@ -1,40 +1,18 @@
 #include "capture-backend/shared_ring.hpp"
 
 #include <cstring>
-#include <limits>
+
+#include "capture-backend/shared_ring_layout.hpp"
 
 namespace soundfork::capture {
 namespace {
 
-constexpr std::uint32_t kMagic = 0x4B524653;  // "SFRK"
-constexpr std::uint32_t kVersion = 1;
-constexpr std::size_t kHeaderBytes = 256;
-constexpr std::size_t kSamplesPerBlock =
-    static_cast<std::size_t>(kMaxFramesPerBlock) * kChannelCount;
-constexpr std::size_t kDataBytes =
-    kSamplesPerBlock * sizeof(std::int32_t) * kCapacityBlocks;
-constexpr std::size_t kMappingBytes = kHeaderBytes + kDataBytes;
-
-struct SharedHeader {
-  std::uint32_t magic;
-  std::uint32_t version;
-  std::uint32_t sample_rate;
-  std::uint32_t channel_count;
-  std::uint32_t frames_per_block;
-  std::uint32_t bytes_per_sample;
-  std::uint32_t capacity_blocks;
-  std::uint32_t producer_pid;
-  std::uint32_t consumer_pid;
-  volatile LONG producer_active;
-  volatile LONG consumer_active;
-  volatile LONG ready;
-  alignas(8) volatile LONG64 write_sequence;
-  alignas(8) volatile LONG64 read_sequence;
-  alignas(8) volatile LONG64 dropped_blocks;
-};
-
-static_assert(sizeof(SharedHeader) <= kHeaderBytes);
-static_assert(kMappingBytes <= std::numeric_limits<DWORD>::max());
+using detail::SharedHeader;
+using detail::kDataBytes;
+using detail::kHeaderBytes;
+using detail::kMagic;
+using detail::kMappingBytes;
+using detail::kVersion;
 
 SharedHeader* header(void* view) noexcept {
   return static_cast<SharedHeader*>(view);
@@ -49,14 +27,23 @@ std::int32_t* data(void* view) noexcept {
       static_cast<std::byte*>(view) + kHeaderBytes);
 }
 
-const std::int32_t* data(const void* view) noexcept {
-  return reinterpret_cast<const std::int32_t*>(
-      static_cast<const std::byte*>(view) + kHeaderBytes);
-}
-
 LONG64 load64(const volatile LONG64* value) noexcept {
   return InterlockedCompareExchange64(
       const_cast<volatile LONG64*>(value), 0, 0);
+}
+
+LONG load32(const volatile LONG* value) noexcept {
+  return InterlockedCompareExchange(const_cast<volatile LONG*>(value), 0, 0);
+}
+
+bool mapping_region_is_valid(const void* view) noexcept {
+  MEMORY_BASIC_INFORMATION information{};
+  return view != nullptr &&
+         VirtualQuery(view, &information, sizeof(information)) ==
+             sizeof(information) &&
+         information.AllocationBase == view &&
+         information.State == MEM_COMMIT &&
+         information.RegionSize >= kMappingBytes;
 }
 
 bool process_is_alive(std::uint32_t process_id) noexcept {
@@ -75,11 +62,26 @@ bool process_is_alive(std::uint32_t process_id) noexcept {
 bool valid_header(const SharedHeader* value) noexcept {
   return value != nullptr && value->magic == kMagic &&
          value->version == kVersion &&
+         value->header_bytes == kHeaderBytes &&
+         value->mapping_bytes == kMappingBytes &&
+         value->sample_rate > 0 &&
          value->channel_count == kChannelCount &&
          value->bytes_per_sample == sizeof(std::int32_t) &&
          value->capacity_blocks == kCapacityBlocks &&
+         value->max_frames_per_block == kMaxFramesPerBlock &&
          value->frames_per_block > 0 &&
-         value->frames_per_block <= kMaxFramesPerBlock;
+         value->frames_per_block <= kMaxFramesPerBlock &&
+         value->format_checksum == detail::format_checksum(
+                                       value->sample_rate,
+                                       value->frames_per_block);
+}
+
+bool header_matches_format(
+    const SharedHeader* value, const StreamFormat& format) noexcept {
+  return valid_header(value) && value->sample_rate == format.sample_rate &&
+         value->channel_count == format.channel_count &&
+         value->frames_per_block == format.frames_per_block &&
+         value->bytes_per_sample == format.bytes_per_sample;
 }
 
 }  // namespace
@@ -110,17 +112,25 @@ bool SharedRingPublisher::open(
     return false;
   }
   view_ = MapViewOfFile(mapping_, FILE_MAP_ALL_ACCESS, 0, 0, kMappingBytes);
-  if (view_ == nullptr) {
+  if (!mapping_region_is_valid(view_)) {
+    if (view_ != nullptr) {
+      UnmapViewOfFile(view_);
+      view_ = nullptr;
+    }
     CloseHandle(mapping_);
     mapping_ = nullptr;
     return false;
   }
 
   SharedHeader* shared = header(view_);
-  if (shared->magic != kMagic || shared->version != kVersion) {
+  if (shared->magic != kMagic || shared->version != kVersion ||
+      shared->header_bytes != kHeaderBytes ||
+      shared->mapping_bytes != kMappingBytes) {
     std::memset(shared, 0, kHeaderBytes);
     shared->magic = kMagic;
     shared->version = kVersion;
+    shared->header_bytes = static_cast<std::uint32_t>(kHeaderBytes);
+    shared->mapping_bytes = static_cast<std::uint32_t>(kMappingBytes);
   }
 
   if (InterlockedCompareExchange(&shared->producer_active, 1, 0) != 0) {
@@ -138,15 +148,31 @@ bool SharedRingPublisher::open(
   owns_producer_ = true;
 
   InterlockedExchange(&shared->ready, 0);
+  const LONG64 previous_generation = load64(&shared->generation);
+  const LONG64 configuring_generation =
+      (previous_generation & 1) != 0 ? previous_generation
+                                     : previous_generation + 1;
+  InterlockedExchange64(&shared->generation, configuring_generation);
+  format_ = {
+      sample_rate,
+      kChannelCount,
+      frames_per_block,
+      static_cast<std::uint32_t>(sizeof(std::int32_t))};
   shared->sample_rate = sample_rate;
   shared->channel_count = kChannelCount;
   shared->frames_per_block = frames_per_block;
   shared->bytes_per_sample = sizeof(std::int32_t);
   shared->capacity_blocks = kCapacityBlocks;
+  shared->max_frames_per_block = kMaxFramesPerBlock;
+  shared->format_checksum = detail::format_checksum(sample_rate, frames_per_block);
   shared->producer_pid = GetCurrentProcessId();
   InterlockedExchange64(&shared->write_sequence, 0);
   InterlockedExchange64(&shared->read_sequence, 0);
   InterlockedExchange64(&shared->dropped_blocks, 0);
+  // File-backed pages are committed lazily. Touch every capture page before
+  // streaming so the ASIO callback does not take first-touch page faults.
+  std::memset(data(view_), 0, kDataBytes);
+  InterlockedExchange64(&shared->generation, configuring_generation + 1);
   InterlockedExchange(&shared->ready, 1);
   return true;
 }
@@ -159,6 +185,7 @@ void SharedRingPublisher::close() noexcept {
     InterlockedExchange(&shared->producer_active, 0);
   }
   owns_producer_ = false;
+  format_ = {};
   if (view_ != nullptr) {
     UnmapViewOfFile(view_);
     view_ = nullptr;
@@ -172,11 +199,12 @@ void SharedRingPublisher::close() noexcept {
 bool SharedRingPublisher::publish_int32_stereo(
     const std::int32_t* left,
     const std::int32_t* right) noexcept {
-  if (view_ == nullptr || left == nullptr || right == nullptr) {
+  if (view_ == nullptr || left == nullptr || right == nullptr ||
+      format_.frames_per_block == 0) {
     return false;
   }
   SharedHeader* shared = header(view_);
-  if (shared->ready == 0) {
+  if (load32(&shared->ready) == 0 || !header_matches_format(shared, format_)) {
     return false;
   }
 
@@ -188,8 +216,9 @@ bool SharedRingPublisher::publish_int32_stereo(
   }
 
   const std::size_t slot = static_cast<std::size_t>(write) % kCapacityBlocks;
-  std::int32_t* destination = data(view_) + slot * kSamplesPerBlock;
-  const std::uint32_t frames = shared->frames_per_block;
+  std::int32_t* destination = reinterpret_cast<std::int32_t*>(
+      static_cast<std::byte*>(view_) + detail::block_offset(slot));
+  const std::uint32_t frames = format_.frames_per_block;
   for (std::uint32_t frame = 0; frame < frames; ++frame) {
     destination[frame * 2] = left[frame];
     destination[frame * 2 + 1] = right[frame];
@@ -228,15 +257,20 @@ bool SharedRingReader::open(
     return false;
   }
   view_ = MapViewOfFile(mapping_, FILE_MAP_ALL_ACCESS, 0, 0, kMappingBytes);
-  if (view_ == nullptr) {
+  if (!mapping_region_is_valid(view_)) {
+    if (view_ != nullptr) {
+      UnmapViewOfFile(view_);
+      view_ = nullptr;
+    }
     CloseHandle(mapping_);
     mapping_ = nullptr;
     return false;
   }
 
   SharedHeader* shared = header(view_);
-  if (!valid_header(shared) || shared->ready == 0 ||
-      shared->producer_active == 0) {
+  const LONG64 generation = load64(&shared->generation);
+  if ((generation & 1) != 0 || !valid_header(shared) ||
+      load32(&shared->ready) == 0 || load32(&shared->producer_active) == 0) {
     close();
     return false;
   }
@@ -253,6 +287,16 @@ bool SharedRingReader::open(
     }
   }
   owns_consumer_ = true;
+  format_ = {
+      shared->sample_rate,
+      shared->channel_count,
+      shared->frames_per_block,
+      shared->bytes_per_sample};
+  if (load64(&shared->generation) != generation ||
+      !header_matches_format(shared, format_)) {
+    close();
+    return false;
+  }
   shared->consumer_pid = GetCurrentProcessId();
   if (start_at_latest) {
     InterlockedExchange64(
@@ -268,6 +312,7 @@ void SharedRingReader::close() noexcept {
     InterlockedExchange(&shared->consumer_active, 0);
   }
   owns_consumer_ = false;
+  format_ = {};
   if (view_ != nullptr) {
     UnmapViewOfFile(view_);
     view_ = nullptr;
@@ -290,11 +335,11 @@ bool SharedRingReader::read_int32_stereo(
   }
 
   SharedHeader* shared = header(view_);
-  if (shared->ready == 0) {
+  if (load32(&shared->ready) == 0 || !header_matches_format(shared, format_)) {
     return false;
   }
   const std::size_t required_samples =
-      static_cast<std::size_t>(shared->frames_per_block) * kChannelCount;
+      static_cast<std::size_t>(format_.frames_per_block) * kChannelCount;
   if (sample_capacity < required_samples) {
     return false;
   }
@@ -305,12 +350,21 @@ bool SharedRingReader::read_int32_stereo(
     return false;
   }
 
+  const LONG64 generation = load64(&shared->generation);
+  if ((generation & 1) != 0) {
+    return false;
+  }
   const std::size_t slot = static_cast<std::size_t>(read) % kCapacityBlocks;
-  const std::int32_t* source = data(view_) + slot * kSamplesPerBlock;
+  const std::int32_t* source = reinterpret_cast<const std::int32_t*>(
+      static_cast<const std::byte*>(view_) + detail::block_offset(slot));
   std::memcpy(
       interleaved, source, required_samples * sizeof(std::int32_t));
+  if (load64(&shared->generation) != generation ||
+      load32(&shared->ready) == 0) {
+    return false;
+  }
   InterlockedExchange64(&shared->read_sequence, read + 1);
-  *frames_read = shared->frames_per_block;
+  *frames_read = format_.frames_per_block;
   return true;
 }
 
@@ -319,15 +373,7 @@ bool SharedRingReader::is_open() const noexcept {
 }
 
 StreamFormat SharedRingReader::format() const noexcept {
-  if (view_ == nullptr) {
-    return {};
-  }
-  const SharedHeader* shared = header(view_);
-  return {
-      shared->sample_rate,
-      shared->channel_count,
-      shared->frames_per_block,
-      shared->bytes_per_sample};
+  return format_;
 }
 
 StreamStats SharedRingReader::stats() const noexcept {
@@ -355,7 +401,11 @@ bool SharedRingObserver::open(const wchar_t* mapping_name) noexcept {
     return false;
   }
   view_ = MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, kMappingBytes);
-  if (view_ == nullptr) {
+  if (!mapping_region_is_valid(view_)) {
+    if (view_ != nullptr) {
+      UnmapViewOfFile(view_);
+      view_ = nullptr;
+    }
     CloseHandle(mapping_);
     mapping_ = nullptr;
     return false;
@@ -390,6 +440,9 @@ bool SharedRingObserver::snapshot(StreamStatus* status) const noexcept {
   if (!valid_header(shared)) {
     return false;
   }
+  // The observer maps the section read-only. Its values are informational, so
+  // aligned volatile loads are sufficient and avoid write-style interlocked
+  // operations on a read-only view.
   const bool producer_alive =
       shared->producer_active != 0 && process_is_alive(shared->producer_pid);
   const bool consumer_alive =
@@ -403,8 +456,7 @@ bool SharedRingObserver::snapshot(StreamStatus* status) const noexcept {
       shared->channel_count,
       shared->frames_per_block,
       shared->bytes_per_sample};
-  // Aligned 64-bit reads are atomic on the supported Windows x64 target. These
-  // counters are diagnostic snapshots and need not be one transaction.
+  // These counters are diagnostic snapshots and need not be one transaction.
   status->stats = {
       static_cast<std::uint64_t>(shared->write_sequence),
       static_cast<std::uint64_t>(shared->read_sequence),

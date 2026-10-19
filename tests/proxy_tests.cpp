@@ -1,5 +1,6 @@
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
@@ -159,14 +160,37 @@ void test_zero_copy_and_callbacks() {
   }
 
   g_track_allocations.store(true, std::memory_order_release);
+  LARGE_INTEGER frequency{};
+  require(
+      QueryPerformanceFrequency(&frequency) != FALSE,
+      "performance counter frequency query failed");
+  std::int64_t total_ticks = 0;
+  std::int64_t maximum_ticks = 0;
   for (long iteration = 1; iteration < 10000; ++iteration) {
+    LARGE_INTEGER start{};
+    LARGE_INTEGER end{};
+    QueryPerformanceCounter(&start);
     fake->fire_buffer_switch(iteration & 1L);
+    QueryPerformanceCounter(&end);
+    const std::int64_t elapsed = end.QuadPart - start.QuadPart;
+    total_ticks += elapsed;
+    maximum_ticks = std::max(maximum_ticks, elapsed);
   }
   g_track_allocations.store(false, std::memory_order_release);
   require(
       g_callback_allocations.load(std::memory_order_relaxed) == 0,
       "allocation occurred in the callback path");
   require(callback_state.switches == 10000, "callback count mismatch");
+  const double measured_callbacks = 9999.0;
+  const double average_microseconds =
+      1000000.0 * static_cast<double>(total_ticks) /
+      (static_cast<double>(frequency.QuadPart) * measured_callbacks);
+  const double maximum_microseconds =
+      1000000.0 * static_cast<double>(maximum_ticks) /
+      static_cast<double>(frequency.QuadPart);
+  std::cout << "Synthetic callback wall time: average="
+            << average_microseconds << " us, max=" << maximum_microseconds
+            << " us\n";
 
   const long last_index = (10000 - 1) & 1L;
   require(

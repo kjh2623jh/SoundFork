@@ -7,7 +7,7 @@
 
 namespace soundfork::capture {
 
-inline constexpr wchar_t kDefaultMappingName[] = L"Local\\SoundFork.Audio.v1";
+inline constexpr wchar_t kDefaultMappingName[] = L"Local\\SoundFork.Audio.v2";
 inline constexpr std::uint32_t kChannelCount = 2;
 inline constexpr std::uint32_t kCapacityBlocks = 64;
 inline constexpr std::uint32_t kMaxFramesPerBlock = 8192;
@@ -57,6 +57,7 @@ class SharedRingPublisher final {
   HANDLE mapping_ = nullptr;
   void* view_ = nullptr;
   bool owns_producer_ = false;
+  StreamFormat format_{};
 };
 
 class SharedRingReader final {
@@ -83,6 +84,7 @@ class SharedRingReader final {
   HANDLE mapping_ = nullptr;
   void* view_ = nullptr;
   bool owns_consumer_ = false;
+  StreamFormat format_{};
 };
 
 // Read-only observer used by the control application. It never claims the
