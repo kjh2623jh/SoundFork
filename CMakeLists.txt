@@ -130,6 +130,16 @@ target_include_directories(soundfork_relay_tests PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 target_link_libraries(soundfork_relay_tests PRIVATE soundfork_warnings)
+
+add_executable(soundfork_soak_tests
+  tests/soak_tests.cpp
+)
+target_link_libraries(soundfork_soak_tests PRIVATE
+  soundfork_bridge
+  soundfork_fake_backend
+  soundfork_warnings
+  psapi
+)
 target_include_directories(soundfork_host PRIVATE "${SOUNDFORK_SDK_DIR}")
 target_include_directories(soundfork_host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(soundfork_host PRIVATE
@@ -204,6 +214,8 @@ install(PROGRAMS
   scripts/Remove-SoundFork.ps1
   scripts/Start-SoundForkRelay.ps1
   scripts/Stop-SoundForkRelay.ps1
+  scripts/Test-SoundForkSoak.ps1
   scripts/Unregister-SoundFork.ps1
+  scripts/Watch-SoundForkHardwareSoak.ps1
   DESTINATION scripts
 )
