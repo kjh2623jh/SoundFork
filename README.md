@@ -11,11 +11,11 @@ Discord와 OBS에서 캡처할 수 있게 합니다.
 
 ## 다운로드
 
-[**Windows x64 설치 파일 다운로드**](../../releases/download/v0.1.0-alpha.2/SoundFork-Setup-v0.1.0-alpha.2.exe) ·
-[ZIP 다운로드](../../releases/download/v0.1.0-alpha.2/SoundFork-v0.1.0-alpha.2-windows-x64.zip) ·
+[**Windows x64 설치 파일 다운로드**](../../releases/download/v0.1.0-alpha.3/SoundFork-Setup-v0.1.0-alpha.3.exe) ·
+[ZIP 다운로드](../../releases/download/v0.1.0-alpha.3/SoundFork-v0.1.0-alpha.3-windows-x64.zip) ·
 [모든 릴리스 보기](../../releases)
 
-현재 버전은 미서명 `v0.1.0-alpha.2`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
+현재 버전은 미서명 `v0.1.0-alpha.3`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
 설치할 때는 GitHub가 자동 생성한 “Source code”가 아니라 `SoundFork-Setup` 파일을
 사용합니다.
 
@@ -31,7 +31,7 @@ VoiceMeeter의 가상 재생 엔드포인트도 사용할 수 있습니다. Soun
 
 ## 설치 및 재생
 
-1. `SoundFork-Setup-v0.1.0-alpha.2.exe`를 실행합니다.
+1. `SoundFork-Setup-v0.1.0-alpha.3.exe`를 실행합니다.
 2. SoundFork가 사용할 하드웨어 ASIO 드라이버를 선택합니다.
 3. 게임이나 DAW의 ASIO 드라이버로 **SoundFork**를 선택합니다.
 4. 방송이나 녹화가 필요하면 **SoundFork Control**에서 가상 재생 엔드포인트를
