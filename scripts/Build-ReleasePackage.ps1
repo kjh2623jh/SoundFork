@@ -3,7 +3,9 @@ param(
     [string]$Version,
     [string]$OutputDirectory,
     [switch]$SkipBuild,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [string]$CertificateThumbprint,
+    [uri]$TimestampUrl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +29,9 @@ if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?$'
 $requestedBase = ($Version -split '-', 2)[0]
 if ($requestedBase -ne $baseVersion) {
     throw "Package version '$Version' does not match CMake base version '$baseVersion'."
+}
+if ([string]::IsNullOrWhiteSpace($CertificateThumbprint) -ne ($null -eq $TimestampUrl)) {
+    throw 'CertificateThumbprint and TimestampUrl must be supplied together.'
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -80,6 +85,18 @@ if ($LASTEXITCODE -ne 0) {
     throw 'CMake install staging failed.'
 }
 
+$signScript = Join-Path $PSScriptRoot 'Sign-SoundFork.ps1'
+if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+    $binariesToSign = @(
+        Get-ChildItem (Join-Path $packageRoot 'bin') -File |
+            Where-Object { $_.Extension -in @('.exe', '.dll') } |
+            Select-Object -ExpandProperty FullName
+    )
+    & $signScript -Path $binariesToSign `
+        -CertificateThumbprint $CertificateThumbprint `
+        -TimestampUrl $TimestampUrl
+}
+
 $zipPath = Join-Path $artifactRoot "$packageName.zip"
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -110,6 +127,11 @@ if (-not $SkipInstaller) {
     }
     if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
         throw "Expected installer was not produced: $setupPath"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+        & $signScript -Path $setupPath `
+            -CertificateThumbprint $CertificateThumbprint `
+            -TimestampUrl $TimestampUrl
     }
     $releaseFiles.Add($setupPath)
 }

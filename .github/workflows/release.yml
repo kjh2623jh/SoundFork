@@ -76,7 +76,56 @@ jobs:
 
       - name: Build, test, and package
         shell: pwsh
-        run: ./scripts/Build-ReleasePackage.ps1 -Version '${{ steps.version.outputs.version }}'
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $hasPfx = -not [string]::IsNullOrWhiteSpace($env:SIGNING_PFX_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:SIGNING_PFX_PASSWORD)
+          if ($hasPfx -ne $hasPassword) {
+            throw 'Both WINDOWS_SIGNING_PFX_BASE64 and WINDOWS_SIGNING_PFX_PASSWORD must be configured.'
+          }
+          if (-not $hasPfx) {
+            Write-Warning 'No signing certificate is configured; release artifacts will be unsigned.'
+            ./scripts/Build-ReleasePackage.ps1 -Version '${{ steps.version.outputs.version }}'
+            exit $LASTEXITCODE
+          }
+          if ([string]::IsNullOrWhiteSpace($env:TIMESTAMP_URL)) {
+            throw 'WINDOWS_TIMESTAMP_URL must be configured for signed releases.'
+          }
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'soundfork-signing.pfx'
+          $importedCertificate = $null
+          try {
+            [IO.File]::WriteAllBytes(
+              $pfxPath,
+              [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+            $securePassword = ConvertTo-SecureString `
+              $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+            $importedCertificate = @(
+              Import-PfxCertificate `
+                -FilePath $pfxPath `
+                -CertStoreLocation Cert:\CurrentUser\My `
+                -Password $securePassword `
+                -Exportable:$false
+            ) | Where-Object HasPrivateKey | Select-Object -First 1
+            if ($null -eq $importedCertificate) {
+              throw 'The PFX did not contain a certificate with a private key.'
+            }
+            ./scripts/Build-ReleasePackage.ps1 `
+              -Version '${{ steps.version.outputs.version }}' `
+              -CertificateThumbprint $importedCertificate.Thumbprint `
+              -TimestampUrl $env:TIMESTAMP_URL
+          } finally {
+            if ($null -ne $importedCertificate) {
+              Remove-Item -LiteralPath $importedCertificate.PSPath -Force
+            }
+            if (Test-Path -LiteralPath $pfxPath) {
+              Remove-Item -LiteralPath $pfxPath -Force
+            }
+          }
 
       - name: Verify release binary dependencies
         shell: pwsh
