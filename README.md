@@ -6,16 +6,17 @@
 > 실제 하드웨어 검증은 프로젝트 관리자가 수행했습니다.
 
 SoundFork는 Windows x64용 저지연 ASIO 브리지입니다. 게임이나 DAW의 오디오를 기존
-하드웨어 ASIO 드라이버와 DAC로 재생하면서, 같은 소리를 가상 오디오 장치로 복제해
-Discord와 OBS에서 캡처할 수 있게 합니다.
+하드웨어 ASIO 드라이버와 DAC로 재생하면서, 같은 소리를 Discord와 OBS에서 캡처할 수
+있게 합니다. Discord에는 가상 오디오 장치로 릴레이하며, OBS에는 전용 플러그인으로
+직접 전달하거나 가상 오디오 장치를 사용합니다.
 
 ## 다운로드
 
-[**Windows x64 설치 파일 다운로드**](../../releases/download/v0.1.0-beta.1/SoundFork-Setup-v0.1.0-beta.1.exe) ·
-[ZIP 다운로드](../../releases/download/v0.1.0-beta.1/SoundFork-v0.1.0-beta.1-windows-x64.zip) ·
+[**Windows x64 설치 파일 다운로드**](../../releases/download/v0.1.0-beta.2/SoundFork-Setup-v0.1.0-beta.2.exe) ·
+[ZIP 다운로드](../../releases/download/v0.1.0-beta.2/SoundFork-v0.1.0-beta.2-windows-x64.zip) ·
 [모든 릴리스 보기](../../releases)
 
-현재 버전은 미서명 `v0.1.0-beta.1`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
+현재 버전은 미서명 `v0.1.0-beta.2`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
 설치할 때는 GitHub가 자동 생성한 “Source code”가 아니라 `SoundFork-Setup` 파일을
 사용합니다.
 
@@ -23,7 +24,8 @@ Discord와 OBS에서 캡처할 수 있게 합니다.
 
 - Windows 10/11 x64
 - DAC 또는 오디오 인터페이스의 64비트 ASIO 드라이버
-- Discord 또는 OBS의 장치 캡처에 사용할 가상 오디오 재생 엔드포인트
+- Discord 화면 공유 또는 OBS의 가상 장치 캡처를 사용할 경우 가상 오디오 재생 엔드포인트
+- OBS 전용 플러그인을 사용할 경우 OBS Studio 32.2.2 이상 x64
 
 가상 오디오 장치는 [VB-CABLE](https://vb-audio.com/Cable/)을 권장합니다. 이미 설치된
 VoiceMeeter의 가상 재생 엔드포인트도 사용할 수 있습니다. SoundFork는 이러한 외부
@@ -31,11 +33,15 @@ VoiceMeeter의 가상 재생 엔드포인트도 사용할 수 있습니다. Soun
 
 ## 설치 및 재생
 
-1. `SoundFork-Setup-v0.1.0-beta.1.exe`를 실행합니다.
+1. `SoundFork-Setup-v0.1.0-beta.2.exe`를 실행합니다.
 2. SoundFork가 사용할 하드웨어 ASIO 드라이버를 선택합니다.
 3. 게임이나 DAW의 ASIO 드라이버로 **SoundFork**를 선택합니다.
-4. 방송이나 녹화가 필요하면 **SoundFork Control**에서 가상 재생 엔드포인트를
-   선택하고 **릴레이 시작**을 누릅니다.
+4. Discord 화면 공유나 가상 장치 캡처를 사용하려면 **SoundFork Control**에서 가상
+   재생 엔드포인트를 선택하고 **릴레이 시작**을 누릅니다. OBS 전용 플러그인만
+   사용한다면 릴레이를 시작하지 않아도 됩니다.
+
+기존 버전에서 업데이트할 때는 게임·DAW와 OBS를 종료하고 릴레이를 중지한 뒤
+설치 파일을 실행합니다. OBS 플러그인과 릴레이는 같은 버전의 구성 요소를 사용합니다.
 
 Relay가 중지된 상태에서 제어판을 닫으면 제어판이 종료됩니다. Relay가 실행 중이면
 알림 영역으로 숨겨지며, 트레이 메뉴에서 제어판을 다시 열거나 Relay를 중지할 수
@@ -54,10 +60,9 @@ Discord 애플리케이션 창 공유는 별도 릴레이의 오디오를 포함
 
 ## OBS 캡처
 
-개발 버전에는 선택 설치할 수 있는 **SoundFork 오디오** 플러그인이 추가되었습니다.
-기존 `v0.1.0-beta.1` 다운로드에는 포함되어 있지 않습니다.
+`v0.1.0-beta.2`에는 선택 설치할 수 있는 **SoundFork 오디오** 플러그인이 포함됩니다.
 
-새 설치 파일에서 **OBS 오디오 소스 플러그인 설치**를 선택한 뒤 OBS를 다시 실행하고,
+설치 파일에서 **OBS 오디오 소스 플러그인 설치**를 선택한 뒤 OBS를 다시 실행하고,
 소스 목록에 **SoundFork 오디오**를 추가합니다. OBS Studio 32.2.2 이상과 스테레오
 48 kHz 캡처를 지원합니다. 이 방식만 사용한다면 가상 오디오 장치와 릴레이 실행은
 필요하지 않습니다. Discord와 동시에 사용할 때는 기존처럼 릴레이를 시작합니다.

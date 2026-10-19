@@ -6,16 +6,17 @@
 > review, and real-hardware validation were performed by the project maintainer.
 
 SoundFork is a low-latency ASIO bridge for Windows x64. It plays audio from a
-game or DAW through the existing hardware ASIO driver and DAC while copying the
-same audio to a virtual audio device for capture by Discord and OBS.
+game or DAW through the existing hardware ASIO driver and DAC while making the
+same audio available to Discord and OBS. Discord uses a virtual-device relay;
+OBS can use the dedicated source plugin or a virtual audio device.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v0.1.0-beta.1/SoundFork-Setup-v0.1.0-beta.1.exe) ·
-[Download ZIP](../../releases/download/v0.1.0-beta.1/SoundFork-v0.1.0-beta.1-windows-x64.zip) ·
+[**Download Windows x64 Setup**](../../releases/download/v0.1.0-beta.2/SoundFork-Setup-v0.1.0-beta.2.exe) ·
+[Download ZIP](../../releases/download/v0.1.0-beta.2/SoundFork-v0.1.0-beta.2-windows-x64.zip) ·
 [View all releases](../../releases)
 
-The current version is the unsigned `v0.1.0-beta.1`, so Windows SmartScreen may
+The current version is the unsigned `v0.1.0-beta.2`, so Windows SmartScreen may
 show a warning. For installation, use the `SoundFork-Setup` file rather than a
 GitHub-generated “Source code” archive.
 
@@ -23,7 +24,8 @@ GitHub-generated “Source code” archive.
 
 - Windows 10/11 x64
 - An x64 ASIO driver for the DAC or audio interface
-- A virtual audio render endpoint for Discord or OBS capture
+- A virtual audio render endpoint for Discord screen sharing or OBS virtual-device capture
+- OBS Studio 32.2.2 or later (x64) when using the dedicated OBS plugin
 
 [VB-CABLE](https://vb-audio.com/Cable/) is recommended. An existing VoiceMeeter
 virtual render endpoint can also be used. SoundFork neither bundles nor removes
@@ -31,11 +33,15 @@ these external devices and does not change Windows default audio devices.
 
 ## Installation and playback
 
-1. Run `SoundFork-Setup-v0.1.0-beta.1.exe`.
+1. Run `SoundFork-Setup-v0.1.0-beta.2.exe`.
 2. Select the hardware ASIO driver SoundFork should use.
 3. Select **SoundFork** as the ASIO driver in the game or DAW.
-4. For broadcasting or recording, select a virtual render endpoint in
-   **SoundFork Control** and press **Start relay**.
+4. For Discord sharing or virtual-device capture, select a virtual render
+   endpoint in **SoundFork Control** and press **Start relay**. The dedicated
+   OBS plugin alone does not require the relay.
+
+When updating, close games/DAWs and OBS and stop the relay before running Setup.
+Use matching versions of the OBS plugin and relay.
 
 Closing the control panel exits it when the relay is stopped. While the relay is
 running, the panel hides in the notification area; use its tray menu to reopen
@@ -55,10 +61,9 @@ relay and is not supported.
 
 ## OBS capture
 
-Development builds include an optional **SoundFork Audio** source plugin. It is
-not included in the existing `v0.1.0-beta.1` download.
+`v0.1.0-beta.2` includes an optional **SoundFork Audio** source plugin.
 
-Select **Install the OBS audio source plugin** in the new installer, restart OBS,
+Select **Install the OBS audio source plugin** in the installer, restart OBS,
 and add a **SoundFork Audio** source. Requires OBS Studio 32.2.2 or later and
 stereo 48 kHz capture. OBS-only capture needs neither a virtual audio device nor
 the Discord relay. Start the relay as usual for simultaneous Discord sharing.

@@ -219,10 +219,10 @@ Windows icon with:
 Creating Setup.exe locally requires Inno Setup 6.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
 
 # Verify only the ZIP without Inno Setup
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
 ```
 
 With a code-signing certificate, the package script can SHA-256/RFC 3161 sign
@@ -230,7 +230,7 @@ and immediately verify every shipped EXE/DLL and Setup. Private keys are never
 stored in the repository.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 `
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
@@ -308,8 +308,8 @@ The following tag format produces Setup.exe, an executable ZIP, and SHA-256
 checksums:
 
 ```powershell
-git tag -a v0.1.0-beta.1 -m 'SoundFork v0.1.0-beta.1'
-git push origin v0.1.0-beta.1
+git tag -a v0.1.0-beta.2 -m 'SoundFork v0.1.0-beta.2'
+git push origin v0.1.0-beta.2
 ```
 
 Supported suffixes are `alpha.N`, `beta.N`, and `rc.N`; they are published as

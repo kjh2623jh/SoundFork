@@ -216,17 +216,17 @@ Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물�
 설치 프로그램을 포함한 로컬 배포 패키지는 Inno Setup 6이 필요하다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
 
 # Inno Setup 없이 ZIP만 검사
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
 ```
 
 코드 서명 인증서가 있으면 패키지 안의 EXE·DLL과 Setup을 SHA-256/RFC 3161 방식으로
 서명하고 즉시 검증할 수 있다. 인증서 비밀키는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.1 `
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
@@ -299,8 +299,8 @@ PR과 `main` push는 Windows x64 Debug/Release 빌드와 CTest를 실행하고 R
 실행 가능 ZIP과 SHA-256 파일을 생성한다.
 
 ```powershell
-git tag -a v0.1.0-beta.1 -m 'SoundFork v0.1.0-beta.1'
-git push origin v0.1.0-beta.1
+git tag -a v0.1.0-beta.2 -m 'SoundFork v0.1.0-beta.2'
+git push origin v0.1.0-beta.2
 ```
 
 지원되는 접미사는 `alpha.N`, `beta.N`, `rc.N`이며 GitHub prerelease로 게시된다.
