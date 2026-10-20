@@ -162,15 +162,15 @@ Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 �
 아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.2
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.2 -SkipInstaller
 ```
 
 인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
 인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.2 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
