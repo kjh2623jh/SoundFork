@@ -343,7 +343,7 @@ scanning and Actions must be available for the public repository. If Default set
 is enabled, switch to Advanced setup to avoid duplicate/conflicting configuration;
 repository settings are not changed automatically.
 
-The existing Dependabot configuration checks GitHub Actions dependencies weekly.
+The existing [Dependabot configuration](../.github/dependabot.yml) checks GitHub Actions dependencies weekly.
 Actions stay pinned to full commit SHAs and updates require review, not automatic
 merging. CMake itself and manually downloaded OBS SDK archives are outside this
 configuration's coverage and need separate review. Existing OBS SHA-256 checks remain.
@@ -376,8 +376,7 @@ fixing/retrying; previously published releases are not automatically deleted.
 
 The README CodeQL badge reports `main` analysis execution; Release checks · ClamAV
 reports the entire release workflow, which requires the scan. Neither certifies a
-specific download or indicates zero vulnerabilities. The Dependabot link describes
-configuration, not a passing scan. These checks do not replace code signing,
+specific download or indicates zero vulnerabilities. These checks do not replace code signing,
 SmartScreen reputation or hardware soak testing. A single antivirus engine cannot
 guarantee malware absence or freedom from security vulnerabilities.
 

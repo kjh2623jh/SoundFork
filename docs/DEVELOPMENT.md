@@ -330,7 +330,7 @@ CodeQL은 기존 CI·배포와 독립적이며 분석 실행 성공이 취약점
 Actions를 사용할 수 있어야 하며, 저장소에서 Default setup을 사용 중이면 중복되지
 않도록 Advanced setup으로 전환한다. 이 설정 변경은 자동 수행하지 않는다.
 
-Dependabot은 기존 `.github/dependabot.yml`에 따라 GitHub Actions 의존성을 주 1회
+Dependabot은 기존 [업데이트 설정](../.github/dependabot.yml)에 따라 GitHub Actions 의존성을 주 1회
 확인한다. 액션의 전체 커밋 SHA 고정과 수동 PR 검토를 유지하며 자동 병합하지 않는다.
 CMake 자체나 PowerShell로 내려받는 OBS SDK는 이 Dependabot 설정의 관리 대상이
 아니므로 별도 검토가 필요하다. OBS 다운로드의 기존 SHA-256 검증은 유지한다.
@@ -361,7 +361,7 @@ ClamAV 파일별 검사 제한은 120초, 전체 스캐너 프로세스 제한�
 
 README의 CodeQL 배지는 `main` 분석 실행 상태이고 Release checks · ClamAV 배지는
 ClamAV를 필수로 포함하는 릴리스 워크플로 전체 상태이다. 특정 다운로드 버전의 인증서나
-취약점 0개 표시가 아니다. Dependabot 링크도 검사 통과 상태가 아니라 설정 안내이다.
+취약점 0개 표시가 아니다.
 이 검사는 코드 서명·SmartScreen 평판·하드웨어 soak 시험을 대체하지 않으며, 단일
 백신 엔진의 통과가 악성코드 부재나 보안 무결점을 보장하지 않는다.
 
