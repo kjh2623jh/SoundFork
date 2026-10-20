@@ -10,6 +10,7 @@
 
 #include "capture-backend/hub_client.hpp"
 #include "capture-backend/relay_clock.hpp"
+#include "obs-plugin/audio_timeline.hpp"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("soundfork-obs", "en-US")
@@ -45,9 +46,10 @@ void capture(Source& state) {
   std::unique_ptr<RelayAudioSource> audio;
   std::unique_ptr<RelayClockController> clock;
   constexpr std::uint32_t frames = 480;
-  constexpr std::uint64_t period_ns = 10000000;
   std::array<std::int32_t, frames * 2> samples{};
-  HANDLE timer = create_periodic_timer(10);
+  HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr,
+      CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
+  if (timer == nullptr) timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
   if (timer == nullptr) {
     blog(LOG_ERROR, "[SoundFork] Cannot create capture timer");
     return;
@@ -57,7 +59,7 @@ void capture(Source& state) {
     ~TimerCloser() { CloseHandle(value); }
   } closer{timer};
   const HANDLE waits[] = {state.stop, timer};
-  std::uint64_t next_timestamp = 0;
+  soundfork::obs::AudioTimeline timeline;
   std::uint64_t next_probe = 0;
   std::uint64_t packets = 0;
   std::uint64_t silent_frames = 0;
@@ -67,7 +69,7 @@ void capture(Source& state) {
   std::uint64_t maximum_queue = 0;
   double maximum_ppm = 0;
   bool prebuffered = false;
-  while (WaitForMultipleObjects(2, waits, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+  while (WaitForSingleObject(state.stop, 0) == WAIT_TIMEOUT) {
     const auto probe_now = os_gettime_ns();
     if (probe_now >= next_probe) {
       next_probe = probe_now + 250000000;
@@ -92,11 +94,11 @@ void capture(Source& state) {
         }
       }
     }
-    // Use OBS's monotonic clock, a continuous sample timeline and the same
-    // bounded drift controller as Relay. Scheduling stalls reset only capture.
+    // A timer signal is not a sample clock: service every elapsed packet
+    // deadline, even if Windows coalesced or delayed wake-ups.
     const auto now = os_gettime_ns();
-    if (next_timestamp == 0 || now > next_timestamp + 50000000) {
-      next_timestamp = now;
+    const auto batch = timeline.plan(now);
+    if (batch.resynchronized) {
       if (reader.is_open() && audio && clock) {
         discarded += reader.discard_oldest(4);
         audio->reset();
@@ -105,41 +107,55 @@ void capture(Source& state) {
         ++resyncs;
       }
     }
-    samples.fill(0);
-    if (reader.is_open() && audio && clock) {
-      auto queued = audio->buffered_frames(reader);
-      maximum_queue = (std::max)(maximum_queue, queued);
-      if (queued > static_cast<std::uint64_t>(reader.format().frames_per_block) * 48) {
-        discarded += reader.discard_oldest(4);
-        audio->reset();
-        clock->reset();
-        prebuffered = false;
-        queued = audio->buffered_frames(reader);
-        ++resyncs;
+    for (std::uint32_t packet_index = 0; packet_index < batch.packets; ++packet_index) {
+      if (WaitForSingleObject(state.stop, 0) != WAIT_TIMEOUT) break;
+      samples.fill(0);
+      if (reader.is_open() && audio && clock) {
+        auto queued = audio->buffered_frames(reader);
+        maximum_queue = (std::max)(maximum_queue, queued);
+        if (queued > static_cast<std::uint64_t>(reader.format().frames_per_block) * 48) {
+          discarded += reader.discard_oldest(4);
+          audio->reset();
+          clock->reset();
+          prebuffered = false;
+          queued = audio->buffered_frames(reader);
+          ++resyncs;
+        }
+        if (!prebuffered && queued >= clock->target_frames() + frames) {
+          prebuffered = true;
+        }
+        if (prebuffered) {
+          const double ratio = clock->update(queued > frames ? queued - frames : 0, frames);
+          maximum_ppm = (std::max)(maximum_ppm, std::abs(clock->correction_ppm()));
+          const auto before = audio->metrics().silent_frames;
+          audio->render(reader, samples.data(), frames, ratio);
+          silent_frames += audio->metrics().silent_frames - before;
+          if (audio->metrics().silent_frames != before) ++underruns;
+        }
       }
-      if (!prebuffered && queued >= clock->target_frames() + frames) {
-        prebuffered = true;
-      }
-      if (prebuffered) {
-        const double ratio = clock->update(queued > frames ? queued - frames : 0, frames);
-        maximum_ppm = (std::max)(maximum_ppm, std::abs(clock->correction_ppm()));
-        const auto before = audio->metrics().silent_frames;
-        audio->render(reader, samples.data(), frames, ratio);
-        silent_frames += audio->metrics().silent_frames - before;
-        if (audio->metrics().silent_frames != before) ++underruns;
-      }
+      if (!prebuffered) silent_frames += frames;
+      obs_source_audio packet{};
+      packet.data[0] = reinterpret_cast<const std::uint8_t*>(samples.data());
+      packet.frames = frames;
+      packet.speakers = SPEAKERS_STEREO;
+      packet.format = AUDIO_FORMAT_32BIT;
+      packet.samples_per_sec = 48000;
+      packet.timestamp = timeline.timestamp();
+      obs_source_output_audio(state.source, &packet);
+      timeline.advance();
+      ++packets;
     }
-    if (!prebuffered) silent_frames += frames;
-    obs_source_audio packet{};
-    packet.data[0] = reinterpret_cast<const std::uint8_t*>(samples.data());
-    packet.frames = frames;
-    packet.speakers = SPEAKERS_STEREO;
-    packet.format = AUDIO_FORMAT_32BIT;
-    packet.samples_per_sec = 48000;
-    packet.timestamp = next_timestamp;
-    obs_source_output_audio(state.source, &packet);
-    next_timestamp += period_ns;
-    ++packets;
+    // Rearm relative to the absolute sample deadline, not relative to the last
+    // wake. A one-shot timer cannot silently lose a count of audio periods.
+    const auto after = os_gettime_ns();
+    const auto remaining = timeline.timestamp() > after ? timeline.timestamp() - after : 100;
+    LARGE_INTEGER due{};
+    due.QuadPart = -static_cast<LONGLONG>((remaining + 99) / 100);
+    if (!SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+      blog(LOG_ERROR, "[SoundFork] Cannot arm capture timer");
+      break;
+    }
+    if (WaitForMultipleObjects(2, waits, FALSE, INFINITE) != WAIT_OBJECT_0 + 1) break;
   }
   blog(LOG_INFO,
        "[SoundFork] packets=%llu silent_frames=%llu max_queue_frames=%llu "

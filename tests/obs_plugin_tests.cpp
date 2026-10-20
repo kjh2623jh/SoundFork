@@ -16,7 +16,14 @@ struct Observed {
   std::atomic<std::uint64_t> packets{0};
   std::atomic<bool> stereo_pcm{false};
   std::atomic<bool> timestamps_bad{false};
+  std::atomic<std::uint64_t> checked_frames{0};
+  std::atomic<std::uint64_t> discontinuities{0};
+  std::atomic<std::uint64_t> silent_runs{0};
   std::uint64_t last_timestamp = 0;
+  ULONGLONG first_audio_at = 0;
+  std::uint32_t silent_run = 0;
+  float previous = 0;
+  bool checking = false;
 };
 void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
   auto& seen = *static_cast<Observed*>(data);
@@ -24,10 +31,27 @@ void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
   seen.last_timestamp = audio->timestamp;
   const auto* left = reinterpret_cast<const float*>(audio->data[0]);
   const auto* right = reinterpret_cast<const float*>(audio->data[1]);
+  const auto now = GetTickCount64();
   if (left != nullptr && right != nullptr) {
     for (std::uint32_t frame = 0; frame < audio->frames; ++frame) {
-      if (std::abs(left[frame] - 0.25F) < 0.001F &&
-          std::abs(right[frame] + 0.125F) < 0.001F) seen.stereo_pcm.store(true);
+      if (std::abs(left[frame]) > 0.01F &&
+          std::abs(right[frame] + left[frame] * 0.5F) < 0.00001F) {
+        seen.stereo_pcm.store(true);
+        if (seen.first_audio_at == 0) seen.first_audio_at = now;
+      }
+      // Exclude startup and initial hub attachment, not later dropouts.
+      if (seen.first_audio_at != 0 && now - seen.first_audio_at >= 1500) {
+        if (seen.checking && std::abs(left[frame] - seen.previous) > 0.025F)
+          ++seen.discontinuities;
+        if (std::abs(left[frame]) < 0.0000001F) {
+          if (++seen.silent_run == 16) ++seen.silent_runs;
+        } else {
+          seen.silent_run = 0;
+        }
+        seen.previous = left[frame];
+        seen.checking = true;
+        ++seen.checked_frames;
+      }
     }
   }
   ++seen.packets;
@@ -68,17 +92,31 @@ int main(int argc, char** argv) {
     std::array<std::int32_t, 64> left{};
     std::array<std::int32_t, 64> right{};
     std::array<std::int32_t, 128> output{};
-    left.fill(536870912);
-    right.fill(-268435456);
     HANDLE timer = create_periodic_timer(4);
     if (timer == nullptr) throw std::runtime_error("test timer failed");
     struct TimerCloser { HANDLE value; ~TimerCloser() { CloseHandle(value); } } closer{timer};
-    const auto deadline = GetTickCount64() + 2500;
+    LARGE_INTEGER frequency{}, started_at{}, now{};
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&started_at);
+    const auto deadline = GetTickCount64() + 8000;
+    std::uint64_t produced_frames = 0;
     std::uint64_t relay_blocks = 0;
     while (GetTickCount64() < deadline) {
       WaitForSingleObject(timer, 1000);
-      // Three 64-frame blocks every 4 ms = 48 kHz.
-      for (int block = 0; block < 3; ++block) publisher.publish_int32_stereo(left.data(), right.data());
+      QueryPerformanceCounter(&now);
+      const auto due_frames = static_cast<std::uint64_t>(
+          (now.QuadPart - started_at.QuadPart) * 48000 / frequency.QuadPart);
+      // A delayed timer wake must not slow down the simulated ASIO clock.
+      while (produced_frames + 64 <= due_frames) {
+        for (std::uint32_t frame = 0; frame < 64; ++frame) {
+          const double phase = static_cast<double>(produced_frames + frame) *
+                               (2.0 * 3.14159265358979323846 * 110.0 / 48000.0);
+          left[frame] = static_cast<std::int32_t>(std::llround(std::sin(phase) * 536870912.0));
+          right[frame] = -left[frame] / 2;
+        }
+        publisher.publish_int32_stereo(left.data(), right.data());
+        produced_frames += 64;
+      }
       if (!relay.is_open()) relay.open(relay_client.mapping_name());
       std::uint32_t frames = 0;
       while (relay.read_int32_stereo(output.data(), output.size(), &frames)) ++relay_blocks;
@@ -87,6 +125,12 @@ int main(int argc, char** argv) {
     require(seen.stereo_pcm.load(), "OBS did not receive the expected stereo PCM");
     require(!seen.timestamps_bad.load(), "OBS timestamps went backwards");
     require(relay_blocks > 100, "simultaneous relay capture failed");
+    std::cout << "steady_frames=" << seen.checked_frames.load()
+              << " discontinuities=" << seen.discontinuities.load()
+              << " silent_runs=" << seen.silent_runs.load() << '\n';
+    require(seen.checked_frames.load() > 48000, "insufficient continuous audio observed");
+    require(seen.discontinuities.load() == 0, "OBS waveform had sample discontinuities");
+    require(seen.silent_runs.load() == 0, "OBS waveform had unexpected silence");
     obs_source_remove_audio_capture_callback(source, capture, &seen);
     obs_source_release(source);
     source = nullptr;

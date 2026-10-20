@@ -49,6 +49,10 @@ install(FILES LICENSE THIRD_PARTY_NOTICES.md THIRD_PARTY_NOTICES.en.md
   DESTINATION obs-plugin/soundfork-obs COMPONENT ObsPlugin)
 
 if(BUILD_TESTING)
+  add_executable(soundfork_obs_timeline_tests tests/obs_timeline_tests.cpp)
+  target_include_directories(soundfork_obs_timeline_tests PRIVATE src)
+  target_link_libraries(soundfork_obs_timeline_tests PRIVATE soundfork_warnings)
+  add_test(NAME soundfork_obs_timeline_tests COMMAND soundfork_obs_timeline_tests)
   add_executable(soundfork_obs_tests tests/obs_plugin_tests.cpp
     src/capture-backend/shared_ring.cpp src/capture-backend/hub_client.cpp)
   target_include_directories(soundfork_obs_tests PRIVATE src)
