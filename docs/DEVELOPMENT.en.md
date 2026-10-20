@@ -327,6 +327,74 @@ manual release checks. When `WINDOWS_SIGNING_PFX_BASE64`,
 the workflow signs before publishing; otherwise it emits an explicit unsigned
 release warning.
 
+## Security checks
+
+### Source code and dependencies
+
+CodeQL observes a real Windows x64 Release build, including the OBS plugin, on
+`main` pushes, pull requests, Tuesdays at 03:23 UTC, and manual runs. It applies
+`security-extended` queries to C/C++ and uploads results to Security → Code scanning.
+This C/C++ analysis does not cover PowerShell, Inno Setup, Python scripts, or real
+device behavior. Existing MSVC `/analyze /WX` and regression tests remain in place.
+
+CodeQL runs independently of ordinary CI and releases. A successful analysis run
+does not mean zero vulnerabilities; review alerts separately in Security. Code
+scanning and Actions must be available for the public repository. If Default setup
+is enabled, switch to Advanced setup to avoid duplicate/conflicting configuration;
+repository settings are not changed automatically.
+
+The existing Dependabot configuration checks GitHub Actions dependencies weekly.
+Actions stay pinned to full commit SHAs and updates require review, not automatic
+merging. CMake itself and manually downloaded OBS SDK archives are outside this
+configuration's coverage and need separate review. Existing OBS SHA-256 checks remain.
+
+### Pre-publication malware scan
+
+Releases run as **Windows build/existing verification → Linux ClamAV → publish**.
+Optional signing and installer lifecycle checks happen before scanning. Final
+Setup.exe, ZIP and `SHA256SUMS.txt` are handed off using an immutable Actions
+artifact ID. Both scan and publish jobs verify the build-recorded manifest SHA-256
+and file hashes. Publication never rebuilds or re-signs binaries and rejects a tag
+moved to another commit. Only the publish job receives `contents: write`.
+
+ClamAV is installed from Ubuntu packages; `freshclam` refreshes official signatures
+on every run. The final installer, ZIP, and safely extracted ZIP contents are scanned
+without executing binaries. This does not claim exhaustive inspection of every
+installer-internal component. Limits are 128 MiB per original/extracted file,
+512 MiB total ZIP extraction and ClamAV per-container expanded scan size, 4,096
+ZIP entries/container files, and depth 32. ClamAV's per-file time limit is 120 seconds;
+the scanner process timeout is 15 minutes. Databases older than three days fail.
+ZIP traversal, links, encrypted entries, and duplicate paths are rejected.
+
+Detections, exceeded limits, scanner warnings/errors, signature-refresh failures,
+and timeouts block publication. No automatic exemptions, bypass, or infected-file
+deletion is added. Inspect Actions logs and the 30-day
+`SoundFork-<version>-security-logs` artifact: `freshclam.log`, `clamscan.log`, and
+`scan-result.json` where the respective stages were reached. Results record engine,
+database version and target SHA-256. Investigate a suspected false positive before
+fixing/retrying; previously published releases are not automatically deleted.
+
+The README CodeQL badge reports `main` analysis execution; Release checks · ClamAV
+reports the entire release workflow, which requires the scan. Neither certifies a
+specific download or indicates zero vulnerabilities. The Dependabot link describes
+configuration, not a passing scan. These checks do not replace code signing,
+SmartScreen reputation or hardware soak testing. A single antivirus engine cannot
+guarantee malware absence or freedom from security vulnerabilities.
+
+Security-tool tests use only the Python 3.10+ standard library. Neither Python nor
+ClamAV is needed to run SoundFork.
+
+```powershell
+python -B -m unittest discover -s tests -p test_scan_release.py -v
+```
+
+Ordinary CI/local tests simulate scan success, detection, errors and timeouts, and
+test hash tampering and bounded ZIP extraction. Only the Linux release scan job
+sets `SOUNDFORK_TEST_CLAMAV=1` to exercise real ClamAV with a standard EICAR sample
+inside temporary directories. The sample is never committed or shipped. Actual
+CodeQL upload, signature refresh and publication-gate integration must be verified
+on the first GitHub Actions run.
+
 ## License
 
 SoundFork is GPL-3.0-only. See [third-party notices](../THIRD_PARTY_NOTICES.en.md)

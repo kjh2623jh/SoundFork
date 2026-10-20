@@ -315,6 +315,69 @@ Release workflow는 x64 PE와 런타임 의존성, 체크섬, 임시 ASIO 백엔
 `WINDOWS_TIMESTAMP_URL`이 모두 설정되면 서명 후 게시하며, 없으면 명확한 경고와
 함께 미서명 아티팩트를 만든다.
 
+## 보안 검사
+
+### 소스 코드와 의존성
+
+CodeQL은 `main` push, PR, 매주 화요일 03:23 UTC와 수동 실행에서 Windows x64
+Release 빌드를 직접 추적한다. OBS 플러그인까지 포함한 C/C++ 코드에
+`security-extended` 쿼리를 적용하고 결과를 GitHub의 Security → Code scanning에
+등록한다. PowerShell·Inno Setup·Python 스크립트와 실제 장치 동작은 이 C/C++ 분석의
+검사 대상이 아니다. 기존 MSVC `/analyze /WX`와 회귀 테스트는 그대로 유지한다.
+
+CodeQL은 기존 CI·배포와 독립적이며 분석 실행 성공이 취약점 0개를 뜻하지 않는다.
+발견된 경고는 Security에서 별도로 검토해야 한다. 공개 저장소의 Code scanning과
+Actions를 사용할 수 있어야 하며, 저장소에서 Default setup을 사용 중이면 중복되지
+않도록 Advanced setup으로 전환한다. 이 설정 변경은 자동 수행하지 않는다.
+
+Dependabot은 기존 `.github/dependabot.yml`에 따라 GitHub Actions 의존성을 주 1회
+확인한다. 액션의 전체 커밋 SHA 고정과 수동 PR 검토를 유지하며 자동 병합하지 않는다.
+CMake 자체나 PowerShell로 내려받는 OBS SDK는 이 Dependabot 설정의 관리 대상이
+아니므로 별도 검토가 필요하다. OBS 다운로드의 기존 SHA-256 검증은 유지한다.
+
+### 배포 전 악성코드 검사
+
+릴리스는 **Windows 빌드·기존 검증 → Linux ClamAV 검사 → 게시** 순서로 실행한다.
+서명 설정이 있으면 먼저 서명하고, 설치·제거 시험까지 통과한 최종 Setup.exe와 ZIP,
+`SHA256SUMS.txt`를 변경 불가능한 Actions 아티팩트 ID로 다음 작업에 전달한다.
+검사·게시 작업은 빌드 작업이 기록한 체크섬 목록의 SHA-256과 각 파일의 해시를
+재확인한다. 게시 단계에서는 재빌드·재서명하지 않으며 태그가 다른 커밋으로 이동했으면
+게시를 거부한다. `contents: write`는 게시 작업에만 부여한다.
+
+ClamAV는 Ubuntu 패키지에서 설치하고 매 실행마다 `freshclam`으로 공식 정의를
+갱신한다. 최종 설치 파일·ZIP과 안전하게 추출한 ZIP 내용 전체를 실행하지 않고
+검사한다. 설치 파일의 모든 내부 구성 요소를 완벽하게 분석한다는 의미는 아니다.
+원본/추출 단일 파일 최대 128 MiB, ZIP 추출 합계와 ClamAV 단일 검사 확장 크기
+512 MiB, ZIP 항목/ClamAV 컨테이너 파일 수 4,096개, 깊이 32를 한도로 둔다.
+ClamAV 파일별 검사 제한은 120초, 전체 스캐너 프로세스 제한은 15분이며 정의가
+3일보다 오래되면 실패한다. ZIP 경로 이탈·링크·암호화·중복 경로도 거부한다.
+
+탐지, 검사 제한 초과, 스캐너 경고·오류, 정의 갱신 실패와 시간 초과는 게시를 막는다.
+자동 예외 처리·검사 우회·탐지 파일 삭제는 하지 않는다. 실패 시 Actions 로그와
+`SoundFork-<version>-security-logs` 아티팩트의 `freshclam.log`, `clamscan.log`,
+`scan-result.json`을 확인한다. 도달한 단계의 로그만 존재하며 30일 보관한다.
+결과에는 엔진·정의 버전과 대상 SHA-256을 포함한다. 오탐이면 먼저 원인을 검토하고
+수정한 뒤 재실행한다. 이미 게시된 릴리스는 자동 삭제하지 않는다.
+
+README의 CodeQL 배지는 `main` 분석 실행 상태이고 Release checks · ClamAV 배지는
+ClamAV를 필수로 포함하는 릴리스 워크플로 전체 상태이다. 특정 다운로드 버전의 인증서나
+취약점 0개 표시가 아니다. Dependabot 링크도 검사 통과 상태가 아니라 설정 안내이다.
+이 검사는 코드 서명·SmartScreen 평판·하드웨어 soak 시험을 대체하지 않으며, 단일
+백신 엔진의 통과가 악성코드 부재나 보안 무결점을 보장하지 않는다.
+
+검사 도구의 자동 테스트는 Python 3.10 이상 표준 라이브러리만 사용한다. 게임·제어판
+실행에는 Python이나 ClamAV가 필요하지 않다.
+
+```powershell
+python -B -m unittest discover -s tests -p test_scan_release.py -v
+```
+
+일반 CI·로컬 테스트에서는 스캐너 성공·탐지·오류·시간 초과를 모의 실행하고, 해시
+변조와 ZIP 경로·크기 검증을 시험한다. 릴리스의 Linux 검사 작업에서만
+`SOUNDFORK_TEST_CLAMAV=1`로 실제 ClamAV와 표준 EICAR 테스트 파일을 임시 디렉터리에서
+시험한다. EICAR 파일은 커밋하거나 배포하지 않는다. 실제 CodeQL 업로드·ClamAV
+정의 갱신·릴리스 게시 차단의 GitHub 통합 결과는 첫 Actions 실행에서 확인해야 한다.
+
 ## 라이선스
 
 SoundFork는 GPL-3.0-only다. ASIO SDK, 선택적 VB-Audio 소프트웨어 및 Inno Setup

@@ -2,6 +2,10 @@
 
 **한국어** | [English](README.en.md)
 
+[![CodeQL](https://github.com/kjh2623jh/SoundFork/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/kjh2623jh/SoundFork/actions/workflows/codeql.yml)
+[![Release checks · ClamAV](https://github.com/kjh2623jh/SoundFork/actions/workflows/release.yml/badge.svg)](https://github.com/kjh2623jh/SoundFork/actions/workflows/release.yml)
+[Dependabot 업데이트 설정](.github/dependabot.yml)
+
 > 이 프로젝트는 AI의 도움을 받아 개발되었습니다. 아키텍처 결정, 코드 검토와
 > 실제 하드웨어 검증은 프로젝트 관리자가 수행했습니다.
 
@@ -92,6 +96,9 @@ Windows **설정 → 앱 → 설치된 앱 → SoundFork → 제거** 또는 시
 제거되지 않습니다.
 
 ## 추가 정보
+
+배지는 검사 워크플로의 실행 상태이며 안전 인증이 아닙니다. 검사 범위와 한계는
+[보안 검사 안내](docs/DEVELOPMENT.md#보안-검사)를 참고하시기 바랍니다.
 
 구조, 빌드, 테스트와 알려진 기술적 제한은 [개발자 문서](docs/DEVELOPMENT.md)를
 참고하시기 바랍니다. SoundFork는 GPL-3.0-only로 배포됩니다. [LICENSE](LICENSE)와

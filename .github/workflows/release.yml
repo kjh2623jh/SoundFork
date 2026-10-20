@@ -14,12 +14,23 @@ on:
 permissions:
   contents: read
 
+# Keep retries/manual runs of one tag from interleaving release asset uploads.
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  release:
-    name: Build and publish Windows x64 release
+  build:
+    name: Build and verify Windows x64 release
     runs-on: windows-2022
-    permissions:
-      contents: write
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      commit: ${{ steps.version.outputs.commit }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      manifest-sha256: ${{ steps.manifest.outputs.sha256 }}
 
     steps:
       - name: Check out source
@@ -27,6 +38,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
 
       - name: Validate tag and project version
         id: version
@@ -73,6 +85,7 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+          "commit=$releaseSha" >> $env:GITHUB_OUTPUT
 
       - name: Build, test, and package
         shell: pwsh
@@ -157,6 +170,7 @@ jobs:
             -AllowRegistryChanges
 
       - name: Upload workflow artifact
+        id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: SoundFork-${{ steps.version.outputs.version }}-release
@@ -167,13 +181,130 @@ jobs:
             artifacts/SoundFork-v${{ steps.version.outputs.version }}-windows-x64.zip
             artifacts/SHA256SUMS.txt
 
+      - name: Record immutable checksum manifest
+        id: manifest
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -LiteralPath artifacts/SHA256SUMS.txt -Algorithm SHA256).Hash.ToLowerInvariant()
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+  malware-scan:
+    name: ClamAV / final release files
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Check out the built commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+
+      - name: Download the exact build artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          merge-multiple: true
+          digest-mismatch: error
+          path: artifacts
+
+      - name: Verify artifact identity before scanning
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          MANIFEST_SHA256: ${{ needs.build.outputs.manifest-sha256 }}
+        run: |
+          python3 scripts/scan_release.py --verify-only --artifacts artifacts \
+            --version "$RELEASE_VERSION" --manifest-sha256 "$MANIFEST_SHA256"
+
+      - name: Install ClamAV and refresh official signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p security-logs
+          echo '## ClamAV preparation' >> "$GITHUB_STEP_SUMMARY"
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam
+          if ! sudo freshclam --stdout 2>&1 | tee security-logs/freshclam.log; then
+            echo 'Signature refresh failed; release publication is blocked.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          clamscan --version | tee security-logs/clamav-version.log
+
+      - name: Test scanner failure handling with real ClamAV
+        env:
+          SOUNDFORK_TEST_CLAMAV: '1'
+        run: python3 -B -m unittest discover -s tests -p test_scan_release.py -v
+
+      - name: Scan installer, ZIP and extracted payload
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          MANIFEST_SHA256: ${{ needs.build.outputs.manifest-sha256 }}
+        run: |
+          python3 scripts/scan_release.py --artifacts artifacts --reports security-logs \
+            --version "$RELEASE_VERSION" --manifest-sha256 "$MANIFEST_SHA256"
+
+      - name: Preserve security logs even on failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: SoundFork-${{ needs.build.outputs.version }}-security-logs
+          path: security-logs/
+          if-no-files-found: warn
+          retention-days: 30
+
+  publish:
+    name: Publish scanned release
+    needs: [build, malware-scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the built commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+
+      - name: Download the same scanned artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          merge-multiple: true
+          digest-mismatch: error
+          path: artifacts
+
+      - name: Reverify files before publication
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          MANIFEST_SHA256: ${{ needs.build.outputs.manifest-sha256 }}
+        run: |
+          python3 scripts/scan_release.py --verify-only --artifacts artifacts \
+            --version "$RELEASE_VERSION" --manifest-sha256 "$MANIFEST_SHA256"
+
+      - name: Refuse a tag moved since the build
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          git fetch --no-tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not revalidate the release tag.' }
+          $tagCommit = (git rev-parse 'FETCH_HEAD^{commit}').Trim()
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $env:RELEASE_COMMIT) {
+            throw 'Release tag changed since the build; refusing publication.'
+          }
+
       - name: Create or update GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
-          IS_PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          IS_PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           $ErrorActionPreference = 'Stop'
           $assets = @(

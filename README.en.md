@@ -2,6 +2,10 @@
 
 [한국어](README.md) | **English**
 
+[![CodeQL](https://github.com/kjh2623jh/SoundFork/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/kjh2623jh/SoundFork/actions/workflows/codeql.yml)
+[![Release checks · ClamAV](https://github.com/kjh2623jh/SoundFork/actions/workflows/release.yml/badge.svg)](https://github.com/kjh2623jh/SoundFork/actions/workflows/release.yml)
+[Dependabot update configuration](.github/dependabot.yml)
+
 > This project was developed with AI assistance. Architecture decisions, code
 > review, and real-hardware validation were performed by the project maintainer.
 
@@ -94,6 +98,9 @@ Use **Windows Settings → Apps → Installed apps → SoundFork → Uninstall**
 audio devices are not removed.
 
 ## More information
+
+Badges show workflow execution status, not a security certification. See the
+[security checks guide](docs/DEVELOPMENT.en.md#security-checks) for coverage and limitations.
 
 See the [developer documentation](docs/DEVELOPMENT.en.md) for architecture,
 builds, tests, and known technical limitations. SoundFork is GPL-3.0-only; also

@@ -11,6 +11,19 @@ permissions:
   contents: read
 
 jobs:
+  security-tools:
+    name: Release security tooling tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test release validation and scanner failure handling
+        run: python3 -B -m unittest discover -s tests -p test_scan_release.py -v
+
   windows-x64:
     name: Windows x64 / ${{ matrix.configuration }}
     runs-on: windows-2022
