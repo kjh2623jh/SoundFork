@@ -25,7 +25,7 @@ add_library(soundfork_obs MODULE
   src/capture-backend/shared_ring.cpp
 )
 target_include_directories(soundfork_obs PRIVATE src)
-target_link_libraries(soundfork_obs PRIVATE soundfork_obs_api soundfork_warnings)
+target_link_libraries(soundfork_obs PRIVATE soundfork_obs_api soundfork_warnings avrt)
 set_target_properties(soundfork_obs PROPERTIES PREFIX "" OUTPUT_NAME "soundfork-obs")
 add_dependencies(soundfork_obs soundfork_capture_hub)
 
@@ -49,7 +49,8 @@ install(FILES LICENSE THIRD_PARTY_NOTICES.md THIRD_PARTY_NOTICES.en.md
   DESTINATION obs-plugin/soundfork-obs COMPONENT ObsPlugin)
 
 if(BUILD_TESTING)
-  add_executable(soundfork_obs_timeline_tests tests/obs_timeline_tests.cpp)
+  add_executable(soundfork_obs_timeline_tests tests/obs_timeline_tests.cpp
+    src/capture-backend/relay_clock.cpp src/capture-backend/shared_ring.cpp)
   target_include_directories(soundfork_obs_timeline_tests PRIVATE src)
   target_link_libraries(soundfork_obs_timeline_tests PRIVATE soundfork_warnings)
   add_test(NAME soundfork_obs_timeline_tests COMMAND soundfork_obs_timeline_tests)
@@ -60,7 +61,9 @@ if(BUILD_TESTING)
   add_dependencies(soundfork_obs_tests soundfork_obs)
   add_test(NAME soundfork_obs_plugin_tests COMMAND soundfork_obs_tests
     "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data")
-  set_tests_properties(soundfork_obs_plugin_tests PROPERTIES
+  add_test(NAME soundfork_obs_recovery_tests COMMAND soundfork_obs_tests
+    "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data" --recovery)
+  set_tests_properties(soundfork_obs_plugin_tests soundfork_obs_recovery_tests PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${SOUNDFORK_OBS_SDK_ROOT}/runtime"
     TIMEOUT 30)
 endif()
