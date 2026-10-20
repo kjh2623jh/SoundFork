@@ -156,6 +156,21 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
 - 2026-10-20 local regression: OBS-enabled Debug/Release CTest each passed 10/10;
   30 security-tool tests passed and one real-ClamAV test was skipped. Previous
   MSVC AddressSanitizer proxy/ring/relay and `/analyze /WX` passing records also exist.
+- 2026-10-21 OBS fix: the user reported game-audio crackling/dropouts through the
+  rc.2 dedicated source, while VB-CABLE output capture, microphone and browser
+  audio were clean. An eight-second libobs waveform test reproduced ten sample
+  discontinuities and five silence runs in the original code. Catching up missed
+  delivery deadlines made the waveform test pass. OBS-only changes add at least
+  20 ms residual headroom, underrun refill, MMCSS and reason-specific metrics.
+  Virtual four-hour jitter/drift tests at ±1,500 ppm also passed. ASIO playback
+  and WASAPI relay code remain unchanged; actual DJMAX recordings of the updated
+  plugin and physical latency measurements are still pending.
+  Debug/Release CTest each passed 12/12, timing/waveform/recovery checks each passed
+  three repetitions, and `/analyze /WX` plus CFG/NX/ASLR/static-runtime checks passed.
+  The normal waveform run had zero discontinuities, silence runs, underruns,
+  discarded blocks, resyncs or OBS output drops. The intentional producer-pause
+  test recovered after an underrun. A separate accelerated four-hour ASIO test
+  also had zero producer drops or consumer underflows; it was not a hardware soak.
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.

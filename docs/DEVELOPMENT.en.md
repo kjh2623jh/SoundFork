@@ -81,10 +81,26 @@ same-format game restarts, forcibly terminated hubs and a stalled single consume
 ### OBS output and plugin management
 
 The OBS worker sends 480-frame / 10 ms packets to `obs_source_output_audio` using
-a continuous OBS monotonic timeline, four residual blocks and ±2,000 ppm correction.
-It sends silence until one packet and the target queue are ready; stalls exceeding
-50 ms or excessive queues resynchronize OBS only. Keep process launch/recovery on
-a separate supervisor thread so it cannot block timed delivery. Retain shutdown metrics.
+a continuous OBS monotonic timeline. Rearm a one-shot timer against accumulated
+sample deadlines, not wake counts; catch up at most five packets per batch. Stalls
+exceeding 50 ms or excessive queues resynchronize OBS only. Register the delivery
+thread with MMCSS `Audio`, warning and continuing on failure. Keep process
+launch/recovery on a separate supervisor thread.
+
+OBS residual headroom is at least 20 ms or four blocks, whichever is greater:
+960 frames at a 64-frame ASIO block size. Prefill an additional packet and
+interpolation look-ahead, including after a real underrun. Correction remains
+bounded to ±2,000 ppm; exclude pending catch-up packets from the drift estimate.
+Accept only formats whose startup headroom is below the 48-block high-water mark
+(48 kHz / 64 samples is supported). This is a broadcast buffer target, not measured
+total latency; it does not change FiiO playback or the WASAPI relay.
+
+Log attachment/disconnection and cumulative metrics every 30 seconds and at shutdown.
+`idle_silence_frames` means waiting for a producer; `prebuffer_silence_frames` means
+startup/recovery refill; `underrun_silence_frames` means missing data during delivery.
+Separate `deadline_resyncs` from `queue_resyncs`; `discarded_blocks` counts blocks
+discarded from the ring. `hub_output_drops` covers only the OBS output ring. Do not
+attribute source-lifetime counters to one recording.
 
 Management reads DLL version resources without loading the DLL. Only an explicit
 operation launches the same Control EXE through `runas`. Fixed management commands
@@ -101,11 +117,14 @@ locations and portable behavior are in [program details](DETAILS.en.md).
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 10 tests with OBS, nine without it. Coverage
+The build script runs CTest: currently 12 tests with OBS, nine without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
-creation, stereo PCM, increasing timestamps and simultaneous relay reception,
-not actual game/DAC behavior.
+creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
+discontinuities, producer-pause recovery and simultaneous relay reception. The test
+producer follows elapsed sample time. Separate virtual-clock tests cover late/missed
+wakes, long stalls and four-hour-equivalent jitter with ±1,500 ppm drift. These are
+not actual game/DAC tests.
 
 ```powershell
 .\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin
@@ -143,6 +162,14 @@ microphone and OBS recording sync. Also exercise consumer stops and virtual-devi
 removal/reconnection without arbitrarily changing existing settings. Separate
 calculations, driver reports, fake-backend timing and physical latency measurements.
 Update evidence and outstanding checks in [program details](DETAILS.en.md#verification-records-and-outstanding-checks).
+
+After OBS plugin changes, record the same song separately through the dedicated
+source and `CABLE Input` output capture. Disable duplicate capture; include microphone
+and browser audio, game exit and restart. Compare at least ten minutes, followed by
+a multi-hour simultaneous soak checking sound, A/V sync and metric deltas. Distinguish
+fixed sync error from increasing drift and record existing OBS offsets. Do not
+automatically replace installed DLLs or treat automated passing results as an audio
+quality guarantee before the user's recording checks.
 
 ## Development registration and installation
 
