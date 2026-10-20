@@ -1,7 +1,9 @@
 #include <windows.h>
+#include <avrt.h>
 #include <obs.h>
 
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <iostream>
@@ -12,6 +14,14 @@
 #include "capture-backend/shared_ring.hpp"
 
 namespace {
+struct ProducerScheduling {
+  ProducerScheduling() {
+    DWORD task = 0;
+    handle = AvSetMmThreadCharacteristicsW(L"Audio", &task);
+  }
+  ~ProducerScheduling() { if (handle != nullptr) AvRevertMmThreadCharacteristics(handle); }
+  HANDLE handle = nullptr;
+};
 struct Observed {
   std::atomic<std::uint64_t> packets{0};
   std::atomic<bool> stereo_pcm{false};
@@ -122,11 +132,17 @@ int main(int argc, char** argv) {
     require(publisher.consumer_active(), "capture hub did not attach to the test producer");
     LARGE_INTEGER frequency{}, started_at{}, now{};
     QueryPerformanceFrequency(&frequency);
+    ProducerScheduling producer_scheduling;
     QueryPerformanceCounter(&started_at);
     const auto deadline = GetTickCount64() + 8000;
     std::uint64_t produced_frames = 0;
     bool interrupted = false;
     std::uint64_t wakes = 0;
+    LONGLONG last_publication = started_at.QuadPart;
+    LONGLONG maximum_publication_gap = 0;
+    LONGLONG last_hub_publication = 0;
+    LONGLONG maximum_hub_gap = 0;
+    std::uint64_t hub_published_blocks = 0;
     std::uint64_t relay_blocks = 0;
     while (GetTickCount64() < deadline) {
       WaitForSingleObject(timer, 1000);
@@ -135,17 +151,32 @@ int main(int argc, char** argv) {
       if (++wakes % 41 == 0) continue;
       QueryPerformanceCounter(&now);
       auto elapsed = now.QuadPart - started_at.QuadPart;
+      // Delay (do not lose) 30 ms of PCM beyond the residual headroom. The
+      // plugin must retry/catch up without zeros, waveform gaps or PTS jumps.
+      // Unlike the long-pause recovery case, this interval is NOT excluded
+      // from continuity assertions and the producer clock keeps advancing.
+      if (elapsed >= frequency.QuadPart * 4 &&
+          elapsed < frequency.QuadPart * 403 / 100) continue;
       // Model an ASIO producer pause without a spurious huge catch-up burst.
       if (recovery_test && elapsed >= frequency.QuadPart * 2) {
         if (!interrupted) {
           seen.check_after.store(GetTickCount64() + 1500);
           interrupted = true;
         }
-        if (elapsed < frequency.QuadPart * 22 / 10) continue;
+        if (elapsed < frequency.QuadPart * 22 / 10) {
+          last_hub_publication = 0;
+          continue;
+        }
+        if (produced_frames < 96000) last_publication = now.QuadPart;
         elapsed -= frequency.QuadPart / 5;
       }
       const auto due_frames = static_cast<std::uint64_t>(elapsed * 48000 / frequency.QuadPart);
       // A delayed timer wake must not slow down the simulated ASIO clock.
+      if (produced_frames + 64 <= due_frames) {
+        maximum_publication_gap = (std::max)(maximum_publication_gap,
+                                            now.QuadPart - last_publication);
+        last_publication = now.QuadPart;
+      }
       while (produced_frames + 64 <= due_frames) {
         for (std::uint32_t frame = 0; frame < 64; ++frame) {
           const double phase = static_cast<double>(produced_frames + frame) *
@@ -159,6 +190,13 @@ int main(int argc, char** argv) {
       if (!relay.is_open()) relay.open(relay_client.mapping_name());
       std::uint32_t frames = 0;
       while (relay.read_int32_stereo(output.data(), output.size(), &frames)) ++relay_blocks;
+      const auto published = relay.stats().published_blocks;
+      if (published != hub_published_blocks) {
+        if (last_hub_publication != 0)
+          maximum_hub_gap = (std::max)(maximum_hub_gap, now.QuadPart - last_hub_publication);
+        last_hub_publication = now.QuadPart;
+        hub_published_blocks = published;
+      }
     }
     require(seen.packets.load() > 10, "OBS did not receive audio packets");
     require(seen.stereo_pcm.load(), "OBS did not receive the expected stereo PCM");
@@ -167,7 +205,10 @@ int main(int argc, char** argv) {
     std::cout << "steady_frames=" << seen.checked_frames.load()
               << " discontinuities=" << seen.discontinuities.load()
               << " silent_runs=" << seen.silent_runs.load()
-              << " bad_stereo_frames=" << seen.bad_stereo_frames.load() << '\n';
+              << " bad_stereo_frames=" << seen.bad_stereo_frames.load()
+              << " max_producer_gap_us=" << maximum_publication_gap * 1000000 / frequency.QuadPart
+              << " max_observed_hub_gap_us=" << maximum_hub_gap * 1000000 / frequency.QuadPart
+              << " producer_mmcss=" << (producer_scheduling.handle != nullptr) << '\n';
     require(seen.checked_frames.load() > 48000, "insufficient continuous audio observed");
     require(seen.discontinuities.load() == 0, "OBS waveform had sample discontinuities");
     require(seen.silent_runs.load() == 0, "OBS waveform had unexpected silence");

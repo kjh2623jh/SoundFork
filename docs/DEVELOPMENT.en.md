@@ -95,12 +95,21 @@ Accept only formats whose startup headroom is below the 48-block high-water mark
 (48 kHz / 64 samples is supported). This is a broadcast buffer target, not measured
 total latency; it does not change FiiO playback or the WASAPI relay.
 
+On a brief input shortage, retry with a one-shot timer every 1 ms for at most
+20 ms, preserving packet timestamps instead of immediately inserting zeros.
+Catch up when input arrives; after the bound expires, count an underrun and refill.
+Never wait on the ASIO producer or busy-spin. This permits transient broadcast
+packet arrival delay; it is not a zero-latency guarantee.
+
 Log attachment/disconnection and cumulative metrics every 30 seconds and at shutdown.
 `idle_silence_frames` means waiting for a producer; `prebuffer_silence_frames` means
 startup/recovery refill; `underrun_silence_frames` means missing data during delivery.
 Separate `deadline_resyncs` from `queue_resyncs`; `discarded_blocks` counts blocks
 discarded from the ring. `hub_output_drops` covers only the OBS output ring. Do not
 attribute source-lifetime counters to one recording.
+`input_wait_wakes` counts bounded input retries, not audio drops.
+`max_lateness_us` includes input retries relative to packet deadlines; it is not
+ASIO callback execution time.
 
 Management reads DLL version resources without loading the DLL. Only an explicit
 operation launches the same Control EXE through `runas`. Fixed management commands
@@ -125,6 +134,10 @@ discontinuities, producer-pause recovery and simultaneous relay reception. The t
 producer follows elapsed sample time. Separate virtual-clock tests cover late/missed
 wakes, long stalls and four-hour-equivalent jitter with ±1,500 ppm drift. These are
 not actual game/DAC tests.
+The test producer also uses MMCSS `Audio` and reports maximum publication and
+observed hub-delivery intervals.
+A deliberately delayed 30 ms PCM batch is still subject to silence, waveform and
+timestamp assertions, with no exclusion window.
 
 ```powershell
 .\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin

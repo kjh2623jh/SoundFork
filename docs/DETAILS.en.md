@@ -166,11 +166,17 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   and WASAPI relay code remain unchanged; actual DJMAX recordings of the updated
   plugin and physical latency measurements are still pending.
   Debug/Release CTest each passed 12/12, timing/waveform/recovery checks each passed
-  three repetitions, and `/analyze /WX` plus CFG/NX/ASLR/static-runtime checks passed.
+  five repetitions, and `/analyze /WX` plus CFG/NX/ASLR/static-runtime checks passed.
   The normal waveform run had zero discontinuities, silence runs, underruns,
   discarded blocks, resyncs or OBS output drops. The intentional producer-pause
   test recovered after an underrun. A separate accelerated four-hour ASIO test
   also had zero producer drops or consumer underflows; it was not a hardware soak.
+  Additional repetitions exposed occasional underruns, prompting bounded input
+  retries of up to 20 ms on the OBS worker instead of immediately inserting zeros.
+  This edge case reinforces that short passing runs do not guarantee long-duration
+  audio quality on every PC.
+  After this refinement, waveform/recovery tests including an intentional 30 ms
+  delivery delay each passed five repetitions.
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.

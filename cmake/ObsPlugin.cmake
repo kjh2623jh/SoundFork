@@ -57,7 +57,7 @@ if(BUILD_TESTING)
   add_executable(soundfork_obs_tests tests/obs_plugin_tests.cpp
     src/capture-backend/shared_ring.cpp src/capture-backend/hub_client.cpp)
   target_include_directories(soundfork_obs_tests PRIVATE src)
-  target_link_libraries(soundfork_obs_tests PRIVATE soundfork_obs_api soundfork_warnings)
+  target_link_libraries(soundfork_obs_tests PRIVATE soundfork_obs_api soundfork_warnings avrt)
   add_dependencies(soundfork_obs_tests soundfork_obs)
   add_test(NAME soundfork_obs_plugin_tests COMMAND soundfork_obs_tests
     "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data")

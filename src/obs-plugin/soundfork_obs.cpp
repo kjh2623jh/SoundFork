@@ -54,6 +54,7 @@ struct CaptureMetrics {
   unsigned long long disconnects = 0;
   unsigned long long prebuffer_starts = 0;
   unsigned long long catchup_packets = 0;
+  unsigned long long input_wait_wakes = 0;
   unsigned long long maximum_queue = 0;
   unsigned long long maximum_lateness_ns = 0;
   unsigned long long hub_output_drops = 0;
@@ -64,12 +65,12 @@ struct CaptureMetrics {
          "[SoundFork] %s packets=%llu queue_frames=%llu max_queue_frames=%llu "
          "idle_silence_frames=%llu prebuffer_silence_frames=%llu underrun_silence_frames=%llu "
          "discarded_blocks=%llu deadline_resyncs=%llu queue_resyncs=%llu underruns=%llu "
-         "attachments=%llu disconnects=%llu prebuffer_starts=%llu catchup_packets=%llu "
+         "attachments=%llu disconnects=%llu prebuffer_starts=%llu catchup_packets=%llu input_wait_wakes=%llu "
          "max_lateness_us=%llu hub_output_drops=%llu max_correction_ppm=%.2f",
          phase, packets, static_cast<unsigned long long>(queued), maximum_queue,
          idle_silence_frames, prebuffer_silence_frames, underrun_silence_frames,
          discarded_blocks, deadline_resyncs, queue_resyncs, underruns,
-         attachments, disconnects, prebuffer_starts, catchup_packets,
+         attachments, disconnects, prebuffer_starts, catchup_packets, input_wait_wakes,
          maximum_lateness_ns / 1000, hub_output_drops, maximum_ppm);
   }
 };
@@ -170,11 +171,11 @@ void capture(Source& state) {
     const auto now = os_gettime_ns();
     const auto batch = timeline.plan(now);
     metrics.maximum_lateness_ns = (std::max)(metrics.maximum_lateness_ns, batch.lateness_ns);
-    if (batch.packets > 1) metrics.catchup_packets += batch.packets - 1;
     if (batch.resynchronized) {
       ++metrics.deadline_resyncs;
       reset_capture();
     }
+    bool waiting_for_input = false;
     for (std::uint32_t packet_index = 0; packet_index < batch.packets; ++packet_index) {
       if (WaitForSingleObject(state.stop, 0) != WAIT_TIMEOUT) break;
       samples.fill(0);
@@ -191,6 +192,11 @@ void capture(Source& state) {
           ++metrics.prebuffer_starts;
         }
         if (prebuffered) {
+          if (buffering->wait_for_input(queued, os_gettime_ns())) {
+            ++metrics.input_wait_wakes;
+            waiting_for_input = true;
+            break;
+          }
           // Remove all due output packets before evaluating residual headroom;
           // catch-up backlog is scheduling jitter, not hardware clock drift.
           const auto pending_frames = (batch.packets - packet_index) * frames;
@@ -225,6 +231,7 @@ void capture(Source& state) {
       packet.timestamp = timeline.timestamp();
       obs_source_output_audio(state.source, &packet);
       timeline.advance();
+      if (packet_index != 0) ++metrics.catchup_packets;
       ++metrics.packets;
     }
     if (now >= next_report) {
@@ -234,7 +241,8 @@ void capture(Source& state) {
     // Rearm relative to the absolute sample deadline, not relative to the last
     // wake. A one-shot timer cannot silently lose a count of audio periods.
     const auto after = os_gettime_ns();
-    const auto remaining = timeline.timestamp() > after ? timeline.timestamp() - after : 100;
+    const auto remaining = waiting_for_input ? 1000000 :
+        (timeline.timestamp() > after ? timeline.timestamp() - after : 100);
     LARGE_INTEGER due{};
     due.QuadPart = -static_cast<LONGLONG>((remaining + 99) / 100);
     if (!SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {

@@ -37,12 +37,29 @@ class AudioBufferPolicy final {
     if (!ready_ && queued >= startup_frames()) ready_ = true;
     return ready_;
   }
-  void reset() noexcept { ready_ = false; }
+  // A brief upstream stall need not become an audible zero-filled packet.
+  // Permit bounded, timestamp-preserving late delivery; never spin or wait on
+  // the ASIO producer. The OBS worker retries with its one-shot timer.
+  bool wait_for_input(std::uint64_t queued, std::uint64_t now) noexcept {
+    constexpr auto required = AudioTimeline::packet_frames + 3; // ±2,000 ppm + look-ahead
+    if (!ready_ || queued >= required) {
+      waiting_ = false;
+      return false;
+    }
+    if (!waiting_) {
+      waiting_ = true;
+      wait_started_ = now;
+    }
+    return now - wait_started_ < 20000000;
+  }
+  void reset() noexcept { ready_ = false; waiting_ = false; }
 
  private:
   std::uint32_t block_frames_;
   std::uint32_t target_blocks_;
   bool ready_ = false;
+  bool waiting_ = false;
+  std::uint64_t wait_started_ = 0;
 };
 
 }  // namespace soundfork::obs

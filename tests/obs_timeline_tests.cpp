@@ -72,8 +72,14 @@ void test_prebuffer_and_recovery() {
   require(policy.target_frames() == 960, "OBS jitter headroom is not 20 ms");
   require(!policy.ready(960), "startup lacks a complete output packet");
   require(policy.ready(1472), "sufficient prebuffer did not start");
+  require(policy.wait_for_input(100, 0), "brief input shortage was zero-filled immediately");
+  require(policy.wait_for_input(100, 19000000), "input retry window was too short");
+  require(!policy.wait_for_input(483, 19500000), "ready input was delayed");
+  require(policy.wait_for_input(0, 20000000), "subsequent input shortage was not bounded separately");
+  require(!policy.wait_for_input(0, 40000000), "input retry could wait forever");
   require(policy.ready(500), "normal buffer consumption restarted prebuffering");
   policy.reset();
+  require(!policy.wait_for_input(0, 0), "prebuffering incorrectly withheld silence packets");
   require(!policy.ready(500), "underrun did not re-enter prebuffering");
   require(policy.ready(policy.keep_blocks() * 64), "resync keeps too little audio");
   require(!soundfork::obs::AudioBufferPolicy(0).supported(), "zero block size accepted");
