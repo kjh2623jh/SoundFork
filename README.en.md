@@ -5,6 +5,9 @@
 [![CodeQL](https://github.com/kjh2623jh/SoundFork/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/kjh2623jh/SoundFork/actions/workflows/codeql.yml)
 [![Release checks · ClamAV](https://github.com/kjh2623jh/SoundFork/actions/workflows/release.yml/badge.svg)](https://github.com/kjh2623jh/SoundFork/actions/workflows/release.yml)
 
+> [!note]
+> This project was developed with AI assistance
+
 SoundFork plays a game or DAW's ASIO audio through your existing DAC with low
 latency while also sending it to **Discord screen sharing** and **OBS streams or
 recordings** on Windows.
@@ -15,8 +18,7 @@ recordings** on Windows.
 [View all releases](../../releases)
 
 The current version is the unsigned `v0.1.0-beta.2`, so Windows SmartScreen may
-show a warning. For your first installation, use **SoundFork-Setup** rather than
-the ZIP or a GitHub-generated “Source code” archive.
+show a warning.
 
 ## Requirements
 
@@ -44,8 +46,7 @@ With VB-CABLE:
 2. Press **Start relay** and play audio in the game or DAW.
 3. Share the **entire monitor** in Discord. **Application-window sharing is not supported.**
 
-Keep your normal physical microphone selected in Discord. When using another
-virtual audio device, select its virtual playback device instead of `CABLE Input`.
+When using another virtual audio device, select its virtual playback device instead of `CABLE Input`.
 
 Closing the control panel while the relay is running hides it in the notification
 area (system tray), and broadcasting continues. To finish, choose **Stop relay and
@@ -62,8 +63,7 @@ Requires OBS Studio **32.2.2 or later, x64**.
 2. Start OBS and add a **SoundFork Audio** source.
 3. Reuse that existing SoundFork source in other scenes rather than creating another.
 
-For OBS alone, **no virtual audio device or relay is needed**. Start the relay as
-described above only when also sharing in Discord. Control volume and mute in OBS.
+For OBS alone, **no virtual audio device or relay is needed**.
 
 ### Virtual audio device
 
@@ -71,8 +71,7 @@ described above only when also sharing in Discord. Control volume and mute in OB
 2. Add an **Audio Output Capture** source in OBS and select the same `CABLE Input`.
    Alternatively, select it under **Settings → Audio → Desktop Audio**.
 
-This method uses **CABLE Input**, not `CABLE Output`. For another virtual device,
-select the same virtual playback device in both SoundFork and OBS.
+For another virtual device, select the same virtual playback device in both SoundFork and OBS.
 
 **In OBS, use only one capture method for the same game audio to avoid duplicate sound.**
 
@@ -92,5 +91,5 @@ Close games/DAWs and OBS and stop the relay before updating or uninstalling.
 
 This project was developed with AI assistance and is distributed under GPL-3.0-only.
 
-[Development, testing and security checks](docs/DEVELOPMENT.en.md) · [License](LICENSE) ·
+[Program details](docs/DETAILS.en.md) · [Development guide](docs/DEVELOPMENT.en.md) · [License](LICENSE) ·
 [Third-party notices](THIRD_PARTY_NOTICES.en.md)

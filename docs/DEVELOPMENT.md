@@ -1,286 +1,146 @@
-# SoundFork 개발자 문서
+# SoundFork 개발 안내
 
-**한국어** | [English](DEVELOPMENT.en.md) · [사용자 안내](../README.md)
+**한국어** | [English](DEVELOPMENT.en.md) · [사용자 안내](../README.md) · [상세 설명](DETAILS.md)
 
-이 문서는 SoundFork의 구조, 실시간 처리 원칙, 빌드·테스트 방법과 현재 검증 범위를
-설명한다. 일반적인 설치와 Discord 사용법은 [README](../README.md)를 참고한다.
+소스를 수정하고 빌드·테스트·배포하려는 개발자를 위한 문서다.
+동작 방식, 호환성, 지연 수치와 검증 기록은 [상세 설명](DETAILS.md)에 모은다.
 
-## 구성 요소
+## 개발 환경과 빠른 시작
 
-- `asio-proxy`: ASIO 호스트에 `SoundFork`로 노출되는 64비트 COM DLL
-- `audio-bridge`: 실제 하드웨어 ASIO 드라이버의 생명주기와 버퍼를 중계
-- `capture-backend`: 비차단 공유 링, 캡처 분배 프로세스, 진단 모니터, WASAPI 방송 릴레이
-- `obs-plugin`: OBS 공식 소스 API를 통한 직접 오디오 입력
-- `control-app`: 백엔드 선택, 상태 확인, 릴레이 시작·중지, 시스템 트레이 UI
-- `tests`: 가짜 ASIO 드라이버, 프록시·COM·공유 링 자동 테스트
-- `installer`: Inno Setup 기반 설치 프로그램
+- Windows 10/11 x64, Git, CMake 3.25 이상
+- Visual Studio 2022의 **C++를 사용한 데스크톱 개발** 워크로드와 Windows SDK
+- C++20 / MSVC x64 빌드만 지원하며 게임이나 외부 ASIO 드라이버는 자동 테스트에 필요하지 않다.
+- Setup.exe 제작에는 Inno Setup 6, 보안 도구 테스트에는 Python 3.10 이상이 추가로 필요하다.
 
-제어판은 저장된 사용자 선택이 없으면 Windows UI가 한국어일 때만 한국어를 사용하고
-그 밖의 언어에서는 영어를 사용한다. 설치 프로그램이 선택한 언어는 최초 값으로만
-전달되며, 이후 **Language/언어** 메뉴에서 바꾼 값은
-`HKCU\Software\SoundFork\Language`에 유지된다.
-
-SoundFork는 DJMAX 전용 후킹 프로그램이 아니다. 표준 64비트 ASIO COM 인터페이스를
-사용하는 다른 게임과 DAW에서도 선택할 수 있다. 현재 실제 하드웨어 검증 환경만
-DJMAX RESPECT V와 FiiO K11 R2R이다.
-
-## 재생과 캡처 구조
-
-```text
-64비트 ASIO 호스트
-  -> soundfork_driver.dll
-      +-> 하드웨어 ASIO 드라이버 -> DAC
-      +-> 공유 메모리 SPSC 링 -> soundfork_capture_hub.exe
-                                  +-> 전용 SPSC 링 -> OBS SoundFork 오디오 소스
-                                  +-> 전용 SPSC 링 -> soundfork_discord_relay.exe
-                                                       -> 가상 재생 엔드포인트
-                                                           +-> Discord 전체 화면 공유
-                                                           +-> OBS 기존 장치 캡처
-```
-
-`createBuffers`는 하위 드라이버가 제공한 버퍼 포인터를 호스트에 그대로 노출한다.
-게임은 하드웨어 드라이버 소유 버퍼에 직접 쓰므로 재생 경로에 추가 버퍼나 샘플
-변환이 없다. ASIO 콜백에는 컨텍스트 포인터가 없으므로 프로세스당 준비된 스트림
-하나만 허용하며, 두 번째 `createBuffers`는 `ASE_InvalidMode`를 반환한다.
-
-48 kHz 스테레오 `ASIOSTInt32LSB`에서는 완료된 출력 블록을
-`Local\SoundFork.Audio.v2` 공유 메모리로 인터리브 복사한다. 링은 최대 8,192
-프레임 블록 64개와 소비자 하나를 지원한다. 소비자가 없거나 늦으면 캡처 블록만
-버리고 `dropped_blocks`를 증가시킨다. DAC 출력은 기다리지 않는다.
-
-새 캡처 허브가 원본 링의 단일 소비자가 되고, 별도 프로세스에서 OBS와 Relay용
-독립 링 두 개로 분배한다. ASIO 생산자와 재생 콜백은 변경하지 않는다. 허브는 각
-출력을 기다리지 않으므로 OBS 큐가 가득 차도 Relay와 DAC를 막지 않는다. 링 이름은
-`Local\SoundFork.CaptureHub.v1.OBS`와 `.Relay`이고 포맷·경계 검증은 원본과 동일하다.
-허브가 추가하는 폴링·복사·스케줄링 지연은 방송 경로에만 존재하며 0 ms를 보장하지 않는다.
-
-Relay와 OBS 소스가 필요할 때 같은 폴더의 `soundfork_capture_hub.exe`를 숨김 실행한다.
-프로세스 단일 실행은 이름 있는 뮤텍스로, 사용 중 여부는 커널 이벤트 핸들의 수명으로
-관리한다. 양쪽 소비자가 모두 종료되면 약 2초 후 허브도 종료된다. 게임이 재시작하거나
-허브가 종료되면 소비자는 다시 연결한다. 50 ms 간격으로 원본 스트림의 세대 번호와
-프로세스 생존을 확인하며 동일 포맷 재시작도 감지한다. 진단 모니터는 원본 링의 단일
-소비자이므로 허브와 동시에 사용하지 않는다. 제어판의 읽기 전용 관찰은 계속 가능하다.
-
-공유 메모리 v2는 헤더·매핑 크기, 모든 오프셋과 포맷 체크섬을 검증한다. 생산자와
-소비자는 검증된 블록 크기를 프로세스 내부에 캐시하므로 다른 프로세스가 헤더를
-바꾸더라도 콜백의 복사 크기가 커지지 않는다. 세대 번호와 Interlocked 시퀀스로
-재설정 도중의 블록을 거부하며, 스트리밍 시작 전에 약 4 MiB 데이터 영역의 모든
-페이지를 할당하고 접근한다. 이는 같은 사용자 권한의 악성 프로세스를 막는 보안
-경계가 아니라, 손상된 헤더가 범위 밖 접근으로 이어지지 않게 하는 방어다.
-
-### 실시간 콜백 규칙
-
-콜백에서는 다음 작업을 하지 않는다.
-
-- 동적 메모리 할당
-- 파일, 레지스트리, 네트워크 접근이나 로깅
-- 잠금, 대기 또는 블로킹 동기화
-- 불필요한 샘플 변환
-- 방송 소비자의 처리 완료 대기
-
-자동 테스트는 캡처 발행을 포함한 콜백 10,000회에서 동적 할당이 0회인지 검증한다.
-
-### 지연의 의미
-
-게임 재생 경로는 DJMAX가 FiiO 소유 이중 버퍼에 직접 쓰고 같은 콜백 안에서 FiiO로
-반환된다. 큐, 별도 재생 스레드, 한 버퍼 주기 대기가 없으므로 SoundFork가 추가하는
-**버퍼 지연의 이론적 하한은 0 ms**다. 이는 실제 입출력 지연이 0 ms라는 뜻이 아니다.
-ASIO 드라이버, USB, DAC와 게임 자체의 지연은 그대로 존재하며 물리 루프백 측정은
-아직 수행하지 않았다. 프록시 사용 전후 모두 드라이버가 보고한 값은 168 samples였고
-체감 차이가 없었다는 사용자 확인만 있다.
-
-공유 메모리로 복사하는 CPU 실행 시간은 추가 버퍼 주기와 다른 개념이다. 2026-10-19
-로컬 Release 가속 테스트에서 4시간 등가 10,800,000콜백 중 4,096콜백마다 표본을
-취한 synthetic 콜백 시간은 평균 0.121 us, 최대 7.7 us였다. 이는 가짜 ASIO
-백엔드에서 측정한 해당 PC의 벽시계 결과이며 FiiO 실제 지연 측정값이 아니다.
-
-### 방송 Relay 안정성
-
-FiiO ASIO와 가상 WASAPI 장치는 서로 다른 클럭을 사용한다. Relay는 게임 경로 밖에서
-4블록을 목표로 하는 적응형 선형 리샘플링을 사용하고 보정량을 ±2,000 ppm으로
-제한한다. 48 kHz/64 samples에서 목표 4블록은 방송 경로에만 약 5.33 ms의 버퍼를
-의도적으로 추가한다. 큐가 오래 밀리면 Relay만 최신 4블록으로 재동기화한다.
-
-WASAPI가 `AUDCLNT_E_DEVICE_INVALIDATED` 등 장치 제거·서비스 재시작 오류를 반환하면
-Relay는 세션을 폐기하고 엔드포인트를 다시 열며 창 연결도 다시 설정한다. 이 과정에서
-ASIO 프록시나 FiiO 재생을 중지하지 않는다. 종료 시에는 Relay 큐 최소·최대, 무음
-프레임, 최대 클럭 보정, 재동기화, 폐기 블록, 장치 재연결과 생산자 드롭을 출력한다.
-
-## Discord 동작 경계
-
-ASIO는 Windows 공유 오디오 엔진을 우회한다. 직접 FiiO ASIO로 보낸 오디오는 일반
-WASAPI 루프백에 나타나지 않는다. 릴레이가 만드는 Windows 오디오 스트림의 소유자는
-DJMAX가 아니라 `soundfork_discord_relay.exe`다.
-
-실제 원격 청취 테스트 결과는 다음과 같다.
-
-- DJMAX 애플리케이션 창 공유: 릴레이를 사용해도 게임 오디오가 포함되지 않음
-- 전체 화면 공유 + 직접 ASIO: 게임 오디오 없음
-- 전체 화면 공유 + SoundFork 릴레이 + VB-CABLE: 게임 오디오 포함
-
-따라서 현재 지원 방식은 전체 화면 공유다. Windows 11의
-`IAudioViewManagerService`를 이용한 HWND 연결도 시험했지만 Discord 창 공유에는
-외부 릴레이 스트림이 포함되지 않았다. Discord 코드 주입이나 비공개 API는 사용하지
-않는다.
-
-OBS에서는 릴레이가 출력하는 가상 재생 엔드포인트를 **오디오 출력 캡처** 소스 또는
-**설정 → 오디오 → 데스크탑 오디오**로 선택한다. VB-CABLE 기준으로는 `CABLE Input`이
-해당 엔드포인트다. `CABLE Output`은 녹음 엔드포인트이므로 이 목록에는 나타나지 않는다.
-
-관련 공개 문서:
-
-- <https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share>
-- <https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/>
-- <https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nn-audioclient-iaudioviewmanagerservice>
-
-## 빌드
-
-필요한 환경은 Windows 10/11 x64, Visual Studio 2022의 **C++를 사용한 데스크톱
-개발** 워크로드와 CMake 3.25 이상이다.
+저장소 루트의 PowerShell에서 실행한다. 빌드 스크립트는 Visual Studio에 포함된
+CMake도 찾으며, 구성·빌드 후 CTest까지 실행한다.
 
 ```powershell
-.\scripts\Build-SoundFork.ps1 -Configuration Debug
-.\scripts\Build-SoundFork.ps1 -Configuration Release
-.\scripts\Test-SoundForkStaticAnalysis.ps1
-
-# OBS 플러그인과 실제 libobs 통합 테스트까지 포함
+.\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
 .\scripts\Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+```
+
+`-WithObsPlugin`을 빼면 OBS 플러그인 없이 빌드한다. 플러그인 포함 빌드는
+`Prepare-ObsSdk.ps1`로 공식 OBS 32.2.2 소스·Windows 아카이브의 고정 SHA-256을 검증한다.
+동일 버전의 로컬 OBS 런타임은 테스트에 재사용할 수 있다. 공식 헤더와 DLL export로
+import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 넣지 않는다.
+
+결과물은 `build/windows-msvc-x64/Debug` 또는 `Release`에 생성된다.
+주요 파일은 `soundfork_driver.dll`, `soundfork_control.exe`, `soundfork_capture_hub.exe`,
+`soundfork_discord_relay.exe`, 선택적 `soundfork-obs.dll`과 `obs-plugin` 원본 폴더다.
+제어판의 플러그인 관리 기능을 시험할 때는 EXE만 따로 옮기지 않는다.
+
+## 소스에서 찾을 위치
+
+- `src/asio-proxy`: x64 ASIO COM 서버와 등록 진입점
+- `src/audio-bridge`: 하드웨어 드라이버 로드·생명주기, 버퍼·콜백 중계
+- `src/capture-backend`: 공유 링, 캡처 허브, WASAPI 릴레이·클럭 보정, 진단 모니터
+- `src/obs-plugin`: 공식 libobs API로 출력하는 오디오 소스와 번역 리소스
+- `src/control-app`: 설정·언어·트레이, 업데이트 확인, 권한 분리된 플러그인 관리
+- `tests`: 가짜 ASIO 백엔드, 회귀·실제 libobs 통합·보안 도구 테스트
+- `installer`, `scripts`, `.github`: 설치 프로그램, 빌드·진단 스크립트, CI·배포 워크플로
+
+버전의 기본값은 `CMakeLists.txt`의 `project(VERSION ...)`이고 사용자 표시 버전은
+`SOUNDFORK_VERSION`에서 생성한다. 언어 선택은 사용자별
+`HKCU\Software\SoundFork\Language`에 저장한다.
+
+## 수정할 때 지켜야 할 계약
+
+### ASIO 실시간 경로
+
+`ProxyDriver::createBuffers`는 실제 드라이버의 버퍼 포인터를 호스트에 그대로 노출한다.
+실제 드라이버의 콜백은 프록시를 거쳐 호스트 콜백을 호출한다. 방송 기능을 위해
+재생 버퍼·큐·스레드·한 주기 대기를 끼워 넣지 않는다. 프로세스당 준비된 스트림은
+하나이며 두 번째 `createBuffers`는 `ASE_InvalidMode`를 반환한다.
+
+콜백에는 동적 할당, 파일·레지스트리·네트워크 접근, 로깅, 잠금, 대기, 동기식 IPC,
+불필요한 샘플 변환이나 방송 소비자 완료 대기를 추가하지 않는다. 캡처 복사를 포함한
+10,000콜백의 무할당 테스트를 유지한다. 클럭 보정과 장치 재연결은 방송 경로에만 적용한다.
+
+### 공유 메모리와 캡처 분배
+
+- 원본 링은 `Local\SoundFork.Audio.v2`, OBS·Relay 출력은 각각
+  `Local\SoundFork.CaptureHub.v1.OBS`와 `.Relay`다. 각 링은 SPSC 단일 소비자다.
+- 최대 8,192프레임 블록 64개와 약 4 MiB 데이터 영역을 시작 전에 준비하고 페이지에 접근한다.
+  헤더·매핑 크기·오프셋·포맷 체크섬을 검증하고 복사 크기를 내부에 캐시한다.
+- 공유 헤더 값을 콜백의 길이·오프셋으로 다시 신뢰하지 않는다. Interlocked 시퀀스와
+  세대 번호의 메모리 순서를 유지하고 재설정 중인 블록을 거부한다.
+- 허브가 원본 링의 유일한 소비자가 되어 별도 프로세스에서 두 출력으로 복사한다.
+  출력이 가득 차면 해당 출력만 버린다. 진단 모니터와 허브의 동시 원본 소비는 금지한다.
+- 이름 있는 뮤텍스로 허브를 단일 실행하고 커널 이벤트 핸들 수명으로 소비자를 추적한다.
+  양쪽 소비자 종료 약 2초 뒤 종료하며, 50 ms 간격의 세대·프로세스 확인으로 재시작을 감지한다.
+  게임이 없으면 허브 폴링을 50 ms로 낮춘다.
+
+프로토콜을 바꿀 때는 버전·경계 검증과 생산자 재시작 테스트를 함께 갱신한다.
+같은 형식으로 재시작한 게임, 강제 종료된 허브, 지연된 한쪽 소비자도 다룬다.
+
+### OBS 출력과 플러그인 관리
+
+OBS 작업 스레드는 480프레임 / 10 ms를 `obs_source_output_audio`에 전달하고 OBS 단조
+시계의 연속 타임스탬프를 사용한다. 목표 잔여 큐는 4블록, 보정 한도는 ±2,000 ppm이다.
+시작 시 한 패킷과 목표 큐가 준비될 때까지 무음을 보내고, 50 ms 이상 지연되거나 큐가
+과도하면 OBS 경로만 재동기화한다. 프로세스 생성·복구는 별도 관리 스레드에 두어
+시간을 맞춰 오디오를 전달하는 스레드를 막지 않는다. 종료 통계 로그를 유지한다.
+
+관리 UI는 DLL을 로드하지 않고 버전 리소스를 읽는다. 사용자가 작업을 선택할 때만
+같은 제어판 EXE를 `runas`로 실행한다. 고정 관리 명령에 임의의 원본·대상 경로를
+받지 않으며 ProgramData Known Folder로 대상을 구한다. OBS 프로세스나 OBS 소비자가
+살아 있으면 파일 작업을 거부한다.
+
+링크·재분석 지점을 거부하고 디렉터리 핸들로 경로 교체를 막는다. 알려진 7개 파일만
+준비·백업 후 교체·제거하며, 실패하면 이전 변경을 복구한다. 알 수 없는 파일은 보존하고
+복구 실패 시 transaction 폴더를 남긴다. 전체 제거도 플러그인 정리에 실패하면 중단한다.
+설치 위치·portable 사용법 등 사용자 동작은 [상세 설명](DETAILS.md)에 있다.
+
+## 테스트와 진단
+
+### 자동 회귀와 정적 분석
+
+빌드 스크립트가 CTest를 실행한다. 현재 OBS 포함 시 10개, 제외 시 9개다. 프록시·COM·
+공유 링·허브·릴레이 클럭·장치 열거·제어판·플러그인 관리와 선택적 실제 libobs 통합을 다룬다.
+libobs 테스트는 DLL 로드, 소스 생성, 좌우 PCM, 타임스탬프 증가와 릴레이 동시 수신을 검증한다.
+게임이나 실제 DAC 시험은 아니다.
+
+```powershell
 .\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin
+.\scripts\Test-ReleaseDependencies.ps1
+python -B -m unittest discover -s tests -p test_scan_release.py -v
 ```
 
-OBS SDK 준비 스크립트는 공식 32.2.2 소스와 Windows 배포 파일의 고정 SHA-256을
-검증한다. 같은 버전의 OBS가 설치되어 있으면 로컬 DLL을 빌드·테스트에만 재사용한다.
-OBS ABI를 자체 선언하지 않고 공식 헤더와 추출한 DLL의 export로 생성한 import
-라이브러리를 사용한다. OBS DLL 자체는 SoundFork 패키지에 포함하지 않는다.
+정적 분석은 별도 `build/windows-msvc-analyze`에서 `/analyze /WX`로 깨끗이 빌드한다.
+Release는 정적 MSVC 런타임을 사용하며 의존성 검사는 x64, CFG·NX·ASLR과 Guard CF
+테이블, 동적 MSVC 런타임 미사용을 확인한다. 경고를 억제하기보다 원인을 수정한다.
 
-### OBS 직접 캡처
+테스트는 격리된 `SOUNDFORK_CAPTURE_SCOPE`와 임시 경로를 사용한다. 실제 설치된
+드라이버·사용자 플러그인·오디오 설정을 테스트 편의를 위해 변경하지 않는다.
+디렉터리 심볼릭 링크 시험은 Windows 권한이 없으면 건너뛴다. 실제 링크·정션과
+UAC 승인·취소는 별도 수동 시험으로 남기고, 건너뛴 시험을 통과했다고 기록하지 않는다.
 
-설치 프로그램의 선택 항목은 플러그인을
-`%ProgramData%\obs-studio\plugins\soundfork-obs`에 설치한다. ZIP 사용자는
-`obs-plugin\soundfork-obs` 폴더를 이 경로로 복사한다. OBS를 종료한 상태에서 설치·업데이트한다.
-설치 마법사는 선택 항목과 별개로 `{app}\obs-plugin\soundfork-obs`에 원본을 보관한다.
-제어판의 **설정 → OBS 플러그인** 메뉴에서 설치 상태와 DLL의 버전 리소스를 읽고,
-설치·업데이트·제거를 요청할 수 있다. 오디오 활성 여부와 볼륨은 OBS 소스·믹서에서
-관리하며 제어판에는 별도의 전달 스위치를 두지 않는다.
-
-파일 작업은 사용자가 메뉴를 선택했을 때 `runas`로 실행한 같은 제어판 EXE의
-고정 명령에서 처리한다. CLI로 임의의 원본·대상 경로를 전달할 수 없다. OBS 프로세스나
-SoundFork OBS 소비자가 실행 중이면 작업을 거부한다. 대상은 Known Folder API로
-찾은 ProgramData 아래의 플러그인 폴더이며, 링크·재분석 지점을 거부하고 디렉터리
-핸들로 경로 교체를 막는다. 고정된 7개 파일만 준비·백업 후 교체하고, 실패하면
-이미 변경한 파일을 복구한다. 제거도 같은 방식이며 알 수 없는 파일은 보존한다.
-복구 자체가 실패하면 transaction 폴더에 복구 파일을 남긴다. SoundFork 전체 제거는
-이 플러그인 정리도 수행하며 OBS가 켜져 있거나 정리에 실패하면 중단한다.
-임시 폴더 자동 테스트와 별개로 실제 UAC 승인·취소와 설치 프로그램 전체 제거는
-수동 검증 항목이다. ASIO DLL과 콜백·재생 경로는 이 관리 기능에서 변경하지 않는다.
-디렉터리 심볼릭 링크 거부 테스트는 Windows 권한이 없으면 건너뛰며, 현재 로컬
-실행에서는 이 조건으로 건너뛰었다. 실제 링크·정션 경로의 수동 검증은 남아 있다.
-OBS portable 모드에서는 ProgramData 플러그인을 검색하지 않으므로 portable OBS의
-`obs-plugins\64bit`에 플러그인 DLL과 허브 EXE를, `data\obs-plugins\soundfork-obs`에
-플러그인의 `data` 내용을 배치해야 한다.
-
-OBS Studio 32.2.2 이상 x64, 스테레오 48 kHz `ASIOSTInt32LSB` 복제를 지원한다.
-OBS 안에서는 SoundFork 소스를 하나만 생성하고 다른 장면에서는 기존 소스를 사용한다.
-서로 다른 OBS 프로세스 여러 개의 동시 직접 캡처는 지원하지 않는다. Discord에는
-기존 가상 장치 Relay가 계속 필요하다. 기존 버전 Relay와 새 플러그인을 섞지 말고
-같은 빌드의 구성 요소를 사용한다.
-
-OBS 작업 스레드는 480프레임/10 ms 패킷을 공식 `obs_source_output_audio`에 전달한다.
-허브 실행과 재실행은 별도 관리 스레드에서 처리해 프로세스 생성이 오디오 전달을
-지연시키지 않도록 한다. 게임이 없으면 허브의 폴링 주기는 50 ms로 낮아진다.
-OBS 단조 시계의 연속 타임스탬프를 사용하며 목표 잔여 큐 4블록과 ±2,000 ppm의
-클럭 보정을 적용한다. 시작 시 한 패킷과 목표 큐가 쌓일 때까지 무음을 전달한다.
-이는 게임 재생 경로의 버퍼가 아니다. 50 ms 이상의 작업 스레드 지연이나 오래된 큐는
-OBS 경로만 재동기화한다. OBS 로그에 패킷·무음 프레임·최대 큐·폐기 블록·재동기화·
-최대 클럭 보정 통계를 남긴다. 가상 장치를 생략해도 OBS 내부 버퍼와 영상 동기화는
-존재하므로 실제 지연 감소량은 비교 녹화로 확인해야 한다.
-
-자동 테스트는 격리된 `SOUNDFORK_CAPTURE_SCOPE` 환경변수와 테스트 전용 링을 사용한다.
-허브 테스트는 양쪽 PCM 일치, 느린 OBS의 Relay 비간섭, 동일 포맷 게임 재시작,
-허브 강제 종료 후 복구와 자동 종료를 검증한다. 실제 libobs 통합 테스트는 DLL 로드, 소스 생성, 좌우 PCM,
-타임스탬프 증가, Relay 동시 수신을 검증한다. 실제 OBS UI에서 FiiO·Discord 동시
-녹화, 영상 싱크, 수 시간 재생, 설치·제거는 별도 수동 검증 항목이다.
-
-Release 바이너리는 정적 MSVC 런타임을 사용한다. 주요 결과물은
-`build/windows-msvc-x64/<Config>` 아래에 생성된다. MSVC CFG, NX와 ASLR을
-활성화하며 배포 검사에서 PE 플래그와 Guard CF 테이블을 확인한다. 정적 분석은
-`/analyze /WX`로 실행하므로 경고를 오류로 처리한다.
-
-앱 아이콘 원본은 `assets/soundfork-icon.png`이며 다중 크기 Windows 아이콘은
-다음 명령으로 다시 만들 수 있다.
-
-```powershell
-.\scripts\Build-Icon.ps1
-```
-
-설치 프로그램을 포함한 로컬 배포 패키지는 Inno Setup 6이 필요하다.
-
-```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
-
-# Inno Setup 없이 ZIP만 검사
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
-```
-
-코드 서명 인증서가 있으면 패키지 안의 EXE·DLL과 Setup을 SHA-256/RFC 3161 방식으로
-서명하고 즉시 검증할 수 있다. 인증서 비밀키는 저장소에 넣지 않는다.
-
-```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
-  -CertificateThumbprint '<SHA1 thumbprint>' `
-  -TimestampUrl 'https://timestamp-provider.example'
-```
-
-현재 로컬 환경에는 코드 서명 인증서가 없으므로 실제 서명 성공을 주장하지 않는다.
-
-## 테스트
-
-CTest는 프록시 코어, COM 서버, ASIO 호스트 열거, 공유 링, Relay 클럭, WASAPI
-엔드포인트 열거와 컨트롤 앱 자체 검사 등 7개 테스트를 실행한다. 2026-10-19 기준
-Debug와 Release에서 각각 7/7 통과했다. MSVC AddressSanitizer의 프록시·공유 링·Relay
-테스트와 `/analyze /WX` 전체 빌드도 통과했다.
-
-하드웨어 테스트에서는 FiiO ASIO Driver 6.16.0.0과 FiiO K11 R2R를 48 kHz / 64
-samples / 스테레오 `ASIOSTInt32LSB`로 실행했다. 직접 경로와 프록시 경로 모두
-168 samples의 ASIO 출력 지연을 보고했고, 사용자가 좌우 재생, 체감 지연 차이 없음,
-클릭·팝·드롭아웃 없음과 게임 재시작을 확인했다. 168 samples는 드라이버 보고값이며
-물리 루프백 측정값은 아니다.
-
-공유 링은 늦은 소비자와 소비자 중단 상황에서도 FiiO 콜백이 계속되는지 검증했다.
-등록된 COM 경로의 3초 소비 구간에서는 2,244블록 / 143,616프레임, 생산자 드롭
-0개를 기록했다. 2026-10-19에는 GitHub Release Setup을 실제 Windows 환경에
-설치하고 Windows 제거 기능으로 정상 제거되는 것도 확인했다. SoundFork 릴레이의
-`CABLE Input` 출력을 OBS 데스크탑 오디오로 선택했을 때 오디오가 캡처되는 것도
-실사용 환경에서 확인했다.
-
-다음 명령은 4시간에 해당하는 10,800,000개의 48 kHz/64-sample 콜백과 ±1,500 ppm
-Relay 드리프트를 빠르게 시뮬레이션한다.
+### 가속 soak와 하드웨어 시험
 
 ```powershell
 .\scripts\Test-SoundForkSoak.ps1 -Hours 4
 ```
 
-2026-10-19 로컬 가속 실행은 생산 드롭 0, 소비 언더런 0, 최대 큐 1블록과 시작·종료
-private bytes 동일을 기록했다. 이는 실제 시간으로 4시간 재생한 결과가 아니다. 실제
-FiiO·Discord·OBS 실시간 시험은 Relay를 시작한 뒤 다음 감시기를 함께 실행하며,
-최종 음질과 원격 청취는 사람이 확인해야 한다.
+이 명령은 48 kHz / 64 samples의 4시간 등가 10,800,000콜백과 ±1,500 ppm 드리프트를
+빠르게 시뮬레이션한다. 실제 시간 4시간 재생 시험으로 보고하지 않는다.
+
+실제 시험은 사용자가 릴레이를 시작한 뒤 다음 감시기를 함께 실행한다.
 
 ```powershell
 .\scripts\Watch-SoundForkHardwareSoak.ps1 -Hours 4
 ```
 
-### 아직 주장하지 않는 항목
+콜백 시간·생산자 드롭·큐 깊이·언더런·오버런·메모리를 기록하고, 사람이 좌우 음질,
+게임 재시작, Discord 원격 청취·실제 마이크, OBS 녹화·영상 싱크를 확인한다.
+소비자 중단과 가상 장치 제거·재연결도 시험하되 기존 설정을 임의로 변경하지 않는다.
+지연 보고는 계산값, 드라이버 보고값, 가짜 백엔드 시간, 실제 물리 측정을 분리한다.
+시험 결과와 미검증 항목은 [상세 설명](DETAILS.md#검증-기록과-남은-확인)에 갱신한다.
 
-- 공유 메모리 모니터에서 0이 아닌 DJMAX 곡 PCM 캡처 확인
-- 실제 시간 4시간 FiiO·Discord·OBS 동시 soak 결과
-- 가상 WASAPI 장치의 실제 USB/드라이버 제거·재연결 결과
-- Discord 애플리케이션 창 공유 오디오
-- 실제 마이크와 전체 화면 릴레이의 동시 원격 확인
-- 물리 루프백 장비를 사용한 실제 지연 측정
+## 개발용 등록과 설치
 
-## 등록과 설치
-
-개발용 수동 등록은 관리자 권한의 64비트 PowerShell에서만 수행한다.
+등록·해제는 시스템 ASIO 목록을 바꾸므로 필요한 경우에만 관리자 권한의 64비트
+PowerShell에서 수행한다. 아래 FiiO 이름은 예시이며 다른 드라이버는 실제 등록 이름을 쓴다.
 
 ```powershell
 .\scripts\Register-SoundFork.ps1 -BackendName 'FiiO ASIO Driver'
@@ -288,97 +148,101 @@ FiiO·Discord·OBS 실시간 시험은 Relay를 시작한 뒤 다음 감시기�
 .\scripts\Unregister-SoundFork.ps1
 ```
 
-설치 프로그램은 등록된 x64 ASIO 백엔드를 선택받고, 자신과 같은 폴더의
-`soundfork_driver.dll`만 등록한다. 백엔드 설정에 실패하면 SoundFork 등록을
-롤백한다. 제거 과정은 다른 ASIO 드라이버나 가상 오디오 장치를 건드리지 않는다.
+ZIP 수동 설치는 압축을 푼 디렉터리의 `scripts/Install-SoundFork.ps1`을 관리자 권한으로
+실행하고 `-BackendName`을 지정한다. 제조사 드라이버를 삭제·수정하지 않는다.
+설치·COM 등록·제거 자동 시험은 격리된 CI runner에서 임시 ASIO 백엔드로 수행한다.
+`Test-ReleaseInstaller.ps1 -AllowRegistryChanges`는 실제 레지스트리를 바꾸며 기존
+SoundFork 키를 발견하면 중단한다. 사용 중인 PC에서 무심코 실행하지 않는다.
 
-## CI/CD
+## 패키징과 릴리스
 
-PR과 `main` push는 Windows x64 Debug/Release 빌드와 CTest를 실행하고 Release에서
-경고를 오류로 취급하는 MSVC 정적 분석도 수행한다. 다음 형식의 태그는 Setup.exe,
-실행 가능 ZIP과 SHA-256 파일을 생성한다.
+### 로컬 패키지
 
-```powershell
-git tag -a v0.1.0-beta.2 -m 'SoundFork v0.1.0-beta.2'
-git push origin v0.1.0-beta.2
-```
-
-지원되는 접미사는 `alpha.N`, `beta.N`, `rc.N`이며 GitHub prerelease로 게시된다.
-정식 `vX.Y.Z` 태그는 일반 Release가 된다. 태그 기본 버전은 `CMakeLists.txt`와
-일치하고 태그 커밋은 `main`에 포함되어야 한다. 새 버전을 태그하기 전에 사용자
-README 두 개의 Setup 바로 다운로드 링크도 같은 태그로 갱신해야 한다.
-
-Release workflow는 x64 PE와 런타임 의존성, 체크섬, 임시 ASIO 백엔드를 사용한
-설치·COM 등록·제거를 검증한 뒤에만 게시한다. 설치 테스트는 기존 SoundFork 키를
-발견하면 덮어쓰지 않고 중단한다. 실제 하드웨어와 Discord 원격 청취는 CI에서
-재현하지 않는다. `WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PFX_PASSWORD`와
-`WINDOWS_TIMESTAMP_URL`이 모두 설정되면 서명 후 게시하며, 없으면 명확한 경고와
-함께 미서명 아티팩트를 만든다.
-
-## 보안 검사
-
-### 소스 코드와 의존성
-
-CodeQL은 `main` push, PR, 매주 화요일 03:23 UTC와 수동 실행에서 Windows x64
-Release 빌드를 직접 추적한다. OBS 플러그인까지 포함한 C/C++ 코드에
-`security-extended` 쿼리를 적용하고 결과를 GitHub의 Security → Code scanning에
-등록한다. PowerShell·Inno Setup·Python 스크립트와 실제 장치 동작은 이 C/C++ 분석의
-검사 대상이 아니다. 기존 MSVC `/analyze /WX`와 회귀 테스트는 그대로 유지한다.
-
-CodeQL은 기존 CI·배포와 독립적이며 분석 실행 성공이 취약점 0개를 뜻하지 않는다.
-발견된 경고는 Security에서 별도로 검토해야 한다. 공개 저장소의 Code scanning과
-Actions를 사용할 수 있어야 하며, 저장소에서 Default setup을 사용 중이면 중복되지
-않도록 Advanced setup으로 전환한다. 이 설정 변경은 자동 수행하지 않는다.
-
-Dependabot은 기존 [업데이트 설정](../.github/dependabot.yml)에 따라 GitHub Actions 의존성을 주 1회
-확인한다. 액션의 전체 커밋 SHA 고정과 수동 PR 검토를 유지하며 자동 병합하지 않는다.
-CMake 자체나 PowerShell로 내려받는 OBS SDK는 이 Dependabot 설정의 관리 대상이
-아니므로 별도 검토가 필요하다. OBS 다운로드의 기존 SHA-256 검증은 유지한다.
-
-### 배포 전 악성코드 검사
-
-릴리스는 **Windows 빌드·기존 검증 → Linux ClamAV 검사 → 게시** 순서로 실행한다.
-서명 설정이 있으면 먼저 서명하고, 설치·제거 시험까지 통과한 최종 Setup.exe와 ZIP,
-`SHA256SUMS.txt`를 변경 불가능한 Actions 아티팩트 ID로 다음 작업에 전달한다.
-검사·게시 작업은 빌드 작업이 기록한 체크섬 목록의 SHA-256과 각 파일의 해시를
-재확인한다. 게시 단계에서는 재빌드·재서명하지 않으며 태그가 다른 커밋으로 이동했으면
-게시를 거부한다. `contents: write`는 게시 작업에만 부여한다.
-
-ClamAV는 Ubuntu 패키지에서 설치하고 매 실행마다 `freshclam`으로 공식 정의를
-갱신한다. 최종 설치 파일·ZIP과 안전하게 추출한 ZIP 내용 전체를 실행하지 않고
-검사한다. 설치 파일의 모든 내부 구성 요소를 완벽하게 분석한다는 의미는 아니다.
-원본/추출 단일 파일 최대 128 MiB, ZIP 추출 합계와 ClamAV 단일 검사 확장 크기
-512 MiB, ZIP 항목/ClamAV 컨테이너 파일 수 4,096개, 깊이 32를 한도로 둔다.
-ClamAV 파일별 검사 제한은 120초, 전체 스캐너 프로세스 제한은 15분이며 정의가
-3일보다 오래되면 실패한다. ZIP 경로 이탈·링크·암호화·중복 경로도 거부한다.
-
-탐지, 검사 제한 초과, 스캐너 경고·오류, 정의 갱신 실패와 시간 초과는 게시를 막는다.
-자동 예외 처리·검사 우회·탐지 파일 삭제는 하지 않는다. 실패 시 Actions 로그와
-`SoundFork-<version>-security-logs` 아티팩트의 `freshclam.log`, `clamscan.log`,
-`scan-result.json`을 확인한다. 도달한 단계의 로그만 존재하며 30일 보관한다.
-결과에는 엔진·정의 버전과 대상 SHA-256을 포함한다. 오탐이면 먼저 원인을 검토하고
-수정한 뒤 재실행한다. 이미 게시된 릴리스는 자동 삭제하지 않는다.
-
-README의 CodeQL 배지는 `main` 분석 실행 상태이고 Release checks · ClamAV 배지는
-ClamAV를 필수로 포함하는 릴리스 워크플로 전체 상태이다. 특정 다운로드 버전의 인증서나
-취약점 0개 표시가 아니다.
-이 검사는 코드 서명·SmartScreen 평판·하드웨어 soak 시험을 대체하지 않으며, 단일
-백신 엔진의 통과가 악성코드 부재나 보안 무결점을 보장하지 않는다.
-
-검사 도구의 자동 테스트는 Python 3.10 이상 표준 라이브러리만 사용한다. 게임·제어판
-실행에는 Python이나 ClamAV가 필요하지 않다.
+Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 만든다.
+아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-python -B -m unittest discover -s tests -p test_scan_release.py -v
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
 ```
 
-일반 CI·로컬 테스트에서는 스캐너 성공·탐지·오류·시간 초과를 모의 실행하고, 해시
-변조와 ZIP 경로·크기 검증을 시험한다. 릴리스의 Linux 검사 작업에서만
-`SOUNDFORK_TEST_CLAMAV=1`로 실제 ClamAV와 표준 EICAR 테스트 파일을 임시 디렉터리에서
-시험한다. EICAR 파일은 커밋하거나 배포하지 않는다. 실제 CodeQL 업로드·ClamAV
-정의 갱신·릴리스 게시 차단의 GitHub 통합 결과는 첫 Actions 실행에서 확인해야 한다.
+인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
+인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
-## 라이선스
+```powershell
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
+  -CertificateThumbprint '<SHA1 thumbprint>' `
+  -TimestampUrl 'https://timestamp-provider.example'
+```
 
-SoundFork는 GPL-3.0-only다. ASIO SDK, 선택적 VB-Audio 소프트웨어 및 Inno Setup
-관련 내용은 [제3자 구성 요소 고지](../THIRD_PARTY_NOTICES.md)를 참고한다.
+아이콘은 `assets/soundfork-icon.png`를 수정한 뒤 `scripts/Build-Icon.ps1`로 다시 만든다.
+문서를 추가·이동하면 CMake 설치 목록과 README 링크를 함께 갱신한다.
+ZIP과 설치본 모두 README는 루트, 상세·개발 문서는 `docs`에 두는 상대 경로를 유지한다.
+
+### GitHub 배포 절차
+
+1. Debug·Release 회귀와 정적 분석을 확인하고 변경 사항을 커밋한다.
+2. 미사용 버전을 정한다. 기본 `X.Y.Z`는 CMake와 일치해야 하며 선택 접미사는
+   `alpha.N`, `beta.N`, `rc.N`이다. 한·영 README의 Setup 링크도 같은 버전으로 맞춘다.
+3. 배포 커밋을 원격 `main`에 반영한 뒤 그 커밋에 태그를 붙여 푸시한다.
+   아래 명령은 배포 담당자가 의도적으로 실행할 절차이며 기존 태그를 강제로 옮기지 않는다.
+
+```powershell
+$releaseVersion = Read-Host 'New release version without v'
+git tag -a "v$releaseVersion" -m "SoundFork v$releaseVersion"
+git push origin "v$releaseVersion"
+```
+
+PR·`main` CI는 Windows Debug·Release 빌드·CTest, Release 정적 분석과 보안 도구 테스트를
+실행한다. 태그 릴리스는 **Windows 빌드·기존 검증 → ClamAV → 게시** 순서다.
+서명이 있으면 검사 전에 완료하고, 검사·게시 단계는 같은 불변 아티팩트 ID와 빌드가
+기록한 체크섬 목록 SHA-256으로 파일을 재검증한다. 재빌드·재서명하지 않는다.
+게시 전에 태그 이동을 거부하고 같은 태그의 실행은 직렬화한다. `contents: write`는
+게시 작업에만 주며, 검사 실패 시 이미 게시된 과거 릴리스를 삭제하지 않는다.
+
+`WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PFX_PASSWORD`,
+`WINDOWS_TIMESTAMP_URL`을 모두 설정하면 서명한다. 없으면 미서명 경고를 내며
+접미사 태그는 prerelease, 접미사 없는 태그는 정식 Release로 게시한다.
+
+## 보안 검사 운영
+
+### CodeQL과 의존성
+
+CodeQL은 `main` push·PR·매주 화요일 03:23 UTC·수동 실행에서 OBS 포함 Windows
+C/C++ 빌드를 직접 추적하고 `security-extended` 결과를 Security → Code scanning에
+등록한다. 기존 CI·배포와 독립적이며 분석 실행 성공이 경고 0개라는 의미는 아니다.
+PowerShell·Inno Setup·Python이나 실제 장치 동작은 이 C/C++ 분석의 대상이 아니다.
+공개 저장소의 Code scanning·Actions가 필요하며 Default setup을 쓰고 있었다면
+중복되지 않도록 Advanced setup으로 전환한다. 설정을 자동 변경하지 않는다.
+
+[Dependabot 설정](../.github/dependabot.yml)은 Actions 의존성을 주 1회 확인한다.
+전체 커밋 SHA 고정과 수동 PR 검토를 유지하고 자동 병합하지 않는다. CMake나 수동
+다운로드 SDK는 이 설정의 대상이 아니며 OBS 아카이브의 SHA-256 검증을 유지한다.
+
+### ClamAV와 실패 대응
+
+Ubuntu ClamAV 패키지와 `freshclam` 공식 정의로 최종 Setup.exe·ZIP·안전하게 추출한
+ZIP 내용을 실행하지 않고 검사한다. `scripts/scan_release.py`가 파일·체크섬 목록과
+빌드 기록의 해시를 확인한다. ZIP 경로 이탈·링크·암호화·중복 경로도 거부한다.
+
+- 원본·추출 단일 파일 128 MiB, ZIP 추출 합계·ClamAV 컨테이너 확장 크기 512 MiB
+- ZIP 항목·컨테이너 파일 수 4,096개, 깊이 32
+- 파일별 120초, 스캐너 프로세스 15분, 정의 최대 나이 3일
+
+탐지·제한 초과·경고·오류·시간 초과·정의 갱신 실패는 게시를 막는다. 자동 예외 처리,
+검사 우회나 탐지 파일 삭제는 하지 않는다. Actions 로그와 30일 보관하는
+`SoundFork-<version>-security-logs`의 `freshclam.log`, `clamscan.log`,
+`scan-result.json`을 확인한다. 도달한 단계의 로그만 존재하며 엔진·정의 버전과 대상
+SHA-256을 기록한다. 오탐이 의심돼도 원인을 검토한 뒤 수정·재실행한다.
+
+Python 테스트는 표준 라이브러리만 사용하며 일반 CI·로컬에서는 성공·탐지·오류·시간
+초과를 모의 실행한다. 릴리스 Linux 작업만 `SOUNDFORK_TEST_CLAMAV=1`로 실제 엔진과
+임시 EICAR 파일을 시험한다. 샘플은 커밋·배포하지 않는다. 실제 업로드·정의 갱신·게시
+차단 여부는 GitHub Actions 실행 기록으로 검증하고 로컬 시험과 구분한다.
+보안 검사의 의미와 한계는 [상세 설명](DETAILS.md#보안-검사와-신뢰-범위)에 있다.
+
+## 라이선스와 기여
+
+GPL-3.0-only와 [제3자 구성 요소 고지](../THIRD_PARTY_NOTICES.md)를 확인하고
+재배포할 수 없는 SDK·런타임·인증서 자료를 추가하지 않는다. 재생 경로 변경과 방송·UI
+변경을 분리해 검토하고, 검증 범위와 미실시 시험을 PR에 명시한다.

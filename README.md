@@ -88,5 +88,5 @@ OBS Studio **32.2.2 이상 x64**가 필요합니다.
 
 이 프로젝트는 AI의 도움을 받아 개발되었습니다. GPL-3.0-only로 배포됩니다.
 
-[개발·테스트·보안 검사 안내](docs/DEVELOPMENT.md) · [라이선스](LICENSE) ·
+[상세 설명](docs/DETAILS.md) · [개발 안내](docs/DEVELOPMENT.md) · [라이선스](LICENSE) ·
 [제3자 구성 요소 고지](THIRD_PARTY_NOTICES.md)

@@ -1,294 +1,154 @@
-# SoundFork developer documentation
+# SoundFork development guide
 
-[한국어](DEVELOPMENT.md) | **English** · [User guide](../README.en.md)
+[한국어](DEVELOPMENT.md) | **English** · [User guide](../README.en.md) · [Program details](DETAILS.en.md)
 
-This document covers SoundFork's architecture, real-time rules, build and test
-workflow, and verified boundaries. See the [README](../README.en.md) for normal
-installation and Discord use.
+For developers changing, building, testing and releasing SoundFork. Operation,
+compatibility, latency figures and verification records belong in [program details](DETAILS.en.md).
 
-## Components
+## Prerequisites and quick start
 
-- `asio-proxy`: x64 COM DLL exposed to ASIO hosts as `SoundFork`
-- `audio-bridge`: forwards hardware ASIO lifecycle calls and buffers
-- `capture-backend`: nonblocking shared rings, capture hub, monitor, and WASAPI relay
-- `obs-plugin`: direct audio input through the official OBS source API
-- `control-app`: backend selection, status, relay controls, and system tray UI
-- `tests`: fake ASIO driver and proxy, COM, and shared-ring tests
-- `installer`: Inno Setup package definition
+- Windows 10/11 x64, Git and CMake 3.25 or newer.
+- Visual Studio 2022 with **Desktop development with C++** and a Windows SDK.
+- C++20 / MSVC x64 only; automated tests require neither a game nor a hardware ASIO driver.
+- Inno Setup 6 for Setup.exe; Python 3.10+ for security-tool tests.
 
-With no saved preference, the control UI uses Korean only when the Windows UI
-language is Korean and falls back to English for every other language. Setup's
-selected language initializes the first value, while later changes through the
-**Language/언어** menu persist in `HKCU\Software\SoundFork\Language`.
-
-SoundFork is not DJMAX-specific process hooking. Any x64 game or DAW using the
-standard ASIO COM interface can select it. DJMAX RESPECT V and the FiiO K11 R2R
-are the current real-hardware validation environment.
-
-## Playback and capture architecture
-
-```text
-x64 ASIO host
-  -> soundfork_driver.dll
-      +-> hardware ASIO driver -> DAC
-      +-> shared-memory SPSC ring -> soundfork_capture_hub.exe
-                                     +-> private SPSC ring -> OBS SoundFork Audio
-                                     +-> private SPSC ring -> Discord relay
-                                                              -> virtual endpoint
-                                                                  +-> Discord screen share
-                                                                  +-> OBS device capture
-```
-
-`createBuffers` exposes the downstream driver's buffer pointers directly to the
-host. The game writes into hardware-owned buffers, so playback adds neither an
-extra buffer nor sample conversion. ASIO callbacks have no context argument;
-therefore one prepared stream is allowed per process and a second
-`createBuffers` returns `ASE_InvalidMode`.
-
-For 48 kHz stereo `ASIOSTInt32LSB`, completed blocks are interleaved into
-`Local\SoundFork.Audio.v2`. The ring supports 64 blocks of up to 8,192 frames
-and one consumer. If that consumer is absent or slow, only capture blocks are
-dropped and `dropped_blocks` is incremented. DAC playback never waits.
-
-Shared-memory v2 validates the header and mapping sizes, all offsets, and a
-format checksum. Both processes cache the validated block size internally, so
-mutating the shared header cannot enlarge a callback copy. A generation counter
-and interlocked sequences reject data across reconfiguration, and every page of
-the roughly 4 MiB data area is committed and touched before streaming. This is
-defensive memory-safety validation, not a security boundary against a malicious
-process running as the same user.
-
-### Real-time callback rules
-
-The callback performs no dynamic allocation, file/registry/network access,
-logging, locks, waits, unnecessary conversion, or waiting for a broadcast
-consumer. Automated tests verify zero allocations across 10,000 callbacks,
-including capture publication.
-
-### Meaning of latency
-
-The game writes directly to FiiO-owned double buffers and returns them to FiiO
-within the same callback. No playback queue, worker thread, or one-buffer wait
-is inserted, so the theoretical lower bound of SoundFork-added **buffering
-latency is 0 ms**. This does not mean actual input-to-output latency is 0 ms.
-The ASIO driver, USB, DAC, and game still contribute latency, and no physical
-loopback measurement has been performed. Both direct and proxy paths reported
-168 samples through the driver, and the user reported no perceptible difference.
-
-CPU time for the capture copy is distinct from an added buffer period. In a
-local Release accelerated run on 2026-10-19, sampling every 4,096th callback
-across 10,800,000 callbacks (four hours of synthetic ASIO time) measured an
-average of 0.121 us and a maximum of 7.7 us. These are wall-clock results for
-this machine and fake backend, not measured FiiO latency.
-
-### Broadcast relay stability
-
-FiiO ASIO and a virtual WASAPI device use independent clocks. Outside the game
-path, the relay uses adaptive linear resampling around a four-block target and
-limits correction to ±2,000 ppm. At 48 kHz/64 samples, four blocks intentionally
-add about 5.33 ms to the broadcast path only. A severely stale relay queue is
-resynchronized to the newest four blocks without touching DAC playback.
-
-On `AUDCLNT_E_DEVICE_INVALIDATED` and related endpoint/service failures, the
-relay destroys the WASAPI session, waits for the endpoint, opens it again, and
-reapplies window association. It never stops the ASIO proxy or FiiO playback.
-At exit it reports queue minima/maxima, silent frames, peak correction, resyncs,
-discarded blocks, endpoint reconnects, and producer drops.
-
-## Discord boundary
-
-ASIO bypasses the Windows shared audio engine. Direct FiiO ASIO output is not
-expected in ordinary WASAPI loopback. The relay's Windows stream belongs to
-`soundfork_discord_relay.exe`, not DJMAX.
-
-Remote-listener tests established:
-
-- DJMAX application-window share: no game audio, even with the relay
-- entire-screen share with direct ASIO: no game audio
-- entire-screen share with SoundFork relay and VB-CABLE: game audio included
-
-Entire-screen sharing is therefore the supported mode. Associating the stream
-with the DJMAX HWND through Windows 11 `IAudioViewManagerService` was also
-tested, but Discord did not include that external stream in application-window
-sharing. SoundFork uses neither code injection nor private Discord APIs.
-
-In OBS, select the relay's virtual render endpoint as an **Audio Output Capture**
-source or under **Settings → Audio → Desktop Audio**. With VB-CABLE, that endpoint
-is `CABLE Input`. `CABLE Output` is a recording endpoint and therefore does not
-appear in those device lists.
-
-Public references:
-
-- <https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share>
-- <https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/>
-- <https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nn-audioclient-iaudioviewmanagerservice>
-
-## Build
-
-Requirements are Windows 10/11 x64, the Visual Studio 2022 **Desktop
-development with C++** workload, and CMake 3.25 or newer.
+Run from the repository root in PowerShell. The build script also locates Visual
+Studio's bundled CMake, then configures, builds and runs CTest.
 
 ```powershell
-.\scripts\Build-SoundFork.ps1 -Configuration Debug
-.\scripts\Build-SoundFork.ps1 -Configuration Release
-.\scripts\Test-SoundForkStaticAnalysis.ps1
-
-# Include the OBS plugin and real libobs integration tests
+.\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
 .\scripts\Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+```
+
+Omit `-WithObsPlugin` for a build without the OBS plugin. OBS-enabled builds use
+`Prepare-ObsSdk.ps1` to verify pinned SHA-256 hashes of official OBS 32.2.2 source
+and Windows archives. A locally installed runtime of that version can be reused
+for tests. Official headers and DLL exports generate the import library; OBS
+runtime DLLs themselves must not enter SoundFork release packages.
+
+Outputs are in `build/windows-msvc-x64/Debug` or `Release`: `soundfork_driver.dll`,
+`soundfork_control.exe`, `soundfork_capture_hub.exe`, `soundfork_discord_relay.exe`,
+optional `soundfork-obs.dll` and the `obs-plugin` payload. Do not move only the
+Control EXE when testing plugin management.
+
+## Finding the implementation
+
+- `src/asio-proxy`: x64 ASIO COM server and registration entrypoints.
+- `src/audio-bridge`: hardware loading/lifecycle, buffer and callback forwarding.
+- `src/capture-backend`: shared rings, hub, WASAPI relay/clock correction and monitor.
+- `src/obs-plugin`: official libobs source API integration and localization.
+- `src/control-app`: settings/language/tray, update checks and elevated plugin management.
+- `tests`: fake ASIO backend, regression, real-libobs integration and security tooling.
+- `installer`, `scripts`, `.github`: installer, build/diagnostic scripts and CI/release workflows.
+
+The base version comes from `project(VERSION ...)` in `CMakeLists.txt`; the
+user-visible version is generated from `SOUNDFORK_VERSION`. Language preferences
+are stored per user in `HKCU\Software\SoundFork\Language`.
+
+## Contracts to preserve when changing code
+
+### ASIO real-time path
+
+`ProxyDriver::createBuffers` exposes the hardware driver's buffer pointers directly
+to the host. Hardware callbacks pass through the proxy to host callbacks. Do not
+insert a playback queue, buffer, worker or one-period wait for a broadcast feature.
+Only one prepared stream is allowed per process; a second `createBuffers` returns
+`ASE_InvalidMode`.
+
+Do not add allocation, file/registry/network access, logging, locks, waits,
+synchronous IPC, unnecessary conversion or broadcast-consumer waits in callbacks.
+Keep the zero-allocation test over 10,000 callbacks including capture publication.
+Clock correction and endpoint recovery belong only in broadcast paths.
+
+### Shared memory and fan-out
+
+- The input is `Local\SoundFork.Audio.v2`; OBS and relay outputs are
+  `Local\SoundFork.CaptureHub.v1.OBS` and `.Relay`. Each ring is single-consumer SPSC.
+- Prepare up to 64 blocks of 8,192 frames and touch roughly 4 MiB of data pages
+  before streaming. Validate headers, mapping size, offsets and format checksums;
+  cache validated copy sizes internally.
+- Never re-trust shared header fields as callback lengths or offsets. Preserve
+  Interlocked sequence/generation ordering and reject blocks racing with reset.
+- The hub is the input's sole consumer and copies to both outputs in another
+  process. Full outputs drop independently. Do not run the original monitor alongside it.
+- A named mutex enforces one hub; kernel event-handle lifetimes track consumers.
+  It exits roughly two seconds after both close. Generation/process checks every
+  50 ms detect restarts; idle hub polling slows to 50 ms when no game is active.
+
+Protocol changes require version/bounds validation and restart tests, including
+same-format game restarts, forcibly terminated hubs and a stalled single consumer.
+
+### OBS output and plugin management
+
+The OBS worker sends 480-frame / 10 ms packets to `obs_source_output_audio` using
+a continuous OBS monotonic timeline, four residual blocks and ±2,000 ppm correction.
+It sends silence until one packet and the target queue are ready; stalls exceeding
+50 ms or excessive queues resynchronize OBS only. Keep process launch/recovery on
+a separate supervisor thread so it cannot block timed delivery. Retain shutdown metrics.
+
+Management reads DLL version resources without loading the DLL. Only an explicit
+operation launches the same Control EXE through `runas`. Fixed management commands
+accept no arbitrary source/destination paths; derive the destination from the
+ProgramData Known Folder. Refuse file operations while OBS or its capture client is active.
+
+Reject links/reparse points and hold directory handles against path replacement.
+Stage, back up and replace/remove only the seven known files; roll back earlier
+changes on failure. Preserve unknown files and retain the transaction directory if
+rollback fails. Whole-app uninstall also stops on plugin cleanup failure. User-facing
+locations and portable behavior are in [program details](DETAILS.en.md).
+
+## Testing and diagnostics
+
+### Automated regression and analysis
+
+The build script runs CTest: currently 10 tests with OBS, nine without it. Coverage
+includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
+and optional real-libobs integration. Libobs tests verify DLL loading, source
+creation, stereo PCM, increasing timestamps and simultaneous relay reception,
+not actual game/DAC behavior.
+
+```powershell
 .\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin
+.\scripts\Test-ReleaseDependencies.ps1
+python -B -m unittest discover -s tests -p test_scan_release.py -v
 ```
 
-### Optional OBS direct capture
+Static analysis clean-builds in `build/windows-msvc-analyze` with `/analyze /WX`.
+Release uses the static MSVC runtime. The dependency check verifies x64,
+CFG/NX/ASLR and Guard CF metadata and absence of dynamic MSVC runtime dependencies.
+Fix warning causes rather than suppressing them.
 
-The hub is the sole consumer of the original ASIO capture ring. It distributes
-PCM to independent bounded SPSC outputs, `Local\SoundFork.CaptureHub.v1.OBS`
-and `.Relay`, entirely outside the game process. The ASIO publisher and playback
-callbacks are unchanged. A full OBS output drops only its own blocks. Hub polling,
-copying and scheduling add broadcast-only delay; no zero-delay claim is made.
-Relay and the plugin launch the hub hidden from their own directory. Kernel
-event leases keep it alive while either consumer exists; it exits roughly two
-seconds after both close. Generation and process checks detect same-format game
-restarts and hub failures. The original diagnostic monitor still needs exclusive
-access to the input ring. Read-only control observers remain compatible.
+Tests use isolated `SOUNDFORK_CAPTURE_SCOPE` names and temporary directories. Do
+not modify installed drivers, user plugins or audio settings to facilitate tests.
+Directory symlink tests skip when Windows privileges are unavailable; real
+symlink/junction and UAC approval/cancellation remain manual. Report skips as skips.
 
-The SDK script verifies pinned SHA-256 hashes of official OBS 32.2.2 source and
-Windows archives, or reuses a locally installed runtime of that version for tests.
-It uses official headers and generates an import library from DLL exports instead
-of declaring an ABI. OBS runtime DLLs are never included in SoundFork packages.
-
-The optional installer task installs to
-`%ProgramData%\obs-studio\plugins\soundfork-obs`. ZIP users copy
-`obs-plugin\soundfork-obs` there with OBS closed. Portable OBS skips ProgramData:
-copy the plugin DLL and hub EXE to its `obs-plugins\64bit`, and the plugin's
-`data` contents to `data\obs-plugins\soundfork-obs`.
-
-Setup always keeps a private payload at `{app}\obs-plugin\soundfork-obs`, even
-when the OBS task is unchecked. **Settings → OBS plugin** reads installed and
-included DLL version resources and offers install/update/remove. Source volume
-and mute remain in OBS, with no separate delivery toggle in Control.
-
-An explicit menu action launches the same Control EXE through `runas` with a
-fixed command. The elevated CLI accepts no source/destination paths. It refuses
-operations while OBS or a SoundFork OBS capture client is running. The destination
-is derived from the ProgramData Known Folder. Reparse points are rejected and
-directory handles prevent ancestor replacement. Only seven known files are staged,
-backed up and replaced; failed operations roll back earlier changes. Removal also
-preserves unknown files. Recovery files remain in the transaction directory if
-rollback itself fails. Whole-app uninstallation cleans up the plugin too and
-stops if OBS is open or plugin removal fails. Temporary-folder automated tests do
-not replace manual UAC approval/cancellation and installer lifecycle verification.
-The ASIO DLL, callbacks and playback path are unchanged by this management feature.
-Directory symlink rejection tests are skipped when Windows privileges are unavailable;
-this happened in the current local run. Real symlink/junction validation remains manual.
-
-Requires OBS Studio 32.2.2+ x64 and stereo 48 kHz `ASIOSTInt32LSB` capture.
-Create one SoundFork source and reuse it across scenes; multiple independent
-OBS processes are not supported. Discord still requires the virtual-device relay.
-Use matching versions of the relay and plugin rather than mixing old binaries.
-
-The OBS worker sends 480-frame/10 ms packets to `obs_source_output_audio` with a
-continuous OBS monotonic timestamp timeline. A four-block residual queue and
-bounded ±2,000 ppm resampling compensate clock drift in capture only. Startup
-waits for one packet plus that target queue while sending silence. Stalls over
-50 ms and excessive queues resynchronize the OBS path. Shutdown logs packet,
-silent-frame, maximum-queue, discarded-block, resync and clock-correction metrics.
-OBS buffering and video sync remain; any latency reduction needs measurement.
-Process launch/recovery runs on a separate supervisor thread so startup cannot
-block timed audio delivery. Hub polling slows to 50 ms while no game is active.
-
-Automated tests use isolated `SOUNDFORK_CAPTURE_SCOPE` names. Hub tests verify
-matching stereo PCM, stalled-consumer isolation, same-format restart, recovery
-after forcibly terminating the private test hub, and automatic
-exit. Real libobs integration verifies DLL loading, source creation, stereo PCM,
-increasing timestamps and concurrent relay reception. Real OBS UI recordings
-with FiiO and Discord, A/V sync, hours-long playback and installer lifecycle
-remain manual validation items.
-
-Release binaries use the static MSVC runtime. Outputs are written below
-`build/windows-msvc-x64/<Config>`. MSVC CFG, NX, and ASLR are enabled, and the
-release check verifies the PE flags and Guard CF table. Static analysis runs
-with `/analyze /WX`, so warnings fail the build.
-
-The icon source is `assets/soundfork-icon.png`. Regenerate the multi-size
-Windows icon with:
-
-```powershell
-.\scripts\Build-Icon.ps1
-```
-
-Creating Setup.exe locally requires Inno Setup 6.
-
-```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
-
-# Verify only the ZIP without Inno Setup
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
-```
-
-With a code-signing certificate, the package script can SHA-256/RFC 3161 sign
-and immediately verify every shipped EXE/DLL and Setup. Private keys are never
-stored in the repository.
-
-```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
-  -CertificateThumbprint '<SHA1 thumbprint>' `
-  -TimestampUrl 'https://timestamp-provider.example'
-```
-
-No code-signing certificate is installed in the current local environment, so
-successful signing is not claimed.
-
-## Testing
-
-CTest runs seven cases covering the proxy core, COM server, ASIO enumeration,
-shared ring, relay clock, WASAPI endpoint enumeration, and control application.
-As of 2026-10-19, all 7/7 pass in Debug and Release. The proxy, shared-ring,
-and relay tests also pass under MSVC AddressSanitizer, and the complete
-`/analyze /WX` build is clean.
-
-Hardware tests used FiiO ASIO Driver 6.16.0.0 and a FiiO K11 R2R at 48 kHz,
-64 samples, stereo `ASIOSTInt32LSB`. Both direct and proxy paths reported 168
-samples of ASIO output latency. The user verified stereo playback, no
-perceptible latency regression, no clicks/pops/dropouts, and successful game
-restart. The 168-sample value is driver-reported, not a physical loopback
-measurement.
-
-Late and stopped consumer tests confirmed that the FiiO callbacks continue.
-The installed COM path delivered 2,244 blocks / 143,616 frames with zero
-producer drops during a three-second consumer interval. On 2026-10-19, the
-GitHub Release Setup was also installed on a real Windows system and removed
-successfully through Windows uninstallation. OBS also captured audio in a
-real-use test when Desktop Audio was set to the relay's `CABLE Input` endpoint.
-
-This command accelerates 10,800,000 callbacks representing four hours at
-48 kHz/64 samples and also simulates ±1,500 ppm relay drift:
+### Accelerated soak and hardware tests
 
 ```powershell
 .\scripts\Test-SoundForkSoak.ps1 -Hours 4
 ```
 
-The local accelerated run on 2026-10-19 recorded zero producer drops, zero
-consumer underflows, a maximum one-block queue, and identical start/end private
-bytes. It was not four hours of real-time hardware playback. For a real FiiO,
-Discord, and OBS run, start the relay and use the watcher below; listening and
-remote reception still require a person to verify them.
+This accelerates 10,800,000 callbacks representing four hours at 48 kHz / 64 samples,
+plus ±1,500 ppm relay drift. Do not report it as four hours of real-time playback.
+For hardware testing, the user starts the relay and runs the watcher:
 
 ```powershell
 .\scripts\Watch-SoundForkHardwareSoak.ps1 -Hours 4
 ```
 
-### Not currently claimed
+Record callback timing, producer drops, queue depth, under/overruns and memory.
+A person must verify stereo sound, game restart, remote Discord audio/physical
+microphone and OBS recording sync. Also exercise consumer stops and virtual-device
+removal/reconnection without arbitrarily changing existing settings. Separate
+calculations, driver reports, fake-backend timing and physical latency measurements.
+Update evidence and outstanding checks in [program details](DETAILS.en.md#verification-records-and-outstanding-checks).
 
-- nonzero DJMAX music PCM observed by the shared-memory monitor
-- a four-hour real-time simultaneous FiiO, Discord, and OBS soak result
-- physical removal/reconnection of the virtual WASAPI device or driver
-- Discord application-window audio
-- simultaneous remote verification of a real microphone and the screen relay
-- physical loopback latency measurement
+## Development registration and installation
 
-## Registration and installation
-
-Development registration requires an elevated x64 PowerShell session.
+Registration changes the system ASIO list. Perform it only when needed from an
+elevated x64 PowerShell session. FiiO is the example below; substitute another
+backend's actual registered name as appropriate.
 
 ```powershell
 .\scripts\Register-SoundFork.ps1 -BackendName 'FiiO ASIO Driver'
@@ -296,105 +156,107 @@ Development registration requires an elevated x64 PowerShell session.
 .\scripts\Unregister-SoundFork.ps1
 ```
 
-Setup asks for a registered x64 ASIO backend and registers only the adjacent
-`soundfork_driver.dll`. It rolls back SoundFork registration if backend setup
-fails. Uninstall does not modify other ASIO drivers or virtual audio devices.
+For manual ZIP installation, run its `scripts/Install-SoundFork.ps1` elevated and
+specify `-BackendName`. Never remove or modify manufacturer drivers. Automated
+installer/COM/uninstaller checks use a temporary backend on isolated CI runners.
+`Test-ReleaseInstaller.ps1 -AllowRegistryChanges` really writes the registry and
+refuses existing SoundFork keys; do not run it casually on an in-use installation.
 
-## CI/CD
+## Packaging and releases
 
-Pull requests and pushes to `main` build and test Windows x64 Debug and Release,
-and the Release job runs MSVC analysis with warnings treated as errors.
-The following tag format produces Setup.exe, an executable ZIP, and SHA-256
-checksums:
+### Local packages
 
-```powershell
-git tag -a v0.1.0-beta.2 -m 'SoundFork v0.1.0-beta.2'
-git push origin v0.1.0-beta.2
-```
-
-Supported suffixes are `alpha.N`, `beta.N`, and `rc.N`; they are published as
-GitHub prereleases. A plain `vX.Y.Z` tag creates a normal release. The base tag
-version must match `CMakeLists.txt`, and the tagged commit must belong to
-`main`. Before tagging a new version, update the direct Setup link in both user
-READMEs to that same tag.
-
-Before publishing, the release workflow verifies x64 PE files and runtime
-dependencies, CFG/NX/ASLR, checksums, then installation, COM registration, and
-removal with a temporary ASIO backend. The installer test refuses to overwrite
-existing SoundFork keys. Real hardware and remote Discord listening remain
-manual release checks. When `WINDOWS_SIGNING_PFX_BASE64`,
-`WINDOWS_SIGNING_PFX_PASSWORD`, and `WINDOWS_TIMESTAMP_URL` are all configured,
-the workflow signs before publishing; otherwise it emits an explicit unsigned
-release warning.
-
-## Security checks
-
-### Source code and dependencies
-
-CodeQL observes a real Windows x64 Release build, including the OBS plugin, on
-`main` pushes, pull requests, Tuesdays at 03:23 UTC, and manual runs. It applies
-`security-extended` queries to C/C++ and uploads results to Security → Code scanning.
-This C/C++ analysis does not cover PowerShell, Inno Setup, Python scripts, or real
-device behavior. Existing MSVC `/analyze /WX` and regression tests remain in place.
-
-CodeQL runs independently of ordinary CI and releases. A successful analysis run
-does not mean zero vulnerabilities; review alerts separately in Security. Code
-scanning and Actions must be available for the public repository. If Default setup
-is enabled, switch to Advanced setup to avoid duplicate/conflicting configuration;
-repository settings are not changed automatically.
-
-The existing [Dependabot configuration](../.github/dependabot.yml) checks GitHub Actions dependencies weekly.
-Actions stay pinned to full commit SHAs and updates require review, not automatic
-merging. CMake itself and manually downloaded OBS SDK archives are outside this
-configuration's coverage and need separate review. Existing OBS SHA-256 checks remain.
-
-### Pre-publication malware scan
-
-Releases run as **Windows build/existing verification → Linux ClamAV → publish**.
-Optional signing and installer lifecycle checks happen before scanning. Final
-Setup.exe, ZIP and `SHA256SUMS.txt` are handed off using an immutable Actions
-artifact ID. Both scan and publish jobs verify the build-recorded manifest SHA-256
-and file hashes. Publication never rebuilds or re-signs binaries and rejects a tag
-moved to another commit. Only the publish job receives `contents: write`.
-
-ClamAV is installed from Ubuntu packages; `freshclam` refreshes official signatures
-on every run. The final installer, ZIP, and safely extracted ZIP contents are scanned
-without executing binaries. This does not claim exhaustive inspection of every
-installer-internal component. Limits are 128 MiB per original/extracted file,
-512 MiB total ZIP extraction and ClamAV per-container expanded scan size, 4,096
-ZIP entries/container files, and depth 32. ClamAV's per-file time limit is 120 seconds;
-the scanner process timeout is 15 minutes. Databases older than three days fail.
-ZIP traversal, links, encrypted entries, and duplicate paths are rejected.
-
-Detections, exceeded limits, scanner warnings/errors, signature-refresh failures,
-and timeouts block publication. No automatic exemptions, bypass, or infected-file
-deletion is added. Inspect Actions logs and the 30-day
-`SoundFork-<version>-security-logs` artifact: `freshclam.log`, `clamscan.log`, and
-`scan-result.json` where the respective stages were reached. Results record engine,
-database version and target SHA-256. Investigate a suspected false positive before
-fixing/retrying; previously published releases are not automatically deleted.
-
-The README CodeQL badge reports `main` analysis execution; Release checks · ClamAV
-reports the entire release workflow, which requires the scan. Neither certifies a
-specific download or indicates zero vulnerabilities. These checks do not replace code signing,
-SmartScreen reputation or hardware soak testing. A single antivirus engine cannot
-guarantee malware absence or freedom from security vulnerabilities.
-
-Security-tool tests use only the Python 3.10+ standard library. Neither Python nor
-ClamAV is needed to run SoundFork.
+With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
+`artifacts`. The version below is a local packaging example, not an instruction
+to recreate an existing tag.
 
 ```powershell
-python -B -m unittest discover -s tests -p test_scan_release.py -v
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 -SkipInstaller
 ```
 
-Ordinary CI/local tests simulate scan success, detection, errors and timeouts, and
-test hash tampering and bounded ZIP extraction. Only the Linux release scan job
-sets `SOUNDFORK_TEST_CLAMAV=1` to exercise real ClamAV with a standard EICAR sample
-inside temporary directories. The sample is never committed or shipped. Actual
-CodeQL upload, signature refresh and publication-gate integration must be verified
-on the first GitHub Actions run.
+With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
+EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
-## License
+```powershell
+.\scripts\Build-ReleasePackage.ps1 -Version 0.1.0-beta.2 `
+  -CertificateThumbprint '<SHA1 thumbprint>' `
+  -TimestampUrl 'https://timestamp-provider.example'
+```
 
-SoundFork is GPL-3.0-only. See [third-party notices](../THIRD_PARTY_NOTICES.en.md)
-for the ASIO SDK, optional VB-Audio software, and Inno Setup.
+Edit `assets/soundfork-icon.png` and run `scripts/Build-Icon.ps1` to regenerate the
+icon. When adding/moving documents, update CMake's install list and README links.
+Both ZIP and Setup keep READMEs at the root and detail/development guides in `docs`.
+
+### GitHub release procedure
+
+1. Verify Debug/Release regression and static analysis, then commit the changes.
+2. Choose an unused version. Base `X.Y.Z` must match CMake; optional suffixes are
+   `alpha.N`, `beta.N` and `rc.N`. Match both READMEs' direct Setup links to it.
+3. Land the release commit on remote `main`, then tag that commit and push the tag.
+   These are intentional release-operator commands; never force-move an existing tag.
+
+```powershell
+$releaseVersion = Read-Host 'New release version without v'
+git tag -a "v$releaseVersion" -m "SoundFork v$releaseVersion"
+git push origin "v$releaseVersion"
+```
+
+PR/main CI runs Windows Debug/Release builds/CTest, Release static analysis and
+security-tool tests. Tagged releases run **Windows build/existing checks → ClamAV
+→ publish**. Optional signing precedes scanning. Scan and publish use the same
+immutable artifact ID and build-recorded manifest SHA-256, without rebuilding or
+re-signing. Reject moved tags before publication and serialize runs of the same
+tag. Only publishing receives `contents: write`; failures never delete old releases.
+
+Configure all of `WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PFX_PASSWORD` and
+`WINDOWS_TIMESTAMP_URL` for signing; otherwise an unsigned warning is emitted.
+Suffix tags publish prereleases; plain version tags publish normal releases.
+
+## Security-check operations
+
+### CodeQL and dependencies
+
+On main pushes, PRs, Tuesdays at 03:23 UTC and manual runs, CodeQL observes an
+OBS-enabled Windows C/C++ build and uploads `security-extended` results to
+Security → Code scanning. It is independent of ordinary CI/releases, and a
+successful run does not mean zero alerts. PowerShell, Inno Setup, Python and
+hardware behavior are outside this C/C++ analysis. Code scanning/Actions must be
+available for the public repository. Switch any existing Default setup to Advanced
+setup to avoid conflicts; settings are not changed automatically.
+
+[Dependabot configuration](../.github/dependabot.yml) checks Actions dependencies
+weekly. Keep full-SHA pins and manual review, not automatic merging. CMake and
+manually downloaded SDKs are outside its scope; retain OBS archive hash checks.
+
+### ClamAV and failure response
+
+Ubuntu ClamAV packages and freshclam official signatures scan final Setup.exe,
+ZIP and safely extracted payloads without running them. `scripts/scan_release.py`
+validates the files/manifest against build-recorded hashes and rejects ZIP
+traversal, links, encrypted entries and duplicate paths.
+
+- 128 MiB per original/extracted file; 512 MiB total ZIP extraction/per-container expansion.
+- 4,096 ZIP entries/container files; depth 32.
+- 120 seconds per file, 15 minutes per scanner process, three-day maximum database age.
+
+Detections, exceeded limits, warnings/errors, timeouts and refresh failures block
+publication. No automatic exemption, bypass or infected-file deletion is allowed.
+Inspect Actions logs and the 30-day `SoundFork-<version>-security-logs` artifact:
+`freshclam.log`, `clamscan.log` and `scan-result.json` exist for reached stages and
+record engine/database versions and target hashes. Investigate suspected false
+positives before fixing/retrying.
+
+Python tests use only the standard library; ordinary CI/local tests simulate
+success, detection, errors and timeouts. Only the Linux release job enables
+`SOUNDFORK_TEST_CLAMAV=1` for real ClamAV/EICAR tests in temporary directories.
+Never commit or ship the sample. Establish actual uploads, signature refresh and
+publication gating from Actions logs, separately from local tests. Coverage and
+limitations are in [program details](DETAILS.en.md#security-coverage-and-trust-boundaries).
+
+## Licensing and contributions
+
+Check GPL-3.0-only and [third-party notices](../THIRD_PARTY_NOTICES.en.md). Do not
+add non-redistributable SDK/runtime components or signing credentials. Review
+playback-path changes separately from broadcast/UI work and state tested/untested
+scenarios in pull requests.

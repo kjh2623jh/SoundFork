@@ -281,6 +281,8 @@ install(FILES
   DESTINATION .
 )
 install(FILES
+  docs/DETAILS.md
+  docs/DETAILS.en.md
   docs/DEVELOPMENT.md
   docs/DEVELOPMENT.en.md
   DESTINATION docs

@@ -82,7 +82,14 @@ try {
         throw "Setup failed with exit code $($install.ExitCode)."
     }
 
-    foreach ($file in @('soundfork_driver.dll', 'soundfork_control.exe', 'soundfork_discord_relay.exe', 'soundfork_capture_hub.exe', 'unins000.exe')) {
+    foreach ($file in @(
+        'soundfork_driver.dll', 'soundfork_control.exe',
+        'soundfork_discord_relay.exe', 'soundfork_capture_hub.exe', 'unins000.exe',
+        'README.md', 'README.en.md', 'LICENSE',
+        'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.en.md',
+        'docs\DETAILS.md', 'docs\DETAILS.en.md',
+        'docs\DEVELOPMENT.md', 'docs\DEVELOPMENT.en.md'
+    )) {
         if (-not (Test-Path -LiteralPath (Join-Path $fullTestDirectory $file) -PathType Leaf)) {
             throw "Installed file is missing: $file"
         }

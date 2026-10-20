@@ -76,7 +76,8 @@ Source: "{#MySourceDir}\obs-plugin\soundfork-obs\*"; DestDir: "{commonappdata}\o
 #endif
 Source: "{#MySourceDir}\bin\soundfork_host.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_capture_monitor.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
-Source: "{#MySourceDir}\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+; Keep the package's root/docs relationship so Markdown relative links work.
+Source: "{#MySourceDir}\*.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#MySourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
