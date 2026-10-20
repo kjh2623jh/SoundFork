@@ -19,7 +19,7 @@ SPEC = importlib.util.spec_from_file_location(
     "scan_release", Path(__file__).resolve().parents[1] / "scripts" / "scan_release.py")
 scan = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(scan)
-VERSION = "1.0.0-rc.2"
+VERSION = "1.0.0-rc.3"
 ROOT = f"SoundFork-v{VERSION}-windows-x64"
 
 

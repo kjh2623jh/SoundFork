@@ -119,6 +119,11 @@ Create one SoundFork source and reuse it across scenes. Multiple independent OBS
 processes capturing directly are unsupported. Use plugin and relay components
 from the same SoundFork build.
 
+OBS-ASIO's `ASIO Input Capture` is a separate plugin, not SoundFork's output-copy
+path. Reopening SoundFork or the game's hardware ASIO driver there to capture
+game audio can cause device-ownership or sample-rate conflicts. Use the dedicated
+`SoundFork Audio` source in OBS instead.
+
 ## Installation and plugin management behavior
 
 Setup registers SoundFork using a selected registered x64 ASIO backend. It retains

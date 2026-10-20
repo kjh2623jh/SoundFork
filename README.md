@@ -13,10 +13,10 @@ SoundFork는 게임이나 DAW의 ASIO 오디오를 기존 DAC로 저지연 재�
 
 ## 다운로드
 
-[**Windows x64 설치 파일 다운로드**](../../releases/download/v1.0.0-rc.2/SoundFork-Setup-v1.0.0-rc.2.exe) ·
+[**Windows x64 설치 파일 다운로드**](../../releases/download/v1.0.0-rc.3/SoundFork-Setup-v1.0.0-rc.3.exe) ·
 [모든 릴리스 보기](../../releases)
 
-현재 버전은 미서명 정식 출시 후보(RC) `v1.0.0-rc.2`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
+현재 버전은 미서명 정식 출시 후보(RC) `v1.0.0-rc.3`입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
 
 ## 필요 조건
 
@@ -59,6 +59,8 @@ OBS Studio **32.2.2 이상 x64**가 필요합니다.
    이미 SoundFork를 설치했다면 제어판의 **설정 → OBS 플러그인 → 설치**를 사용합니다.
 2. OBS를 실행하고 소스 목록에서 **SoundFork 오디오**를 추가합니다.
 3. 다른 장면에서는 새 소스를 만들지 말고 기존 SoundFork 소스를 추가합니다.
+
+OBS-ASIO의 **ASIO Input Capture**가 아닌 **SoundFork 오디오**를 선택합니다.
 
 전용 플러그인을 사용한다면 **가상 오디오 장치와 릴레이는 필요하지 않습니다.**
 

@@ -14,10 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.2/SoundFork-Setup-v1.0.0-rc.2.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.3/SoundFork-Setup-v1.0.0-rc.3.exe) ·
 [View all releases](../../releases)
 
-The current version is the unsigned release candidate `v1.0.0-rc.2`, so Windows SmartScreen may
+The current version is the unsigned release candidate `v1.0.0-rc.3`, so Windows SmartScreen may
 show a warning.
 
 ## Requirements
@@ -62,6 +62,8 @@ Requires OBS Studio **32.2.2 or later, x64**.
    If SoundFork is already installed, use **Settings → OBS plugin → Install** in the control panel.
 2. Start OBS and add a **SoundFork Audio** source.
 3. Reuse that existing SoundFork source in other scenes rather than creating another.
+
+Choose **SoundFork Audio**, not OBS-ASIO's **ASIO Input Capture**.
 
 For OBS alone, **no virtual audio device or relay is needed**.
 

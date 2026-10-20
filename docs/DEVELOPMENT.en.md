@@ -211,15 +211,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.2
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.2 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.3
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.3 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.2 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.3 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
