@@ -122,11 +122,35 @@ changes on failure. Preserve unknown files and retain the transaction directory 
 rollback fails. Whole-app uninstall also stops on plugin cleanup failure. User-facing
 locations and portable behavior are in [program details](DETAILS.en.md).
 
+### User settings and sign-in startup
+
+`control-app/relay_settings.*` manages `HKCU\Software\SoundFork\RelayEndpointId`
+and the `SoundFork` value under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The Run value is the
+startup preference: a quoted absolute `soundfork_control.exe` path plus
+`--startup`. Commands longer than 260 characters and malformed REG_SZ data are
+rejected. Foreign commands are not overwritten; disable/removal deletes only an
+entry matching the current executable. Windows StartupApproved internals are not
+read or modified.
+
+`--startup` exits quietly without registration; otherwise it starts Control in
+the tray and the persistent relay. A session-local mutex makes the GUI single
+instance; a normal relaunch shows the existing window. `--self-test`, plugin
+management and `--remove-user-startup` bypass that GUI mutex. The last command
+cleans only the current account's registration for the current EXE during removal,
+never other users' profiles. ZIP removal checks the version resource capability
+`SoundFork.StartupManagement/1` before invoking it.
+
+Control passes `--endpoint-id <opaque-id>` to the relay. An absent exact ID waits
+for reconnection, without substring-name matching or a default-output fallback.
+The existing manual CLI `--endpoint <name-part>` search remains available. Audio
+rendering, drift correction and the ASIO playback path are unchanged.
+
 ## Testing and diagnostics
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 12 tests with OBS, nine without it. Coverage
+The build script runs CTest: currently 13 tests with OBS, ten without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -154,6 +178,16 @@ Tests use isolated `SOUNDFORK_CAPTURE_SCOPE` names and temporary directories. Do
 not modify installed drivers, user plugins or audio settings to facilitate tests.
 Directory symlink tests skip when Windows privileges are unavailable; real
 symlink/junction and UAC approval/cancellation remain manual. Report skips as skips.
+
+Settings tests use only GUID-named temporary HKCU subkeys. They cover off-by-default
+startup, saved devices, quoted space/Unicode paths, foreign-value preservation,
+malformed data, DACL access denial, cross-process single-instance behavior and
+disabled `--startup` early exit. Device-ID matching is tested without opening
+audio devices. Real sign-out/sign-in, tray relaunch, late devices, manual-stop
+persistence, Windows Startup-app blocking and alternate-administrator uninstall
+still need manual verification. The isolated runner's installer test checks
+startup registration survives an update and is removed on uninstall. Do not run
+installation/registration tests on a working audio setup.
 
 ### Accelerated soak and hardware tests
 

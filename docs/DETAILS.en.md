@@ -58,6 +58,30 @@ it in the tray; exiting Control alone need not stop the relay or ASIO playback.
 Setup initializes the language preference and later user choices persist. Without
 a saved preference, Korean Windows UI selects Korean; other languages fall back to English.
 
+### Saved relay settings and sign-in startup
+
+Selecting a VB-CABLE or Voicemeeter virtual playback device immediately saves it
+for the current user. Stop the relay before changing devices; selection is locked
+while it runs. **Settings → Start relay when signing in to Windows** is off by
+default and requires explicit opt-in. Toggling it affects the next sign-in, not
+the currently running relay.
+
+Startup opens Control in the tray and launches the relay with only the saved
+device ID. It waits for a late game or virtual device, without falling back to
+default speakers or another same-name device. If reinstalling a device changes
+its ID, stop the relay and select it again. Startup failures appear in status and
+a tray notification, without endless relaunches. A manual stop lasts for the
+session; the next sign-in starts again if the option remains enabled. Launching
+Control again opens the existing window instead of another instance.
+
+Registration requires no administrator rights and does not override a SoundFork
+entry disabled in Windows Task Manager's **Startup apps**. Control shows whether
+registration exists, not whether Windows separately blocked it; re-enable it in
+Task Manager if needed. Updates preserve registration. Uninstall removes only
+the removing account's entry for that exact installation. When uninstalling under
+a different administrator account, disable startup in the original account first;
+its registration may otherwise remain. Other user profiles are not modified.
+
 ## Latency and broadcast stability
 
 ### Game playback
@@ -182,6 +206,13 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   audio quality on every PC.
   After this refinement, waveform/recovery tests including an intentional 30 ms
   delivery delay each passed five repetitions.
+- 2026-10-21 relay persistence/startup changes: OBS-enabled Debug/Release CTest
+  each passed 13/13, along with `/analyze /WX` and CFG/NX/ASLR/static-runtime checks.
+  Security-tool tests passed 30 with one real-ClamAV skip. A separate accelerated
+  four-hour-equivalent fake-ASIO run had zero producer drops or consumer underflows.
+  The user's Run entry, installed copy and audio settings were not changed. Real
+  sign-in/tray/late-device behavior and the full update/uninstall lifecycle still
+  require manual or CI verification.
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.

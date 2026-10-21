@@ -84,6 +84,8 @@ Close games/DAWs and OBS and stop the relay before updating or uninstalling.
 - **Updates:** Use **Help → Check for updates** in the control panel, then run the new Setup.
   If you use the OBS plugin, select its installation option to update it at the same time.
 - **Language:** Choose English or Korean under **Settings → Language** in the control panel.
+- **Relay startup:** Device selection is saved automatically. Enable **Settings → Start relay when signing in to Windows**
+  to start with the saved virtual device at your next sign-in. This is off by default.
 - **OBS plugin management:** Install, update or remove it under **Settings → OBS plugin**.
   Close OBS first; these operations require administrator approval.
 - **Removal:** Uninstall SoundFork from **Windows Settings → Apps** or run
