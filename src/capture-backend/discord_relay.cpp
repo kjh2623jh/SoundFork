@@ -26,6 +26,7 @@
 #include "capture-backend/relay_clock.hpp"
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_recovery.hpp"
+#include "capture-backend/endpoint_selection.hpp"
 
 namespace {
 
@@ -136,9 +137,10 @@ ComPtr<IMMDevice> select_endpoint(
     IMMDeviceEnumerator* enumerator,
     const std::vector<EndpointRecord>& endpoints,
     std::wstring_view requested,
+    bool exact_id,
     std::wstring* selected_name) {
   ComPtr<IMMDevice> result;
-  if (requested.empty()) {
+  if (requested.empty() && !exact_id) {
     if (FAILED(enumerator->GetDefaultAudioEndpoint(
             eRender, eConsole, &result))) {
       return {};
@@ -156,10 +158,8 @@ ComPtr<IMMDevice> select_endpoint(
     return result;
   }
 
-  const std::wstring needle = lowercase(std::wstring(requested));
   for (const EndpointRecord& endpoint : endpoints) {
-    if (lowercase(endpoint.name).find(needle) != std::wstring::npos ||
-        lowercase(endpoint.id).find(needle) != std::wstring::npos) {
+    if (soundfork::capture::endpoint_matches(endpoint.id, endpoint.name, requested, exact_id)) {
       result = endpoint.device;
       *selected_name = endpoint.name;
       return result;
@@ -181,6 +181,7 @@ void print_usage() {
   std::wcout
       << L"  soundfork_discord_relay [--endpoint <name-part>] "
          L"--system-share --persistent\n";
+  std::wcout << L"  Use --endpoint-id <device-id> instead of --endpoint for an exact saved device (no fallback).\n";
 }
 
 bool succeeded_asio_style(HRESULT result, const wchar_t* operation) {
@@ -445,6 +446,8 @@ int wmain(int argc, wchar_t** argv) {
   bool system_share = false;
   bool persistent = false;
   bool stop_requested = false;
+  bool endpoint_specified = false;
+  bool exact_endpoint_id = false;
   std::wstring endpoint_name;
   std::wstring window_title;
   long wait_seconds = 60;
@@ -459,8 +462,12 @@ int wmain(int argc, wchar_t** argv) {
       persistent = true;
     } else if (argument == L"--stop") {
       stop_requested = true;
-    } else if (argument == L"--endpoint" && index + 1 < argc) {
+    } else if ((argument == L"--endpoint" || argument == L"--endpoint-id") && index + 1 < argc) {
+      if (endpoint_specified) { print_usage(); return 2; }
+      endpoint_specified = true;
+      exact_endpoint_id = argument == L"--endpoint-id";
       endpoint_name = argv[++index];
+      if (endpoint_name.empty()) { print_usage(); return 2; }
     } else if (argument == L"--window-title" && index + 1 < argc) {
       window_title = argv[++index];
     } else if (argument == L"--wait" && index + 1 < argc) {
@@ -599,7 +606,7 @@ int wmain(int argc, wchar_t** argv) {
           enumerate_endpoints(enumerator.Get());
       std::wstring selected_name;
       ComPtr<IMMDevice> endpoint = select_endpoint(
-          enumerator.Get(), current_endpoints, endpoint_name, &selected_name);
+          enumerator.Get(), current_endpoints, endpoint_name, exact_endpoint_id, &selected_name);
       if (endpoint == nullptr) {
         if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
           break;

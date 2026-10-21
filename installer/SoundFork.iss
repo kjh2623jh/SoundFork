@@ -38,6 +38,8 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [CustomMessages]
 english.BackendTitle=Hardware ASIO backend
+english.StartupRemoveFailed=Could not remove this account's SoundFork startup entry. Close SoundFork and retry.
+korean.StartupRemoveFailed=현재 계정의 SoundFork 자동 실행 항목을 제거하지 못했습니다. SoundFork를 종료하고 다시 시도하세요.
 english.BackendDescription=Select the hardware ASIO driver SoundFork will wrap.
 english.BackendSubCaption=SoundFork never modifies or removes this driver. FiiO ASIO Driver is preferred when available.
 english.NoBackend=No compatible x64 ASIO driver is registered. Install your DAC or audio interface ASIO driver first.
@@ -136,6 +138,10 @@ begin
        ((not Exec(ControlPath, '--remove-obs-plugin', ExpandConstant('{app}'),
                   SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0)) then
       RaiseException(ExpandConstant('{cm:ObsRemoveFailed}'));
+    if FileExists(ControlPath) and
+       ((not Exec(ControlPath, '--remove-user-startup', ExpandConstant('{app}'),
+                  SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0)) then
+      RaiseException(ExpandConstant('{cm:StartupRemoveFailed}'));
   end;
 end;
 

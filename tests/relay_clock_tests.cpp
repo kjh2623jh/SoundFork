@@ -9,6 +9,7 @@
 #include <string>
 
 #include "capture-backend/relay_clock.hpp"
+#include "capture-backend/endpoint_selection.hpp"
 #include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/shared_ring.hpp"
 
@@ -82,6 +83,13 @@ void test_linear_relay_source() {
 }
 
 void test_reconnect_error_policy() {
+  using soundfork::capture::endpoint_matches;
+  require(endpoint_matches(L"opaque-A", L"CABLE Input", L"opaque-A", true), "saved ID not selected");
+  require(!endpoint_matches(L"opaque-B", L"CABLE Input", L"opaque-A", true), "same-name replacement selected");
+  require(!endpoint_matches(L"opaque-A", L"CABLE Input", L"CABLE", true), "saved ID treated as a name");
+  require(!endpoint_matches(L"opaque-A", L"CABLE Input", L"", true), "empty ID selected a device");
+  require(!endpoint_matches(L"opaque-A", L"CABLE Input", L"opaque", true), "partial ID selected a device");
+  require(endpoint_matches(L"opaque-A", L"CABLE Input", L"cable", false), "legacy name search failed");
   require(
       soundfork::capture::recoverable_audio_error(
           AUDCLNT_E_DEVICE_INVALIDATED),

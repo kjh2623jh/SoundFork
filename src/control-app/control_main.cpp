@@ -28,6 +28,7 @@
 #include "control-app/obs_plugin_manager.hpp"
 #include "control-app/obs_plugin_strings.hpp"
 #include "control-app/update_checker.hpp"
+#include "control-app/relay_settings.hpp"
 #include "soundfork_version.hpp"
 
 namespace {
@@ -46,6 +47,8 @@ constexpr UINT_PTR kRefreshTimer = 1;
 constexpr UINT kUpdateResultMessage = WM_APP + 1;
 constexpr UINT kTrayCallbackMessage = WM_APP + 2;
 constexpr UINT kObsPluginResultMessage = WM_APP + 3;
+constexpr UINT kShowControlMessage = WM_APP + 4;
+constexpr UINT kStartSavedRelayMessage = WM_APP + 5;
 constexpr UINT kTrayIconId = 1;
 
 constexpr int kBackendCombo = 1001;
@@ -57,6 +60,7 @@ constexpr int kStatus = 1006;
 constexpr int kGetVbCable = 1007;
 constexpr int kLanguageEnglish = 2001;
 constexpr int kLanguageKorean = 2002;
+constexpr int kStartupRelay = 2003;
 constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
 constexpr int kShowAbout = 2103;
@@ -357,7 +361,34 @@ struct AppState {
   bool tray_icon_added = false;
   bool tray_notification_shown = false;
   bool force_exit = false;
+  std::wstring startup_error;
+  HANDLE startup_process = nullptr;
+  ULONGLONG next_endpoint_probe = 0;
+  ~AppState() { if (startup_process != nullptr) CloseHandle(startup_process); }
 };
+
+struct StartupStrings {
+  const wchar_t* menu;
+  const wchar_t* save_failed;
+  const wchar_t* failed;
+  const wchar_t* missing;
+  const wchar_t* waiting;
+  const wchar_t* enabled;
+  const wchar_t* disabled;
+};
+const StartupStrings& startup_strings(UiLanguage language) {
+  static constexpr StartupStrings en{
+    L"Start relay when signing in to Windows", L"Could not save the relay setting. Windows error: ",
+    L"Automatic relay startup failed. ", L"Saved virtual device is unavailable; no other device was selected.",
+    L"Waiting for the saved virtual device or ASIO audio", L"Windows sign-in startup: On",
+    L"Windows sign-in startup: Off"};
+  static constexpr StartupStrings ko{
+    L"Windows 로그인 시 릴레이 자동 시작", L"릴레이 설정을 저장하지 못했습니다. Windows 오류: ",
+    L"릴레이 자동 시작에 실패했습니다. ", L"저장한 가상 장치를 찾을 수 없습니다. 다른 장치로 전환하지 않습니다.",
+    L"저장한 가상 장치 또는 ASIO 오디오 대기 중", L"Windows 로그인 자동 시작: 켜짐",
+    L"Windows 로그인 자동 시작: 꺼짐"};
+  return language == UiLanguage::korean ? ko : en;
+}
 
 UINT taskbar_created_message = 0;
 
@@ -740,7 +771,7 @@ std::wstring quote_argument(std::wstring_view argument) {
 }
 
 bool start_relay(
-    const Endpoint& endpoint, UiLanguage language, std::wstring* error) {
+    const Endpoint& endpoint, UiLanguage language, std::wstring* error, HANDLE* child = nullptr) {
   const UiStrings& strings = ui_strings(language);
   const std::wstring relay_path =
       executable_directory() + L"\\soundfork_discord_relay.exe";
@@ -748,7 +779,7 @@ bool start_relay(
     *error = strings.relay_missing;
     return false;
   }
-  std::wstring command = quote_argument(relay_path) + L" --endpoint " +
+  std::wstring command = quote_argument(relay_path) + L" --endpoint-id " +
                          quote_argument(endpoint.id) +
                          L" --system-share --persistent";
   std::vector<wchar_t> mutable_command(command.begin(), command.end());
@@ -771,7 +802,8 @@ bool start_relay(
     return false;
   }
   CloseHandle(process.hThread);
-  CloseHandle(process.hProcess);
+  if (child != nullptr) *child = process.hProcess;
+  else CloseHandle(process.hProcess);
   return true;
 }
 
@@ -1037,39 +1069,15 @@ void populate_backend_combo(AppState* state) {
 }
 
 std::wstring read_saved_endpoint() {
-  RegistryKey key;
-  if (RegOpenKeyExW(
-          HKEY_CURRENT_USER,
-          L"Software\\SoundFork",
-          0,
-          KEY_READ,
-          &key.value) != ERROR_SUCCESS) {
-    return {};
-  }
-  return read_registry_string(key.value, L"RelayEndpointId");
+  return soundfork::control::RelaySettings{}.endpoint();
 }
 
-void save_endpoint(std::wstring_view endpoint_id) {
-  RegistryKey key;
-  if (RegCreateKeyExW(
-          HKEY_CURRENT_USER,
-          L"Software\\SoundFork",
-          0,
-          nullptr,
-          0,
-          KEY_SET_VALUE,
-          nullptr,
-          &key.value,
-          nullptr) != ERROR_SUCCESS) {
-    return;
-  }
-  RegSetValueExW(
-      key.value,
-      L"RelayEndpointId",
-      0,
-      REG_SZ,
-      reinterpret_cast<const BYTE*>(endpoint_id.data()),
-      static_cast<DWORD>((endpoint_id.size() + 1) * sizeof(wchar_t)));
+bool save_endpoint(AppState* state, std::wstring_view endpoint_id) {
+  const DWORD code = soundfork::control::RelaySettings{}.save_endpoint(endpoint_id);
+  if (code == ERROR_SUCCESS) return true;
+  const auto message = std::wstring(startup_strings(state->language).save_failed) + std::to_wstring(code);
+  MessageBoxW(state->window, message.c_str(), L"SoundFork", MB_ICONERROR);
+  return false;
 }
 
 void populate_endpoint_combo(AppState* state) {
@@ -1114,7 +1122,7 @@ void populate_endpoint_combo(AppState* state) {
       }
     }
   }
-  if (selected_index < 0) {
+  if (selected_index < 0 && saved.empty()) {
     selected_index = vb_cable_index >= 0
                          ? vb_cable_index
                          : (voicemeeter_desktop_index >= 0
@@ -1130,6 +1138,38 @@ void populate_endpoint_combo(AppState* state) {
         vb_cable_detected ? strings.vb_cable_detected : strings.get_vb_cable);
     EnableWindow(state->vb_cable_button, vb_cable_detected ? FALSE : TRUE);
   }
+}
+
+void notify_startup_error(AppState* state) {
+  NOTIFYICONDATAW data{sizeof(data)};
+  data.hWnd = state->window;
+  data.uID = kTrayIconId;
+  data.uFlags = NIF_INFO;
+  data.dwInfoFlags = NIIF_WARNING;
+  wcscpy_s(data.szInfoTitle, L"SoundFork");
+  const auto message = std::wstring(startup_strings(state->language).failed) + state->startup_error;
+  wcsncpy_s(data.szInfo, message.c_str(), _TRUNCATE);
+  (void)Shell_NotifyIconW(NIM_MODIFY, &data);
+}
+
+void start_saved_relay(AppState* state) {
+  if (!soundfork::control::RelaySettings{}.startup_enabled(executable_path())) return;
+  if (relay_is_running()) return;
+  const auto& text = startup_strings(state->language);
+  const auto saved = read_saved_endpoint();
+  const auto endpoint = std::find_if(state->endpoints.begin(), state->endpoints.end(),
+      [&](const Endpoint& item) { return equals_ignore_case(item.id, saved); });
+  if (saved.empty() || (endpoint != state->endpoints.end() && !is_broadcast_endpoint(*endpoint))) {
+    state->startup_error = text.missing;
+  } else if (capture_consumer_is_active()) {
+    state->startup_error = ui_strings(state->language).another_consumer;
+  } else {
+    // No default-device fallback. Persistent relay already waits for the game
+    // and reconnects only to the exact saved endpoint, including late logon devices.
+    Endpoint target{L"", saved, EndpointKind::other};
+    (void)start_relay(target, state->language, &state->startup_error, &state->startup_process);
+  }
+  if (!state->startup_error.empty()) notify_startup_error(state);
 }
 
 bool asio_stream_is_active() {
@@ -1342,12 +1382,23 @@ void update_status(AppState* state) {
   }
   text << strings.discord_relay << L": "
        << (relay_running ? strings.running : strings.stopped) << L"\r\n";
+  const auto& startup = startup_strings(state->language);
+  text << (soundfork::control::RelaySettings{}.startup_enabled(executable_path())
+               ? startup.enabled : startup.disabled) << L"\r\n";
+  if (!state->startup_error.empty()) text << startup.failed << state->startup_error << L"\r\n";
+  const auto saved = read_saved_endpoint();
+  if (!saved.empty() && std::none_of(state->endpoints.begin(), state->endpoints.end(),
+      [&](const Endpoint& item) { return equals_ignore_case(item.id, saved); }))
+    text << startup.missing << L"\r\n";
+  if (relay_running && (broadcast_endpoint == nullptr || !stream.producer_active))
+    text << startup.waiting << L"\r\n";
   text << strings.discord_mode << L"\r\n";
   text << strings.application_share_note;
   SetWindowTextW(state->status, text.str().c_str());
   SetWindowTextW(
       state->relay_button,
       relay_running ? strings.stop_relay : strings.start_relay);
+  EnableWindow(state->endpoint_combo, relay_running ? FALSE : TRUE);
   update_tray_icon(state);
 }
 
@@ -1551,6 +1602,9 @@ void rebuild_menu(AppState* state) {
       MF_POPUP,
       reinterpret_cast<UINT_PTR>(language),
       ui_strings(state->language).language_menu);
+  AppendMenuW(settings, MF_STRING |
+      (soundfork::control::RelaySettings{}.startup_enabled(executable_path()) ? MF_CHECKED : MF_UNCHECKED),
+      kStartupRelay, startup_strings(state->language).menu);
   const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
   AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsInstalledStatus, L"");
   AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsBundledStatus, L"");
@@ -1647,6 +1701,13 @@ LRESULT CALLBACK window_proc(
   }
 
   switch (message) {
+    case kShowControlMessage:
+      show_control_window(state);
+      return 0;
+    case kStartSavedRelayMessage:
+      start_saved_relay(state);
+      update_status(state);
+      return 0;
     case WM_CREATE:
       refresh_obs_status(state);
       create_controls(state);
@@ -1659,6 +1720,9 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_INITMENU:
       if (!state->obs_operation_in_progress) refresh_obs_status(state);
+      CheckMenuItem(GetSubMenu(GetMenu(window), 0), kStartupRelay,
+          MF_BYCOMMAND | (soundfork::control::RelaySettings{}.startup_enabled(executable_path())
+                              ? MF_CHECKED : MF_UNCHECKED));
       return 0;
     case WM_SIZE: {
       const int width = LOWORD(lparam);
@@ -1676,6 +1740,21 @@ LRESULT CALLBACK window_proc(
     }
     case WM_TIMER:
       if (wparam == kRefreshTimer) {
+        if (state->startup_process != nullptr &&
+            WaitForSingleObject(state->startup_process, 0) == WAIT_OBJECT_0) {
+          DWORD code = 0;
+          if (GetExitCodeProcess(state->startup_process, &code) && code != 0 && code != 10) {
+            state->startup_error = std::to_wstring(code);
+            notify_startup_error(state);
+          }
+          CloseHandle(state->startup_process);
+          state->startup_process = nullptr;
+        }
+        if (GetTickCount64() >= state->next_endpoint_probe &&
+            SendMessageW(state->endpoint_combo, CB_GETDROPPEDSTATE, 0, 0) == FALSE) {
+          state->next_endpoint_probe = GetTickCount64() + 5000;
+          populate_endpoint_combo(state);
+        }
         update_status(state);
       }
       return 0;
@@ -1778,6 +1857,38 @@ LRESULT CALLBACK window_proc(
     }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
+      if (control == kEndpointCombo && HIWORD(wparam) == CBN_SELCHANGE) {
+        const auto selected = SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
+        if (selected >= 0 && static_cast<std::size_t>(selected) < state->endpoints.size() &&
+            is_broadcast_endpoint(state->endpoints[static_cast<std::size_t>(selected)])) {
+          if (!save_endpoint(state, state->endpoints[static_cast<std::size_t>(selected)].id))
+            populate_endpoint_combo(state);
+        }
+        update_status(state);
+        return 0;
+      }
+      if (control == kStartupRelay) {
+        soundfork::control::RelaySettings settings;
+        const auto exe = executable_path();
+        const bool enable = !settings.startup_enabled(exe);
+        if (enable) {
+          const auto selected = SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
+          if (selected < 0 || static_cast<std::size_t>(selected) >= state->endpoints.size() ||
+              !is_broadcast_endpoint(state->endpoints[static_cast<std::size_t>(selected)])) {
+            MessageBoxW(window, ui_strings(state->language).select_endpoint, L"SoundFork", MB_ICONWARNING);
+            return 0;
+          }
+          if (!save_endpoint(state, state->endpoints[static_cast<std::size_t>(selected)].id)) return 0;
+        }
+        const auto result = settings.set_startup(exe, enable);
+        if (result != ERROR_SUCCESS) {
+          const auto error = std::wstring(startup_strings(state->language).save_failed) + std::to_wstring(result);
+          MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
+        }
+        rebuild_menu(state);
+        update_status(state);
+        return 0;
+      }
       if (control == kObsInstall || control == kObsRemove) {
         start_obs_operation(state, control == kObsInstall);
         return 0;
@@ -1904,6 +2015,11 @@ LRESULT CALLBACK window_proc(
       }
       if (control == kToggleRelay && HIWORD(wparam) == BN_CLICKED) {
         std::wstring error;
+        state->startup_error.clear();
+        if (state->startup_process != nullptr) {
+          CloseHandle(state->startup_process);
+          state->startup_process = nullptr;
+        }
         if (relay_is_running()) {
           if (!stop_relay(state->language, &error)) {
             MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
@@ -1930,7 +2046,11 @@ LRESULT CALLBACK window_proc(
           }
           const Endpoint& endpoint =
               state->endpoints[static_cast<std::size_t>(selected)];
-          save_endpoint(endpoint.id);
+          if (!is_broadcast_endpoint(endpoint)) {
+            MessageBoxW(window, strings.select_endpoint, L"SoundFork", MB_ICONWARNING);
+            return 0;
+          }
+          if (!save_endpoint(state, endpoint.id)) return 0;
           if (!start_relay(endpoint, state->language, &error)) {
             MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
           }
@@ -1976,7 +2096,26 @@ LRESULT CALLBACK window_proc(
   return DefWindowProcW(window, message, wparam, lparam);
 }
 
-int run_control_app(HINSTANCE instance, int show_command) {
+int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
+  soundfork::control::ControlInstance singleton(L"Local\\SoundFork.Control.v1");
+  if (!singleton.valid()) return 2;
+  if (!singleton.primary()) {
+    if (!startup_launch) {
+      // The first process can still be constructing its hidden window.
+      for (int retry = 0; retry < 40; ++retry) {
+        const auto existing = FindWindowW(kWindowClass, nullptr);
+        if (existing != nullptr) {
+          DWORD pid = 0;
+          GetWindowThreadProcessId(existing, &pid);
+          AllowSetForegroundWindow(pid);
+          PostMessageW(existing, kShowControlMessage, 0, 0);
+          return 0;
+        }
+        Sleep(25);
+      }
+    }
+    return 0;
+  }
   AppState state;
   state.language = load_ui_language();
   taskbar_created_message = RegisterWindowMessageW(L"TaskbarCreated");
@@ -2021,8 +2160,9 @@ int run_control_app(HINSTANCE instance, int show_command) {
   if (window == nullptr) {
     return 2;
   }
-  ShowWindow(window, show_command);
+  ShowWindow(window, startup_launch && state.tray_icon_added ? SW_HIDE : show_command);
   UpdateWindow(window);
+  if (startup_launch) PostMessageW(window, kStartSavedRelayMessage, 0, 0);
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {
     TranslateMessage(&message);
@@ -2047,6 +2187,13 @@ int WINAPI wWinMain(
   LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
   const bool self_test = arguments != nullptr && argument_count == 2 &&
                          std::wstring_view(arguments[1]) == L"--self-test";
+  const bool startup_launch = arguments != nullptr && argument_count == 2 &&
+                              std::wstring_view(arguments[1]) == L"--startup";
+  if (arguments != nullptr && argument_count == 2 &&
+      std::wstring_view(arguments[1]) == L"--remove-user-startup") {
+    LocalFree(arguments);
+    return static_cast<int>(soundfork::control::RelaySettings{}.remove_startup(executable_path()));
+  }
   const bool endpoint_probe = arguments != nullptr && argument_count == 2 &&
                                std::wstring_view(arguments[1]) ==
                                    L"--has-broadcast-endpoint";
@@ -2122,8 +2269,12 @@ int WINAPI wWinMain(
     LocalFree(arguments);
   }
 
+  // Run registration is the preference: no second bool can become inconsistent.
+  if (startup_launch && !soundfork::control::RelaySettings{}.startup_enabled(executable_path())) return 0;
+
   const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   if (FAILED(com_result)) {
+    if (startup_launch) return 2;
     const UiStrings& strings = ui_strings(load_ui_language());
     MessageBoxW(
         nullptr,
@@ -2168,7 +2319,7 @@ int WINAPI wWinMain(
     CoUninitialize();
     return 0;
   }
-  const int result = run_control_app(instance, show_command);
+  const int result = run_control_app(instance, show_command, startup_launch);
   CoUninitialize();
   return result;
 }

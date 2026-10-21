@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if (-not $AllowRegistryChanges) {
-    throw 'This test temporarily changes HKLM. Pass -AllowRegistryChanges only on an isolated test machine.'
+    throw 'This test temporarily changes HKLM and HKCU startup registration. Pass -AllowRegistryChanges only on an isolated test machine.'
 }
 if (-not [Environment]::Is64BitProcess) {
     throw 'Run the installer smoke test from 64-bit PowerShell.'
@@ -41,8 +41,15 @@ $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
     [Microsoft.Win32.RegistryView]::Registry64)
 $fakeKeysCreated = $false
 $soundForkMayHaveBeenCreated = $false
+$userRun = $null
+$startupCommand = $null
+$startupSeeded = $false
 
 try {
+    $userRun = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
+    if ($null -ne $userRun.GetValue('SoundFork', $null)) {
+        throw 'The installer test refuses to overwrite an existing user SoundFork startup entry.'
+    }
     foreach ($keyPath in @(
             "SOFTWARE\ASIO\$fakeName",
             "SOFTWARE\Classes\CLSID\$fakeClsid",
@@ -135,6 +142,10 @@ try {
     if ($selfTest.ExitCode -ne 0) {
         throw "Installed control app self-test failed with exit code $($selfTest.ExitCode)."
     }
+    # Simulate the user's opt-in without launching a GUI or audio process.
+    $startupCommand = '"' + $control + '" --startup'
+    $userRun.SetValue('SoundFork', $startupCommand, [Microsoft.Win32.RegistryValueKind]::String)
+    $startupSeeded = $true
 
     # Reinstall without /BACKENDCLSID. This simulates an unattended in-place
     # upgrade and proves that the existing non-FiiO backend remains selected
@@ -148,6 +159,9 @@ try {
     $upgrade = Start-Process -FilePath $resolvedSetup -ArgumentList $upgradeArguments -Wait -PassThru -WindowStyle Hidden
     if ($upgrade.ExitCode -ne 0) {
         throw "In-place upgrade failed with exit code $($upgrade.ExitCode)."
+    }
+    if ([string]$userRun.GetValue('SoundFork', '') -cne $startupCommand) {
+        throw 'In-place upgrade did not preserve the user startup registration.'
     }
     $upgradedAsio = $baseKey.OpenSubKey('SOFTWARE\ASIO\SoundFork', $false)
     if ($null -eq $upgradedAsio) {
@@ -170,6 +184,9 @@ try {
     if ($uninstall.ExitCode -ne 0) {
         throw "Uninstaller failed with exit code $($uninstall.ExitCode)."
     }
+    if ($null -ne $userRun.GetValue('SoundFork', $null)) {
+        throw 'Uninstall left the removing account startup registration behind.'
+    }
     $remainingSoundFork = $baseKey.OpenSubKey('SOFTWARE\ASIO\SoundFork', $false)
     if ($null -ne $remainingSoundFork) {
         $remainingSoundFork.Dispose()
@@ -187,6 +204,12 @@ try {
     $remainingFake.Dispose()
     Write-Host 'SoundFork installer smoke test passed.'
 } finally {
+    if ($null -ne $userRun) {
+        if ($startupSeeded -and [string]$userRun.GetValue('SoundFork', '') -ceq $startupCommand) {
+            $userRun.DeleteValue('SoundFork', $false)
+        }
+        $userRun.Dispose()
+    }
     if ($fakeKeysCreated) {
         $baseKey.DeleteSubKeyTree("SOFTWARE\ASIO\$fakeName", $false)
         $baseKey.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$fakeClsid", $false)

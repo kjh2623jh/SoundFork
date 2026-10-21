@@ -64,10 +64,18 @@ if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundF
     # Older controls open a GUI for unknown commands. Check the explicit PE
     # capability marker rather than guessing from a version or payload files.
     if ((Test-Path -LiteralPath $control -PathType Leaf) -and
-        (Get-Item -LiteralPath $control).VersionInfo.Comments -eq 'SoundFork.ObsPluginManagement/1') {
+        (Get-Item -LiteralPath $control).VersionInfo.Comments -match '(^|;)SoundFork\.ObsPluginManagement/1(;|$)') {
         $pluginRemoval = Start-Process -FilePath $control -ArgumentList '--remove-obs-plugin' -Wait -PassThru -WindowStyle Hidden
         if ($pluginRemoval.ExitCode -ne 0) {
             throw "OBS plugin removal failed (code $($pluginRemoval.ExitCode)). Close OBS and retry before removing SoundFork."
+        }
+    }
+    if ((Test-Path -LiteralPath $control -PathType Leaf) -and
+        (Get-Item -LiteralPath $control).VersionInfo.Comments -match '(^|;)SoundFork\.StartupManagement/1(;|$)') {
+        # Only the removing account's exact startup registration for this copy.
+        $startupRemoval = Start-Process -FilePath $control -ArgumentList '--remove-user-startup' -Wait -PassThru -WindowStyle Hidden
+        if ($startupRemoval.ExitCode -ne 0) {
+            throw "SoundFork user startup cleanup failed (code $($startupRemoval.ExitCode))."
         }
     }
     if ($registeredDll -and (Test-Path -LiteralPath $registeredDll -PathType Leaf)) {

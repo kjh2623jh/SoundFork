@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <objbase.h>
+#include <sddl.h>
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -92,6 +93,35 @@ void test_settings() {
   require(settings.endpoint() == L"{0.0.0.00000000}.{fixture}", "failed save changed the endpoint");
 }
 
+void test_access_denied() {
+  RegistryFixture fixture;
+  HKEY denied = nullptr;
+  require(RegCreateKeyExW(fixture.root, L"Denied", 0, nullptr, 0, KEY_ALL_ACCESS,
+      nullptr, &denied, nullptr) == ERROR_SUCCESS, "denied fixture failed");
+  DWORD bytes = 0;
+  require(RegGetKeySecurity(denied, DACL_SECURITY_INFORMATION, nullptr, &bytes)
+          == ERROR_INSUFFICIENT_BUFFER && bytes != 0, "DACL size failed");
+  std::vector<BYTE> original(bytes);
+  require(RegGetKeySecurity(denied, DACL_SECURITY_INFORMATION,
+      reinterpret_cast<PSECURITY_DESCRIPTOR>(original.data()), &bytes) == ERROR_SUCCESS, "DACL backup failed");
+  struct Restore {
+    HKEY key;
+    PSECURITY_DESCRIPTOR security;
+    ~Restore() { RegSetKeySecurity(key, DACL_SECURITY_INFORMATION, security); RegCloseKey(key); }
+  } restore{denied, reinterpret_cast<PSECURITY_DESCRIPTOR>(original.data())};
+  PSECURITY_DESCRIPTOR restriction = nullptr;
+  require(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      L"D:(D;;0x2;;;WD)(A;;KA;;;WD)", SDDL_REVISION_1, &restriction, nullptr) != FALSE, "test ACL failed");
+  const auto changed = RegSetKeySecurity(denied, DACL_SECURITY_INFORMATION, restriction);
+  LocalFree(restriction);
+  require(changed == ERROR_SUCCESS, "test ACL application failed");
+  RelaySettings settings(fixture.root, L"Settings", L"Denied");
+  require(settings.save_endpoint(L"test-virtual-endpoint") == ERROR_SUCCESS, "test endpoint failed");
+  require(settings.set_startup(L"C:\\test\\soundfork_control.exe", true) == ERROR_ACCESS_DENIED,
+          "startup registration access failure was hidden");
+  require(!settings.startup_enabled(L"C:\\test\\soundfork_control.exe"), "failed registration enabled startup");
+}
+
 DWORD child_probe(const std::wstring& name) {
   std::vector<wchar_t> exe(32768);
   require(GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size())) != 0, "exe path failed");
@@ -107,6 +137,39 @@ DWORD child_probe(const std::wstring& name) {
   CloseHandle(process.hProcess);
   require(waited == WAIT_OBJECT_0 && exited, "probe did not finish");
   return code;
+}
+
+void test_disabled_startup_command(const wchar_t* control) {
+  // The deliberately different executable basename cannot match any valid Run
+  // registration. Exercise the real parser without changing user settings or
+  // starting a relay/GUI, even when installed SoundFork is already running.
+  std::vector<wchar_t> temp(32768);
+  const auto temp_length = GetTempPathW(static_cast<DWORD>(temp.size()), temp.data());
+  require(temp_length != 0 && temp_length < temp.size(), "temp path failed");
+  GUID guid{};
+  require(SUCCEEDED(CoCreateGuid(&guid)), "temp GUID failed");
+  std::array<wchar_t, 40> guid_text{};
+  require(StringFromGUID2(guid, guid_text.data(), static_cast<int>(guid_text.size())) != 0,
+          "temp GUID text failed");
+  const auto copy = std::wstring(temp.data()) + L"SoundFork-startup-test-" + guid_text.data() + L".exe";
+  require(CopyFileW(control, copy.c_str(), TRUE) != FALSE, "control fixture copy failed");
+  struct Remove { const std::wstring& path; ~Remove() { DeleteFileW(path.c_str()); } } remove{copy};
+  std::wstring command = L"\"" + copy + L"\" --startup";
+  STARTUPINFOW startup{sizeof(startup)};
+  PROCESS_INFORMATION process{};
+  require(CreateProcessW(copy.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                        nullptr, nullptr, &startup, &process) != FALSE, "disabled startup process failed");
+  const auto waited = WaitForSingleObject(process.hProcess, 5000);
+  DWORD code = 255;
+  GetExitCodeProcess(process.hProcess, &code);
+  if (waited != WAIT_OBJECT_0) {
+    // Only the test's exact, freshly created child; never a user's process.
+    TerminateProcess(process.hProcess, 255);
+    WaitForSingleObject(process.hProcess, 5000);
+  }
+  CloseHandle(process.hThread);
+  CloseHandle(process.hProcess);
+  require(waited == WAIT_OBJECT_0 && code == 0, "disabled startup did not exit quietly");
 }
 void test_instances() {
   const auto name = L"Local\\SoundFork.Control.Test-" + std::to_wstring(GetCurrentProcessId());
@@ -126,7 +189,9 @@ int wmain(int argc, wchar_t** argv) {
   }
   try {
     test_settings();
+    test_access_denied();
     test_instances();
+    if (argc == 2) test_disabled_startup_command(argv[1]);
     std::cout << "Relay settings/startup ownership, error handling and cross-process instance tests passed\n";
     return 0;
   } catch (const std::exception& error) {
