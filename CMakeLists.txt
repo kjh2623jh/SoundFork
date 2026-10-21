@@ -211,6 +211,10 @@ add_library(soundfork_obs_manager STATIC src/control-app/obs_plugin_manager.cpp)
 target_include_directories(soundfork_obs_manager PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(soundfork_obs_manager PUBLIC soundfork_warnings version shell32 ole32 uuid)
 
+add_library(soundfork_relay_settings STATIC src/control-app/relay_settings.cpp)
+target_include_directories(soundfork_relay_settings PUBLIC src)
+target_link_libraries(soundfork_relay_settings PUBLIC soundfork_warnings advapi32)
+
 add_executable(soundfork_control WIN32
   src/control-app/control_main.cpp
   src/control-app/update_checker.cpp
@@ -224,6 +228,7 @@ target_include_directories(soundfork_control PRIVATE
 )
 target_link_libraries(soundfork_control PRIVATE
   soundfork_obs_manager
+  soundfork_relay_settings
   soundfork_warnings
   ole32
   uuid
@@ -238,6 +243,10 @@ if(SOUNDFORK_BUILD_OBS_PLUGIN)
 endif()
 
 if(BUILD_TESTING)
+  add_executable(soundfork_relay_settings_tests tests/relay_settings_tests.cpp)
+  target_link_libraries(soundfork_relay_settings_tests PRIVATE soundfork_relay_settings ole32)
+  add_test(NAME soundfork_relay_settings_tests COMMAND soundfork_relay_settings_tests)
+  set_tests_properties(soundfork_relay_settings_tests PROPERTIES TIMEOUT 20)
   add_executable(soundfork_obs_manager_tests tests/obs_plugin_manager_tests.cpp)
   target_link_libraries(soundfork_obs_manager_tests PRIVATE soundfork_obs_manager)
   add_dependencies(soundfork_obs_manager_tests soundfork_control)
