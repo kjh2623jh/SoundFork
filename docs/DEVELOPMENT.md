@@ -134,7 +134,7 @@ UI는 릴레이에 `--endpoint-id <opaque-id>`를 전달한다. 정확한 ID가 
 
 ### 자동 회귀와 정적 분석
 
-빌드 스크립트가 CTest를 실행한다. 현재 OBS 포함 시 15개, 제외 시 12개다. 프록시·COM·
+빌드 스크립트가 CTest를 실행한다. 현재 OBS 포함 시 16개, 제외 시 13개다. 프록시·COM·
 공유 링·허브·릴레이 클럭·장치 열거·제어판·플러그인 관리와 선택적 실제 libobs 통합을 다룬다.
 libobs 테스트는 DLL 로드, 소스 생성, 연속 스테레오 파형, 타임스탬프 간격, 예기치 않은
 무음·불연속, 생산자 일시 중단 후 복구와 릴레이 동시 수신을 검증한다. 생산자는 누적
@@ -173,6 +173,10 @@ UAC 승인·취소는 별도 수동 시험으로 남기고, 건너뛴 시험을 
 인자 없이 실행하면 읽기 전용 UI 미리보기를 연다. 설치된 제어판의 단일 실행 뮤텍스와
 트레이를 사용하지 않으며 설정 저장·온라인 작업·오디오 시작·중지 명령을 차단한다.
 사용자의 클립보드를 덮어쓰지 않도록 복사 버튼의 실제 실행은 자동 검사에서 제외한다.
+메인 체크박스의 기본 꺼짐·등록 값 재반영·한영 문구·메뉴 중복 제거도 확인한다.
+`installer_policy_tests.ps1`은 파일만 읽어 제조사 우선 선택·첫 드라이버 fallback 제거와
+설치·등록 스크립트의 필수 `BackendName`을 확인한다. `Test-ReleaseInstaller.ps1`은
+격리 CI에서 선택 없는 신규 무인 설치 거부·신규 자동 시작 꺼짐·기존 선택과 자동 시작 유지도 검사한다.
 다른 DPI·복사 성공과 클립보드 점유 실패·실제 로그인 후 동작은 별도 수동 확인 항목이다.
 
 ```powershell
@@ -213,6 +217,7 @@ PowerShell에서 수행한다. 아래 FiiO 이름은 예시이며 다른 드라�
 
 ZIP 수동 설치는 압축을 푼 디렉터리의 `scripts/Install-SoundFork.ps1`을 관리자 권한으로
 실행하고 `-BackendName`을 지정한다. 제조사 드라이버를 삭제·수정하지 않는다.
+설치·등록 스크립트 모두 `-BackendName`이 필수이며 제조사 기본값은 없다.
 설치·COM 등록·제거 자동 시험은 격리된 CI runner에서 임시 ASIO 백엔드로 수행한다.
 `Test-ReleaseInstaller.ps1 -AllowRegistryChanges`는 실제 레지스트리를 바꾸며 기존
 SoundFork 키를 발견하면 중단한다. 사용 중인 PC에서 무심코 실행하지 않는다.
@@ -225,15 +230,15 @@ Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 �
 아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 -SkipInstaller
 ```
 
 인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
 인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

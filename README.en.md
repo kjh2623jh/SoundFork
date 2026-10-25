@@ -14,10 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.4/SoundFork-Setup-v1.0.0-rc.4.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.5/SoundFork-Setup-v1.0.0-rc.5.exe) ·
 [View all releases](../../releases)
 
-The current version is the unsigned release candidate `v1.0.0-rc.4`, so Windows SmartScreen may
+The current version is the unsigned release candidate `v1.0.0-rc.5`, so Windows SmartScreen may
 show a warning.
 
 ## Requirements
@@ -84,8 +84,8 @@ Close games/DAWs and OBS and stop audio forwarding before updating or uninstalli
 - **Updates:** Use **Help → Check for updates** in the control panel, then run the new Setup.
   If you use the OBS plugin, select its installation option to update it at the same time.
 - **Language:** Choose English or Korean under **Settings → Language** in the control panel.
-- **Automatic startup:** Device selection is saved automatically. Enable **Settings → Start audio forwarding at Windows sign-in**
-  to start with the saved virtual device at your next sign-in. This is off by default.
+- **Automatic startup:** Device selection is saved automatically. Check **Start audio forwarding at Windows sign-in** in the main window
+  to start with the saved virtual device at your next sign-in. This is off for new installations; updates preserve your choice.
 - **Detailed status:** Open **Help → Diagnostics** to inspect and copy connection information and counters.
 - **OBS plugin management:** Install, update or remove it under **Settings → OBS plugin**.
   Close OBS first; these operations require administrator approval.

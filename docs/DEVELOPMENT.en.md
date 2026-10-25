@@ -150,7 +150,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 15 tests with OBS, 12 without it. Coverage
+The build script runs CTest: currently 16 tests with OBS, 13 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -199,6 +199,11 @@ recreation. Without arguments it opens a read-only UI preview. It does not use t
 installed GUI mutex or tray; preference writes, online actions and audio start/stop
 commands are blocked. Actual copying is excluded to preserve the user's clipboard.
 Other DPI settings, clipboard success/contention and real sign-in remain manual checks.
+The main checkbox is checked for an off default, preference refresh, translations
+and absence from the menu. `installer_policy_tests.ps1` only reads files to verify
+there is no vendor/first-driver fallback and that install/register scripts require
+`BackendName`. Isolated installer CI also checks rejected fresh unattended setup
+without selection, startup off on fresh install, and preserved choices on upgrade.
 
 ```powershell
 .\scripts\Test-SoundForkSoak.ps1 -Hours 4
@@ -240,7 +245,8 @@ backend's actual registered name as appropriate.
 ```
 
 For manual ZIP installation, run its `scripts/Install-SoundFork.ps1` elevated and
-specify `-BackendName`. Never remove or modify manufacturer drivers. Automated
+specify `-BackendName`. Both install and registration scripts require this argument;
+there is no vendor default. Never remove or modify manufacturer drivers. Automated
 installer/COM/uninstaller checks use a temporary backend on isolated CI runners.
 `Test-ReleaseInstaller.ps1 -AllowRegistryChanges` really writes the registry and
 refuses existing SoundFork keys; do not run it casually on an in-use installation.
@@ -254,15 +260,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

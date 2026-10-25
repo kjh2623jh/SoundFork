@@ -66,8 +66,9 @@ a saved preference, Korean Windows UI selects Korean; other languages fall back 
 
 Selecting a VB-CABLE or Voicemeeter virtual playback device immediately saves it
 for the current user. Stop the relay before changing devices; selection is locked
-while it runs. **Settings → Start audio forwarding at Windows sign-in** is off by
-default and requires explicit opt-in. Toggling it affects the next sign-in, not
+while it runs. The main-window **Start audio forwarding at Windows sign-in** checkbox is
+off for a new installation and requires explicit opt-in. Updates preserve the saved
+choice, so an existing registration appears checked. Toggling it affects the next sign-in, not
 the currently running relay.
 
 Startup opens Control in the tray and launches the relay with only the saved
@@ -165,7 +166,9 @@ game audio can cause device-ownership or sample-rate conflicts. Use the dedicate
 ## Installation and plugin management behavior
 
 Setup registers SoundFork using a selected registered x64 ASIO backend. It retains
-a valid existing selection, otherwise preferring FiiO ASIO Driver when present.
+a valid existing selection. New installations require user selection without
+vendor preference, even if only one driver exists. Fresh unattended setup requires
+an explicit `/BACKENDCLSID`.
 With no compatible driver, it asks for the manufacturer's driver and stops. It
 does not remove hardware drivers or virtual devices, or change Windows default devices.
 
@@ -240,6 +243,13 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   changing the installed copy, devices, startup preferences or running forwarding.
   Clipboard success/contention, other DPI settings and the new installer's real
   update/uninstall/sign-in lifecycle still require manual or CI verification.
+- 2026-10-26 rc.5 installation/settings cleanup removed vendor preference and
+  moved sign-in startup to a main-window checkbox. Off-by-default startup and
+  preservation of existing registration remain unchanged. Debug/Release CTest
+  each passed 16/16, along with `/analyze /WX`, CFG/NX/ASLR/static-runtime checks
+  and PowerShell parsing. Real wizard selection/sign-in/update/uninstall remain
+  manual or CI checks; the installed copy, startup entry and running forwarding
+  processes on this PC were not modified.
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.
