@@ -40,13 +40,17 @@ struct DiagnosticStrings {
   const wchar_t* close;
   const wchar_t* copy_failed;
   const wchar_t* open_failed;
+  const wchar_t* logs;
+  const wchar_t* logs_failed;
 };
 
 inline const DiagnosticStrings& diagnostic_strings(bool korean) {
   static constexpr DiagnosticStrings ko{L"진단 정보", L"복사", L"닫기",
-      L"진단 정보를 클립보드에 복사하지 못했습니다.", L"진단 창을 열 수 없습니다."};
+      L"진단 정보를 클립보드에 복사하지 못했습니다.", L"진단 창을 열 수 없습니다.",
+      L"로그 폴더 열기", L"로그 폴더를 열 수 없습니다."};
   static constexpr DiagnosticStrings en{L"Diagnostics", L"Copy", L"Close",
-      L"Could not copy diagnostics to the clipboard.", L"Could not open the diagnostics window."};
+      L"Could not copy diagnostics to the clipboard.", L"Could not open the diagnostics window.",
+      L"Open log folder", L"Could not open the log folder."};
   return korean ? ko : en;
 }
 

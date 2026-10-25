@@ -95,6 +95,9 @@ int wmain(int argc, wchar_t**) {
         require_ui(GetMenuStringW(GetSubMenu(GetMenu(window), 1), kShowDiagnostics, menu_text.data(),
             static_cast<int>(menu_text.size()), MF_BYCOMMAND) != 0, "diagnostics menu missing");
         require_ui(std::wstring_view(menu_text.data()) == strings.title, "diagnostics menu translation wrong");
+        require_ui(GetMenuStringW(GetSubMenu(GetMenu(window), 1), kOpenLogs, menu_text.data(),
+            static_cast<int>(menu_text.size()), MF_BYCOMMAND) != 0, "log-folder menu missing");
+        require_ui(std::wstring_view(menu_text.data()) == strings.logs, "log-folder menu translation wrong");
         HWND diagnostic = CreateWindowExW(WS_EX_CONTROLPARENT, kDiagnosticClass, strings.title,
             WS_OVERLAPPEDWINDOW, 0, 0, 740, 480, window, nullptr, GetModuleHandleW(nullptr), &state);
         if (diagnostic == nullptr || !state.diagnostic_copy || !state.diagnostic_close)

@@ -27,8 +27,11 @@
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/endpoint_selection.hpp"
+#include "diagnostics/async_log.hpp"
+#include "soundfork_version.hpp"
 
 namespace {
+namespace diagnostics = soundfork::diagnostics;
 
 using Microsoft::WRL::ComPtr;
 
@@ -190,6 +193,10 @@ bool succeeded_asio_style(HRESULT result, const wchar_t* operation) {
   }
   std::wcerr << operation << L" failed: 0x" << std::hex
              << static_cast<unsigned long>(result) << std::dec << L'\n';
+  char phase[96]{};
+  (void)WideCharToMultiByte(CP_UTF8, 0, operation, -1, phase, static_cast<int>(sizeof(phase)), nullptr, nullptr);
+  diagnostics::log().write(diagnostics::Level::error, "wasapi_error",
+      "operation=" + std::string(phase) + " hresult=" + std::to_string(static_cast<unsigned long>(result)));
   return false;
 }
 
@@ -210,7 +217,29 @@ struct RelayMetrics {
   std::uint64_t discarded_blocks = 0;
   std::uint64_t reconnect_count = 0;
   double maximum_correction_ppm = 0.0;
+  std::uint64_t underflow_frames = 0, prebuffer_frames = 0, last_queue_frames = 0;
 };
+
+void log_metrics(const soundfork::capture::SharedRingReader& reader, const RelayMetrics& metrics,
+                 std::uint64_t current_underflow = 0, std::uint64_t current_prebuffer = 0) {
+  char detail[448]{};
+  _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+      "rendered_frames=%llu queue_frames=%llu queue_min=%llu queue_max=%llu underflow_frames=%llu "
+      "prebuffer_frames=%llu resyncs=%llu discarded_blocks=%llu session_reconnects=%llu "
+      "hub_output_drops=%llu max_correction_ppm=%.2f",
+      static_cast<unsigned long long>(metrics.rendered_frames),
+      static_cast<unsigned long long>(metrics.last_queue_frames),
+      static_cast<unsigned long long>(metrics.minimum_queue_frames == (std::numeric_limits<std::uint64_t>::max)()
+          ? 0 : metrics.minimum_queue_frames),
+      static_cast<unsigned long long>(metrics.maximum_queue_frames),
+      static_cast<unsigned long long>(metrics.underflow_frames + current_underflow),
+      static_cast<unsigned long long>(metrics.prebuffer_frames + current_prebuffer),
+      static_cast<unsigned long long>(metrics.resync_count),
+      static_cast<unsigned long long>(metrics.discarded_blocks),
+      static_cast<unsigned long long>(metrics.reconnect_count),
+      static_cast<unsigned long long>(reader.stats().dropped_blocks), metrics.maximum_correction_ppm);
+  diagnostics::log().write(diagnostics::Level::info, "relay_metrics", detail);
+}
 
 SessionOutcome run_render_session(
     IMMDevice* endpoint,
@@ -336,6 +365,9 @@ SessionOutcome run_render_session(
   }
 
   const auto format = reader->format();
+  diagnostics::log().write(diagnostics::Level::info, "render_session_start",
+      "rate=48000 channels=2 frames_per_block=" + std::to_string(format.frames_per_block) +
+      " endpoint_buffer_frames=" + std::to_string(endpoint_buffer_frames));
   auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
   soundfork::capture::RelayClockController clock(
       format.sample_rate, format.frames_per_block);
@@ -343,8 +375,12 @@ SessionOutcome run_render_session(
   std::uint64_t prebuffer_silent_frames = 0;
   const HANDLE wait_handles[] = {audio_event.value, stop_event};
   SessionOutcome outcome = SessionOutcome::complete;
+  const char* reason = "deadline";
+  ULONGLONG next_metrics_at = GetTickCount64() + 30000;
+  ULONGLONG next_gap_log_at = 0;
   while (persistent || GetTickCount64() < run_deadline) {
     if (!reader->stream_active()) {
+      reason = "source_inactive";
       outcome = SessionOutcome::reconnect;
       break;
     }
@@ -354,6 +390,7 @@ SessionOutcome run_render_session(
         FALSE,
         200);
     if (wait_result == WAIT_OBJECT_0 + 1) {
+      reason = "stop_requested";
       outcome = SessionOutcome::stopped;
       break;
     }
@@ -369,6 +406,7 @@ SessionOutcome run_render_session(
       continue;
     }
     if (wait_result != WAIT_OBJECT_0) {
+      reason = "audio_wait_error";
       outcome = SessionOutcome::reconnect;
       break;
     }
@@ -395,6 +433,8 @@ SessionOutcome run_render_session(
     }
 
     auto* destination = reinterpret_cast<std::int32_t*>(raw_destination);
+    const auto underflow_before = source->metrics().silent_frames;
+    const auto resync_before = metrics->resync_count;
     std::uint64_t queue_frames = source->buffered_frames(*reader);
     if (queue_frames >
         static_cast<std::uint64_t>(format.frames_per_block) * 48U) {
@@ -408,6 +448,7 @@ SessionOutcome run_render_session(
         (std::min)(metrics->minimum_queue_frames, queue_frames);
     metrics->maximum_queue_frames =
         (std::max)(metrics->maximum_queue_frames, queue_frames);
+    metrics->last_queue_frames = queue_frames;
     if (!prebuffered && queue_frames >= clock.target_frames()) {
       prebuffered = true;
     }
@@ -431,17 +472,36 @@ SessionOutcome run_render_session(
       break;
     }
     metrics->rendered_frames += available;
+    const auto now = GetTickCount64();
+    if ((source->metrics().silent_frames != underflow_before || metrics->resync_count != resync_before) &&
+        now >= next_gap_log_at) {
+      next_gap_log_at = now + 1000;
+      diagnostics::log().write(diagnostics::Level::warning, "relay_audio_gap",
+          "underflow_frames=" + std::to_string(metrics->underflow_frames + source->metrics().silent_frames) +
+          " resyncs=" + std::to_string(metrics->resync_count));
+    }
+    if (GetTickCount64() >= next_metrics_at) {
+      next_metrics_at = GetTickCount64() + 30000;
+      log_metrics(*reader, *metrics, source->metrics().silent_frames, prebuffer_silent_frames);
+    }
   }
 
   audio_client->Stop();
   metrics->silent_frames +=
       prebuffer_silent_frames + source->metrics().silent_frames;
+  metrics->underflow_frames += source->metrics().silent_frames;
+  metrics->prebuffer_frames += prebuffer_silent_frames;
+  diagnostics::log().write(FAILED(result) ? diagnostics::Level::warning : diagnostics::Level::info,
+      "render_session_end", "outcome=" + std::to_string(static_cast<int>(outcome)) +
+      " reason=" + (FAILED(result) ? "wasapi_error" : reason) +
+      " hresult=" + std::to_string(static_cast<unsigned long>(result)));
+  log_metrics(*reader, *metrics);
   return outcome;
 }
 
 }  // namespace
 
-int wmain(int argc, wchar_t** argv) {
+int relay_main(int argc, wchar_t** argv) {
   bool list_endpoints = false;
   bool system_share = false;
   bool persistent = false;
@@ -536,6 +596,8 @@ int wmain(int argc, wchar_t** argv) {
       std::wcerr << L"Another SoundFork Discord relay is already running\n";
       return 10;
     }
+    diagnostics::initialize_log(diagnostics::Component::relay, SOUNDFORK_VERSION_STRING);
+    diagnostics::log().write(diagnostics::Level::info, "relay_start", "waiting_for_source=1");
     stop_event.value = CreateEventW(
         nullptr, TRUE, FALSE, soundfork::capture::kRelayStopEventName);
     if (stop_event.value == nullptr) {
@@ -574,6 +636,7 @@ int wmain(int argc, wchar_t** argv) {
       return 6;
     }
     const auto format = reader.format();
+    diagnostics::log().write(diagnostics::Level::info, "source_connected");
     if (format.sample_rate != 48000 || format.channel_count != 2 ||
         format.bytes_per_sample != 4) {
       std::wcerr << L"Unsupported SoundFork capture format\n";
@@ -583,6 +646,7 @@ int wmain(int argc, wchar_t** argv) {
     const ULONGLONG run_deadline =
         GetTickCount64() + static_cast<ULONGLONG>(duration_seconds) * 1000;
     RelayMetrics metrics;
+    bool waiting_endpoint = false;
     while (persistent || GetTickCount64() < run_deadline) {
       if (WaitForSingleObject(stop_event.value, 0) == WAIT_OBJECT_0) {
         break;
@@ -608,11 +672,15 @@ int wmain(int argc, wchar_t** argv) {
       ComPtr<IMMDevice> endpoint = select_endpoint(
           enumerator.Get(), current_endpoints, endpoint_name, exact_endpoint_id, &selected_name);
       if (endpoint == nullptr) {
+        if (!waiting_endpoint) diagnostics::log().write(diagnostics::Level::warning, "endpoint_unavailable");
+        waiting_endpoint = true;
         if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
           break;
         }
         continue;
       }
+      if (waiting_endpoint) diagnostics::log().write(diagnostics::Level::info, "endpoint_available");
+      waiting_endpoint = false;
       const SessionOutcome outcome = run_render_session(
           endpoint.Get(),
           selected_name,
@@ -632,6 +700,7 @@ int wmain(int argc, wchar_t** argv) {
         break;
       }
       ++metrics.reconnect_count;
+      diagnostics::log().write(diagnostics::Level::warning, "render_session_reconnect");
       std::wcerr << L"Audio endpoint disconnected; waiting to reconnect\n";
       if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
         break;
@@ -657,4 +726,12 @@ int wmain(int argc, wchar_t** argv) {
                << L"\nCapture dropped blocks: " << stats.dropped_blocks << L'\n';
   }
   return exit_code;
+}
+
+int wmain(int argc, wchar_t** argv) {
+  const int result = relay_main(argc, argv);
+  diagnostics::log().write(result == 0 ? diagnostics::Level::info : diagnostics::Level::error,
+      "relay_exit", "exit_code=" + std::to_string(result));
+  diagnostics::log().stop();
+  return result;
 }

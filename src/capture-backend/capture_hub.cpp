@@ -7,6 +7,8 @@
 
 #include "capture-backend/hub_client.hpp"
 #include "capture-backend/shared_ring.hpp"
+#include "diagnostics/async_log.hpp"
+#include "soundfork_version.hpp"
 
 namespace {
 struct Handle {
@@ -21,7 +23,7 @@ struct Buffers {
 };
 }  // namespace
 
-int wmain(int argc, wchar_t** argv) {
+int hub_main(int argc, wchar_t** argv) {
   using namespace soundfork::capture;
   std::wstring scope;
   if (argc == 3 && std::wstring(argv[1]) == L"--scope") {
@@ -37,6 +39,11 @@ int wmain(int argc, wchar_t** argv) {
   Handle singleton{CreateMutexW(nullptr, TRUE, names.singleton.c_str())};
   if (singleton.value == nullptr) return 3;
   if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+  // Isolated tests must not write the installed user's diagnostic logs.
+  if (scope.empty()) soundfork::diagnostics::initialize_log(
+      soundfork::diagnostics::Component::hub, SOUNDFORK_VERSION_STRING);
+  auto& logger = soundfork::diagnostics::log();
+  logger.write(soundfork::diagnostics::Level::info, "hub_start");
   Handle ready{CreateEventW(nullptr, TRUE, FALSE, names.ready.c_str())};
   Handle timer{create_periodic_timer(50)};
   if (ready.value == nullptr || timer.value == nullptr) return 3;
@@ -49,6 +56,7 @@ int wmain(int argc, wchar_t** argv) {
   ULONGLONG no_clients_since = 0;
   ULONGLONG retry_at = 0;
   ULONGLONG check_stream_at = 0;
+  ULONGLONG next_metrics_at = GetTickCount64() + 30000;
   SetEvent(ready.value);
   while (WaitForSingleObject(timer.value, 1000) == WAIT_OBJECT_0) {
     const auto now = GetTickCount64();
@@ -65,6 +73,7 @@ int wmain(int argc, wchar_t** argv) {
     if (now >= check_stream_at) {
       check_stream_at = now + 50;
       if (input.is_open() && !input.stream_active()) {
+        logger.write(soundfork::diagnostics::Level::info, "hub_source_disconnected");
         input.close();
         relay.close();
         obs.close();
@@ -86,6 +95,8 @@ int wmain(int argc, wchar_t** argv) {
         continue;
       }
       if (!set_timer_period(timer.value, 1)) break;
+      logger.write(soundfork::diagnostics::Level::info, "hub_source_connected",
+          "rate=" + std::to_string(format.sample_rate) + " frames_per_block=" + std::to_string(format.frames_per_block));
     }
     // Bound work per wake. A stalled consumer only fills its own output ring.
     for (std::uint32_t block = 0; block < kCapacityBlocks; ++block) {
@@ -99,7 +110,25 @@ int wmain(int argc, wchar_t** argv) {
       if (relay.consumer_active()) relay.publish_int32_stereo(buffers->left.data(), buffers->right.data());
       if (obs.consumer_active()) obs.publish_int32_stereo(buffers->left.data(), buffers->right.data());
     }
+    if (now >= next_metrics_at) {
+      next_metrics_at = now + 30000;
+      const auto stats = input.stats();
+      logger.write(soundfork::diagnostics::Level::info, "hub_metrics",
+          "asio_published=" + std::to_string(stats.published_blocks) +
+          " asio_drops=" + std::to_string(stats.dropped_blocks) +
+          " relay_drops=" + std::to_string(relay.stats().dropped_blocks) +
+          " obs_drops=" + std::to_string(obs.stats().dropped_blocks));
+    }
   }
   ResetEvent(ready.value);
   return 0;
+}
+
+int wmain(int argc, wchar_t** argv) {
+  const int result = hub_main(argc, argv);
+  auto& logger = soundfork::diagnostics::log();
+  logger.write(result == 0 ? soundfork::diagnostics::Level::info : soundfork::diagnostics::Level::error,
+      "hub_exit", "exit_code=" + std::to_string(result));
+  logger.stop();
+  return result;
 }

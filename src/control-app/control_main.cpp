@@ -31,10 +31,12 @@
 #include "control-app/relay_settings.hpp"
 #include "control-app/control_status.hpp"
 #include "soundfork_version.hpp"
+#include "diagnostics/async_log.hpp"
 
 namespace {
 
 namespace obs_plugin = soundfork::control::obs_plugin;
+namespace diagnostics = soundfork::diagnostics;
 
 using Microsoft::WRL::ComPtr;
 using soundfork::control::UpdateResult;
@@ -67,6 +69,7 @@ constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
 constexpr int kShowAbout = 2103;
 constexpr int kShowDiagnostics = 2104;
+constexpr int kOpenLogs = 2105;
 constexpr int kCopyDiagnostics = 2401;
 constexpr int kCloseDiagnostics = 2402;
 constexpr int kTrayOpen = 2201;
@@ -375,6 +378,7 @@ struct AppState {
   std::wstring startup_error;
   HANDLE startup_process = nullptr;
   ULONGLONG next_endpoint_probe = 0;
+  int logged_status = -1;
   ~AppState() { if (startup_process != nullptr) CloseHandle(startup_process); }
 };
 
@@ -784,9 +788,11 @@ std::wstring quote_argument(std::wstring_view argument) {
 bool start_relay(
     const Endpoint& endpoint, UiLanguage language, std::wstring* error, HANDLE* child = nullptr) {
   const UiStrings& strings = ui_strings(language);
+  diagnostics::log().write(diagnostics::Level::info, "relay_start_requested");
   const std::wstring relay_path =
       executable_directory() + L"\\soundfork_discord_relay.exe";
   if (GetFileAttributesW(relay_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    diagnostics::log().write(diagnostics::Level::error, "relay_binary_missing");
     *error = strings.relay_missing;
     return false;
   }
@@ -808,11 +814,14 @@ bool start_relay(
           executable_directory().c_str(),
           &startup,
           &process)) {
+    const auto code = GetLastError();
+    diagnostics::log().write(diagnostics::Level::error, "relay_spawn_failed", "win32=" + std::to_string(code));
     *error = std::wstring(strings.relay_start_failed) +
-             std::to_wstring(GetLastError()) + L").";
+             std::to_wstring(code) + L").";
     return false;
   }
   CloseHandle(process.hThread);
+  diagnostics::log().write(diagnostics::Level::info, "relay_spawned", "child_pid=" + std::to_string(process.dwProcessId));
   if (child != nullptr) *child = process.hProcess;
   else CloseHandle(process.hProcess);
   return true;
@@ -820,17 +829,21 @@ bool start_relay(
 
 bool stop_relay(UiLanguage language, std::wstring* error) {
   const UiStrings& strings = ui_strings(language);
+  diagnostics::log().write(diagnostics::Level::info, "relay_stop_requested");
   HANDLE event = OpenEventW(
       EVENT_MODIFY_STATE, FALSE, soundfork::capture::kRelayStopEventName);
   if (event == nullptr) {
+    diagnostics::log().write(diagnostics::Level::warning, "relay_stop_event_missing");
     *error = strings.relay_stop_missing;
     return false;
   }
   const bool result = SetEvent(event) != FALSE;
   CloseHandle(event);
   if (!result) {
+    diagnostics::log().write(diagnostics::Level::error, "relay_stop_signal_failed");
     *error = strings.relay_stop_failed;
   }
+  if (result) diagnostics::log().write(diagnostics::Level::info, "relay_stop_signaled");
   return result;
 }
 
@@ -1152,6 +1165,7 @@ void populate_endpoint_combo(AppState* state) {
 }
 
 void notify_startup_error(AppState* state) {
+  diagnostics::log().write(diagnostics::Level::error, "automatic_forwarding_failed");
   NOTIFYICONDATAW data{sizeof(data)};
   data.hWnd = state->window;
   data.uID = kTrayIconId;
@@ -1405,6 +1419,10 @@ void update_status(AppState* state) {
     text << startup.waiting << L"\r\n";
   text << strings.discord_mode << L"\r\n";
   text << strings.application_share_note;
+  const auto logs = diagnostics::log().stats();
+  text << L"\r\n\r\n" << (state->language == UiLanguage::korean ? L"진단 로그: " : L"Diagnostic logs: ")
+       << diagnostics::log_directory().native() << L"\r\n"
+       << L"logger_dropped=" << logs.dropped << L", logger_io_errors=" << logs.io_errors;
   state->diagnostic_snapshot = L"SoundFork v" SOUNDFORK_VERSION_WIDE L"\r\n\r\n" + text.str();
   if (state->diagnostic_text != nullptr) {
     // Keep reading/selection position while the existing UI timer refreshes data.
@@ -1421,6 +1439,14 @@ void update_status(AppState* state) {
       ready, relay_running,
       broadcast_endpoint != nullptr && is_broadcast_endpoint(*broadcast_endpoint),
       stream.producer_active, state->startup_error};
+  const int observed = (relay_running ? 1 : 0) | (stream.producer_active ? 2 : 0) |
+      (summary.device_available ? 4 : 0);
+  if (observed != state->logged_status) {
+    state->logged_status = observed;
+    diagnostics::log().write(diagnostics::Level::info, "observed_state",
+        "relay=" + std::to_string(relay_running) + " asio_stream=" +
+        std::to_string(stream.producer_active) + " device_available=" + std::to_string(summary.device_available));
+  }
   SetWindowTextW(state->status, soundfork::control::control_status_text(
       summary, state->language == UiLanguage::korean).c_str());
   SendMessageW(state->startup_checkbox, BM_SETCHECK,
@@ -1773,6 +1799,8 @@ void rebuild_menu(AppState* state) {
   AppendMenuW(help, MF_STRING, kOpenProject, ui_strings(state->language).open_project);
   AppendMenuW(help, MF_STRING, kShowDiagnostics,
       soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).title);
+  AppendMenuW(help, MF_STRING, kOpenLogs,
+      soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).logs);
   AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(help, MF_STRING, kShowAbout, ui_strings(state->language).about);
   AppendMenuW(
@@ -1890,6 +1918,7 @@ LRESULT CALLBACK window_proc(
             WaitForSingleObject(state->startup_process, 0) == WAIT_OBJECT_0) {
           DWORD code = 0;
           if (GetExitCodeProcess(state->startup_process, &code) && code != 0 && code != 10) {
+            diagnostics::log().write(diagnostics::Level::error, "startup_relay_exit", "exit_code=" + std::to_string(code));
             state->startup_error = std::to_wstring(code);
             notify_startup_error(state);
           }
@@ -2005,6 +2034,16 @@ LRESULT CALLBACK window_proc(
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
       if (control == kShowDiagnostics) { show_diagnostics(state); return 0; }
+      if (control == kOpenLogs) {
+        const auto directory = diagnostics::log_directory();
+        std::error_code error;
+        if (!directory.empty()) std::filesystem::create_directories(directory, error);
+        if (directory.empty() || error || reinterpret_cast<INT_PTR>(ShellExecuteW(
+            window, L"open", directory.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+          MessageBoxW(window, soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).logs_failed,
+              L"SoundFork", MB_ICONWARNING);
+        return 0;
+      }
       if (control == kEndpointCombo && HIWORD(wparam) == CBN_SELCHANGE) {
         const auto selected = SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
         if (selected >= 0 && static_cast<std::size_t>(selected) < state->endpoints.size() &&
@@ -2033,6 +2072,8 @@ LRESULT CALLBACK window_proc(
           }
         }
         const auto result = settings.set_startup(exe, enable);
+        diagnostics::log().write(result == ERROR_SUCCESS ? diagnostics::Level::info : diagnostics::Level::error,
+            "startup_preference", "enabled=" + std::to_string(enable) + " win32=" + std::to_string(result));
         if (result != ERROR_SUCCESS) {
           const auto error = std::wstring(startup_strings(state->language).save_failed) + std::to_wstring(result);
           MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
@@ -2270,6 +2311,8 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
     return 0;
   }
   AppState state;
+  diagnostics::initialize_log(diagnostics::Component::control, SOUNDFORK_VERSION_STRING);
+  diagnostics::log().write(diagnostics::Level::info, "control_start", startup_launch ? "origin=login" : "origin=manual");
   state.language = load_ui_language();
   taskbar_created_message = RegisterWindowMessageW(L"TaskbarCreated");
   WNDCLASSEXW window_class{sizeof(window_class)};
@@ -2331,6 +2374,7 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
     state.update_thread.join();
   }
   if (state.obs_thread.joinable()) state.obs_thread.join();
+  diagnostics::log().write(diagnostics::Level::info, "control_exit", "exit_code=" + std::to_string(message.wParam));
   return static_cast<int>(message.wParam);
 }
 

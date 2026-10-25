@@ -142,6 +142,11 @@ target_include_directories(soundfork_capture_tests PRIVATE
 )
 target_link_libraries(soundfork_capture_tests PRIVATE soundfork_warnings)
 
+add_library(soundfork_diagnostics STATIC src/diagnostics/async_log.cpp)
+target_include_directories(soundfork_diagnostics PUBLIC src)
+target_link_libraries(soundfork_diagnostics PUBLIC soundfork_warnings shell32 ole32)
+target_include_directories(soundfork_diagnostics PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
 add_executable(soundfork_discord_relay
   src/capture-backend/discord_relay.cpp
   src/capture-backend/relay_clock.cpp
@@ -153,6 +158,7 @@ target_include_directories(soundfork_discord_relay PRIVATE
 )
 target_link_libraries(soundfork_discord_relay PRIVATE
   soundfork_warnings
+  soundfork_diagnostics
   ole32
   uuid
 )
@@ -163,7 +169,7 @@ add_executable(soundfork_capture_hub
   src/capture-backend/shared_ring.cpp
 )
 target_include_directories(soundfork_capture_hub PRIVATE src)
-target_link_libraries(soundfork_capture_hub PRIVATE soundfork_warnings)
+target_link_libraries(soundfork_capture_hub PRIVATE soundfork_warnings soundfork_diagnostics)
 add_dependencies(soundfork_discord_relay soundfork_capture_hub)
 
 add_executable(soundfork_hub_tests
@@ -229,6 +235,7 @@ target_include_directories(soundfork_control PRIVATE
 target_link_libraries(soundfork_control PRIVATE
   soundfork_obs_manager
   soundfork_relay_settings
+  soundfork_diagnostics
   soundfork_warnings
   ole32
   uuid
@@ -259,7 +266,11 @@ if(BUILD_TESTING)
   target_include_directories(soundfork_control_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
   target_link_libraries(soundfork_control_ui_tests PRIVATE soundfork_obs_manager soundfork_relay_settings
-    soundfork_warnings ole32 uuid advapi32 shell32 winhttp)
+    soundfork_diagnostics soundfork_warnings ole32 uuid advapi32 shell32 winhttp)
+  add_executable(soundfork_diagnostics_tests tests/diagnostics_tests.cpp)
+  target_link_libraries(soundfork_diagnostics_tests PRIVATE soundfork_diagnostics)
+  add_test(NAME soundfork_diagnostics_tests COMMAND soundfork_diagnostics_tests)
+  set_tests_properties(soundfork_diagnostics_tests PROPERTIES TIMEOUT 30)
   add_test(NAME soundfork_control_ui_tests COMMAND soundfork_control_ui_tests --test)
   set_tests_properties(soundfork_control_ui_tests PROPERTIES TIMEOUT 20)
   add_executable(soundfork_control_status_tests tests/control_status_tests.cpp)
