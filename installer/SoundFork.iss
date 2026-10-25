@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0-rc.5"
+  #define MyAppVersion "1.0.0-rc.6"
 #endif
 #ifndef MySourceDir
   #define MySourceDir "..\out"
@@ -123,7 +123,7 @@ begin
   if (not Exec(ControlPath, '--can-manage-obs-plugin', ExpandConstant('{app}'),
                SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
   begin
-    MsgBox(ExpandConstant('{cm:CloseObsBeforeUninstall}'), mbError, MB_OK);
+    SuppressibleMsgBox(ExpandConstant('{cm:CloseObsBeforeUninstall}'), mbError, MB_OK, IDOK);
     Result := False;
   end;
 end;
@@ -233,7 +233,8 @@ begin
   LoadBackends;
   if GetArrayLength(BackendNames) = 0 then
   begin
-    MsgBox(ExpandConstant('{cm:NoBackend}'), mbError, MB_OK);
+    Log('Setup rejected: no compatible x64 ASIO driver is registered.');
+    SuppressibleMsgBox(ExpandConstant('{cm:NoBackend}'), mbError, MB_OK, IDOK);
     Result := False;
     Exit;
   end;
@@ -246,7 +247,8 @@ begin
      ((RequestedBackendClsid = '') or
       (FindBackendByClsid(RequestedBackendClsid) < 0)) then
   begin
-    MsgBox(ExpandConstant('{cm:InvalidSilentBackend}'), mbError, MB_OK);
+    Log('Setup rejected: unattended installation requires a valid ASIO backend selection.');
+    SuppressibleMsgBox(ExpandConstant('{cm:InvalidSilentBackend}'), mbError, MB_OK, IDOK);
     Result := False;
     Exit;
   end;
@@ -294,7 +296,7 @@ begin
      ((BackendPage.SelectedValueIndex < 0) or
       (BackendPage.SelectedValueIndex >= GetArrayLength(BackendClsids))) then
   begin
-    MsgBox(ExpandConstant('{cm:SelectBackend}'), mbInformation, MB_OK);
+    SuppressibleMsgBox(ExpandConstant('{cm:SelectBackend}'), mbInformation, MB_OK, IDOK);
     Result := False;
   end;
 end;

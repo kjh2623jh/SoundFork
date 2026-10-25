@@ -150,7 +150,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 16 tests with OBS, 13 without it. Coverage
+The build script runs CTest: currently 17 tests with OBS, 14 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -204,6 +204,20 @@ and absence from the menu. `installer_policy_tests.ps1` only reads files to veri
 there is no vendor/first-driver fallback and that install/register scripts require
 `BackendName`. Isolated installer CI also checks rejected fresh unattended setup
 without selection, startup off on fresh install, and preserved choices on upgrade.
+Installer notices use `SuppressibleMsgBox` to honor unattended `/SUPPRESSMSGBOXES`.
+`release_process_tests.ps1` checks exit-code propagation and termination of the
+test's process tree on timeout. Install/upgrade/uninstall each have a 120-second
+limit, the control self-test has 30 seconds, and the CI step has 12 minutes.
+Setup/uninstall logs survive failure in `SoundFork-<version>-installer-logs` for
+30 days. To test the real initialization rejection paths without elevation or
+changing an installation, run:
+
+```powershell
+.\tests\installer_rejection_tests.ps1 -CompilerPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+```
+
+This extracts the production `InitializeSetup` function and compiles it with
+synthetic backend discovery. The probe never proceeds to installation.
 
 ```powershell
 .\scripts\Test-SoundForkSoak.ps1 -Hours 4
@@ -260,15 +274,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.6
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.6 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.6 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

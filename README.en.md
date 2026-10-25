@@ -14,10 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.5/SoundFork-Setup-v1.0.0-rc.5.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.6/SoundFork-Setup-v1.0.0-rc.6.exe) ·
 [View all releases](../../releases)
 
-The current version is the unsigned release candidate `v1.0.0-rc.5`, so Windows SmartScreen may
+The current version is the unsigned release candidate `v1.0.0-rc.6`, so Windows SmartScreen may
 show a warning.
 
 ## Requirements

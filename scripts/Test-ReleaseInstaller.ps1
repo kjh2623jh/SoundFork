@@ -6,10 +6,13 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$TestDirectory,
 
+    [string]$LogDirectory,
+
     [switch]$AllowRegistryChanges
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Invoke-ReleaseTestProcess.ps1')
 if (-not $AllowRegistryChanges) {
     throw 'This test temporarily changes HKLM and HKCU startup registration. Pass -AllowRegistryChanges only on an isolated test machine.'
 }
@@ -30,6 +33,17 @@ if (-not $fullTestDirectory.StartsWith(
         [StringComparison]::OrdinalIgnoreCase)) {
     throw "TestDirectory must be inside the system temporary directory '$tempRoot'."
 }
+if ([string]::IsNullOrWhiteSpace($LogDirectory)) {
+    $LogDirectory = $fullTestDirectory + '-logs'
+}
+$LogDirectory = [IO.Path]::GetFullPath($LogDirectory)
+if ($LogDirectory.Equals($fullTestDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+    $LogDirectory.StartsWith($fullTestDirectory + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'LogDirectory must be outside the installation directory so uninstall cannot delete the logs.'
+}
+New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+Write-Host "Installer test logs: $LogDirectory"
 
 $fakeName = 'SoundFork CI Fake ASIO'
 $fakeClsid = '{7C8656E5-9B2D-44E9-A43A-D767CF8B92F2}'
@@ -44,6 +58,7 @@ $soundForkMayHaveBeenCreated = $false
 $userRun = $null
 $startupCommand = $null
 $startupSeeded = $false
+$testDirectoryMayHaveBeenCreated = $false
 
 try {
     $userRun = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
@@ -66,6 +81,7 @@ try {
     if (Test-Path -LiteralPath $fullTestDirectory) {
         throw "Test directory already exists: $fullTestDirectory"
     }
+    $testDirectoryMayHaveBeenCreated = $true
 
     $fakeKeysCreated = $true
     $fakeAsio = $baseKey.CreateSubKey("SOFTWARE\ASIO\$fakeName", $true)
@@ -78,10 +94,13 @@ try {
     try { $preferredCom.SetValue('', "$env:SystemRoot\System32\kernel32.dll", [Microsoft.Win32.RegistryValueKind]::String) } finally { $preferredCom.Dispose() }
     # A fresh unattended install must never guess a driver, even with FiiO present.
     $soundForkMayHaveBeenCreated = $true
-    $unselected = Start-Process -FilePath $resolvedSetup -ArgumentList @(
-        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$fullTestDirectory`""
-    ) -Wait -PassThru -WindowStyle Hidden
-    if ($unselected.ExitCode -eq 0) { throw 'Fresh unattended setup accepted a missing ASIO selection.' }
+    $rejectedLog = Join-Path $LogDirectory '01-rejected-missing-backend.log'
+    $unselectedExit = Invoke-ReleaseTestProcess -StepName 'Reject missing ASIO selection' `
+        -FilePath $resolvedSetup -LogPath $rejectedLog -ArgumentList @(
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
+        "/LOG=`"$rejectedLog`"", "/DIR=`"$fullTestDirectory`""
+    )
+    if ($unselectedExit -ne 1) { throw "Expected setup initialization rejection (exit 1), received $unselectedExit." }
     $unexpectedAsio = $baseKey.OpenSubKey('SOFTWARE\ASIO\SoundFork', $false)
     if ($null -ne $unexpectedAsio) {
         $unexpectedAsio.Dispose()
@@ -92,13 +111,17 @@ try {
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
         '/NORESTART',
+        '/SP-',
+        "/LOG=`"$(Join-Path $LogDirectory '02-install.log')`"",
         "/DIR=`"$fullTestDirectory`"",
         "/BACKENDCLSID=`"$fakeClsid`""
     )
     $soundForkMayHaveBeenCreated = $true
-    $install = Start-Process -FilePath $resolvedSetup -ArgumentList $installArguments -Wait -PassThru -WindowStyle Hidden
-    if ($install.ExitCode -ne 0) {
-        throw "Setup failed with exit code $($install.ExitCode)."
+    $installExit = Invoke-ReleaseTestProcess -StepName 'Install with explicit ASIO selection' `
+        -FilePath $resolvedSetup -ArgumentList $installArguments `
+        -LogPath (Join-Path $LogDirectory '02-install.log')
+    if ($installExit -ne 0) {
+        throw "Setup failed with exit code $installExit."
     }
 
     foreach ($file in @(
@@ -150,9 +173,10 @@ try {
     if (-not (Test-Path -LiteralPath $pluginPayload -PathType Leaf)) {
         throw 'The private OBS payload was not installed for Control-panel management.'
     }
-    $selfTest = Start-Process -FilePath $control -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
-    if ($selfTest.ExitCode -ne 0) {
-        throw "Installed control app self-test failed with exit code $($selfTest.ExitCode)."
+    $selfTestExit = Invoke-ReleaseTestProcess -StepName 'Installed control self-test' `
+        -FilePath $control -ArgumentList '--self-test' -TimeoutSeconds 30
+    if ($selfTestExit -ne 0) {
+        throw "Installed control app self-test failed with exit code $selfTestExit."
     }
     if ($null -ne $userRun.GetValue('SoundFork', $null)) {
         throw 'A fresh install enabled user startup without opt-in.'
@@ -169,11 +193,15 @@ try {
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
         '/NORESTART',
+        '/SP-',
+        "/LOG=`"$(Join-Path $LogDirectory '03-upgrade.log')`"",
         "/DIR=`"$fullTestDirectory`""
     )
-    $upgrade = Start-Process -FilePath $resolvedSetup -ArgumentList $upgradeArguments -Wait -PassThru -WindowStyle Hidden
-    if ($upgrade.ExitCode -ne 0) {
-        throw "In-place upgrade failed with exit code $($upgrade.ExitCode)."
+    $upgradeExit = Invoke-ReleaseTestProcess -StepName 'Upgrade preserving existing settings' `
+        -FilePath $resolvedSetup -ArgumentList $upgradeArguments `
+        -LogPath (Join-Path $LogDirectory '03-upgrade.log')
+    if ($upgradeExit -ne 0) {
+        throw "In-place upgrade failed with exit code $upgradeExit."
     }
     if ([string]$userRun.GetValue('SoundFork', '') -cne $startupCommand) {
         throw 'In-place upgrade did not preserve the user startup registration.'
@@ -195,9 +223,13 @@ try {
     }
 
     $uninstaller = Join-Path $fullTestDirectory 'unins000.exe'
-    $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru -WindowStyle Hidden
-    if ($uninstall.ExitCode -ne 0) {
-        throw "Uninstaller failed with exit code $($uninstall.ExitCode)."
+    $uninstallLog = Join-Path $LogDirectory '04-uninstall.log'
+    $uninstallExit = Invoke-ReleaseTestProcess -StepName 'Uninstall' `
+        -FilePath $uninstaller -LogPath $uninstallLog -ArgumentList @(
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$uninstallLog`""
+    )
+    if ($uninstallExit -ne 0) {
+        throw "Uninstaller failed with exit code $uninstallExit."
     }
     if ($null -ne $userRun.GetValue('SoundFork', $null)) {
         throw 'Uninstall left the removing account startup registration behind.'
@@ -236,7 +268,7 @@ try {
         $baseKey.DeleteSubKeyTree('SOFTWARE\ASIO\SoundFork', $false)
     }
     $baseKey.Dispose()
-    if (Test-Path -LiteralPath $fullTestDirectory) {
+    if ($testDirectoryMayHaveBeenCreated -and (Test-Path -LiteralPath $fullTestDirectory)) {
         Remove-Item -LiteralPath $fullTestDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

@@ -134,7 +134,7 @@ UI는 릴레이에 `--endpoint-id <opaque-id>`를 전달한다. 정확한 ID가 
 
 ### 자동 회귀와 정적 분석
 
-빌드 스크립트가 CTest를 실행한다. 현재 OBS 포함 시 16개, 제외 시 13개다. 프록시·COM·
+빌드 스크립트가 CTest를 실행한다. 현재 OBS 포함 시 17개, 제외 시 14개다. 프록시·COM·
 공유 링·허브·릴레이 클럭·장치 열거·제어판·플러그인 관리와 선택적 실제 libobs 통합을 다룬다.
 libobs 테스트는 DLL 로드, 소스 생성, 연속 스테레오 파형, 타임스탬프 간격, 예기치 않은
 무음·불연속, 생산자 일시 중단 후 복구와 릴레이 동시 수신을 검증한다. 생산자는 누적
@@ -177,6 +177,17 @@ UAC 승인·취소는 별도 수동 시험으로 남기고, 건너뛴 시험을 
 `installer_policy_tests.ps1`은 파일만 읽어 제조사 우선 선택·첫 드라이버 fallback 제거와
 설치·등록 스크립트의 필수 `BackendName`을 확인한다. `Test-ReleaseInstaller.ps1`은
 격리 CI에서 선택 없는 신규 무인 설치 거부·신규 자동 시작 꺼짐·기존 선택과 자동 시작 유지도 검사한다.
+설치 안내는 `SuppressibleMsgBox`를 사용해 무인 실행의 `/SUPPRESSMSGBOXES`를 준수한다.
+`release_process_tests.ps1`은 종료 코드 전달과 시간 초과 시 테스트 자식 프로세스까지 종료되는지
+확인한다. 설치·업데이트·제거는 단계별 120초, 제어판 자체 검사는 30초 제한이며 CI 단계도 12분으로
+제한한다. 실패하더라도 `SoundFork-<version>-installer-logs` 아티팩트에 로그를 30일 보관한다.
+관리자 권한이나 설치 변경 없이 실제 초기화 거부 경로를 검사하려면 다음 명령을 사용한다.
+원본 `InitializeSetup` 함수를 추출해 합성 드라이버 목록으로 컴파일하며, 설치는 수행하지 않는다.
+
+```powershell
+.\tests\installer_rejection_tests.ps1 -CompilerPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+```
+
 다른 DPI·복사 성공과 클립보드 점유 실패·실제 로그인 후 동작은 별도 수동 확인 항목이다.
 
 ```powershell
@@ -230,15 +241,15 @@ Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 �
 아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.6
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.6 -SkipInstaller
 ```
 
 인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
 인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.5 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.6 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

@@ -250,6 +250,15 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   and PowerShell parsing. Real wizard selection/sign-in/update/uninstall remain
   manual or CI checks; the installed copy, startup entry and running forwarding
   processes on this PC were not modified.
+- 2026-10-26 rc.6 installer automation fix: an ordinary `MsgBox` in rc.5's
+  unattended rejection path waited for user input on CI. Notices are now
+  suppressible, and test phases have deadlines and retained logs. A non-elevated
+  compiled probe of the production initialization rejected missing/invalid
+  selections and no-driver discovery in under one second each. The process-tree
+  timeout test also passed. Debug/Release CTest each passed 17/17, along with
+  CFG/NX/ASLR/static-runtime checks. Full install/upgrade/uninstall still needs
+  isolated CI verification. ASIO/OBS/relay processing code and the current PC's
+  installation/startup settings were not changed.
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.

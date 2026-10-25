@@ -25,4 +25,17 @@ if ($installer -notmatch 'DefaultBackendIndex := FindBackendByClsid\(ExistingBac
     $installer -notmatch 'BackendPage.SelectedValueIndex < 0') {
     throw 'Installer must preserve valid existing selection and guard missing selection.'
 }
+if ($installer -match '(?m)^\s*MsgBox\(') {
+    throw 'Installer must not use unsuppressible MsgBox calls that can block unattended tests.'
+}
+foreach ($message in @('NoBackend', 'InvalidSilentBackend', 'CloseObsBeforeUninstall', 'SelectBackend')) {
+    if (-not $installer.Contains("SuppressibleMsgBox(ExpandConstant('{cm:$message}'),")) {
+        throw "Installer must use a suppressible message for $message."
+    }
+}
+$smoke = Get-Content -LiteralPath (Join-Path $root 'scripts\Test-ReleaseInstaller.ps1') -Raw
+if ($smoke -match 'Start-Process' -or $smoke -notmatch 'Invoke-ReleaseTestProcess' -or
+    $smoke -notmatch 'rejectedLog' -or $smoke -notmatch 'uninstallLog') {
+    throw 'Installer smoke tests must use the bounded process helper and retain setup/uninstall logs.'
+}
 Write-Output 'Read-only installer selection policy checks passed; no installer or registry operations executed.'
