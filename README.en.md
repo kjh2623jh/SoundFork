@@ -14,42 +14,42 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.3/SoundFork-Setup-v1.0.0-rc.3.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.0.0-rc.4/SoundFork-Setup-v1.0.0-rc.4.exe) ·
 [View all releases](../../releases)
 
-The current version is the unsigned release candidate `v1.0.0-rc.3`, so Windows SmartScreen may
+The current version is the unsigned release candidate `v1.0.0-rc.4`, so Windows SmartScreen may
 show a warning.
 
 ## Requirements
 
 - Windows 10/11 x64
 - An x64 game or DAW with ASIO support
-- Your DAC or audio interface manufacturer's x64 ASIO driver, installed beforehand
+- A compatible x64 ASIO driver, installed beforehand; your DAC or audio interface manufacturer's driver is recommended.
 
 Broadcast capture currently supports **48 kHz, stereo, 32-bit integer ASIO output**.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 
 ## Installation and playback
 
-1. Run Setup and select the **hardware ASIO driver** SoundFork should use.
+1. Run Setup and select the **ASIO driver to use** with SoundFork.
 2. Select **SoundFork** as the ASIO driver in the game or DAW and set the sample rate to **48 kHz**.
 
 Open the control panel from **SoundFork Control** in the Start menu. For game
-playback alone, neither the control panel nor the relay needs to stay open.
+playback alone, neither the control panel nor audio forwarding needs to stay open.
 
 ## Discord entire-screen sharing
 
 Install a virtual audio device separately; [VB-CABLE](https://vb-audio.com/Cable/) is recommended.
 With VB-CABLE:
 
-1. Select `CABLE Input` as the **Broadcast render endpoint** in the control panel.
-2. Press **Start relay** and play audio in the game or DAW.
+1. Select `CABLE Input` as the **Broadcast audio device** in the control panel.
+2. Press **Start forwarding** and play audio in the game or DAW.
 3. Share the **entire monitor** in Discord. **Application-window sharing is not supported.**
 
 When using another virtual audio device, select its virtual playback device instead of `CABLE Input`.
 
-Closing the control panel while the relay is running hides it in the notification
-area (system tray), and broadcasting continues. To finish, choose **Stop relay and
+Closing the control panel while audio forwarding runs hides it in the notification
+area (system tray), and forwarding continues. To finish, choose **Stop forwarding and
 exit** from the tray menu.
 
 ## OBS streaming and recording
@@ -65,11 +65,11 @@ Requires OBS Studio **32.2.2 or later, x64**.
 
 Choose **SoundFork Audio**, not OBS-ASIO's **ASIO Input Capture**.
 
-For OBS alone, **no virtual audio device or relay is needed**.
+For OBS alone, **no virtual audio device or audio forwarding is needed**.
 
 ### Virtual audio device
 
-1. Select `CABLE Input` in the control panel and press **Start relay**.
+1. Select `CABLE Input` in the control panel and press **Start forwarding**.
 2. Add an **Audio Output Capture** source in OBS and select the same `CABLE Input`.
    Alternatively, select it under **Settings → Audio → Desktop Audio**.
 
@@ -79,17 +79,18 @@ For another virtual device, select the same virtual playback device in both Soun
 
 ## Updates, settings and removal
 
-Close games/DAWs and OBS and stop the relay before updating or uninstalling.
+Close games/DAWs and OBS and stop audio forwarding before updating or uninstalling.
 
 - **Updates:** Use **Help → Check for updates** in the control panel, then run the new Setup.
   If you use the OBS plugin, select its installation option to update it at the same time.
 - **Language:** Choose English or Korean under **Settings → Language** in the control panel.
-- **Relay startup:** Device selection is saved automatically. Enable **Settings → Start relay when signing in to Windows**
+- **Automatic startup:** Device selection is saved automatically. Enable **Settings → Start audio forwarding at Windows sign-in**
   to start with the saved virtual device at your next sign-in. This is off by default.
+- **Detailed status:** Open **Help → Diagnostics** to inspect and copy connection information and counters.
 - **OBS plugin management:** Install, update or remove it under **Settings → OBS plugin**.
   Close OBS first; these operations require administrator approval.
 - **Removal:** Uninstall SoundFork from **Windows Settings → Apps** or run
-  **Uninstall SoundFork** from the Start menu. Hardware ASIO drivers and virtual audio devices are kept.
+  **Uninstall SoundFork** from the Start menu. Your selected ASIO driver and virtual audio devices are kept.
 
 ## Project information
 

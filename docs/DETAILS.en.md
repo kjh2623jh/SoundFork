@@ -8,12 +8,16 @@ source changes, builds and test commands.
 
 ## Compatibility and scope
 
-SoundFork is not a DJMAX- or FiiO-specific hooking tool. It opens a hardware driver
+SoundFork is not a DJMAX- or FiiO-specific hooking tool. It opens the selected driver
 through the standard x64 ASIO COM interface and exposes SoundFork to the game or
 DAW. Playback channels, sample rates and buffer sizes are queried from that driver.
 The architecture can wrap other vendors' drivers, but compatibility with every
 driver has not been tested. Real-use verification has been with DJMAX RESPECT V
 and the FiiO K11 R2R.
+
+The loader does not require physical hardware, so virtual ASIO drivers are also
+architecturally possible. Compatibility still needs per-driver testing, and a
+virtual driver's own buffering latency is not removed.
 
 Broadcast capture has additional constraints:
 
@@ -25,7 +29,7 @@ Broadcast capture has additional constraints:
 - The dedicated OBS plugin targets OBS Studio 32.2.2 or later, x64.
 
 64 samples is the tested FiiO setting, not a forced setting for every driver.
-Install the manufacturer's driver first; SoundFork neither supplies nor modifies it.
+Install a compatible ASIO driver first; SoundFork neither supplies nor modifies the selected driver.
 
 ## Audio paths and running components
 
@@ -43,7 +47,7 @@ no playback queue, playback worker or one-buffer-period wait. Broadcast data is
 copied separately; a slow consumer loses capture blocks rather than delaying DAC output.
 
 - `soundfork_driver.dll`: ASIO proxy loaded inside the game process, not a separate EXE.
-- `soundfork_control.exe`: backend selection, status, relay and plugin management.
+- `soundfork_control.exe`: ASIO driver selection, status, audio forwarding and plugin management.
 - `soundfork_capture_hub.exe`: distributes copied audio independently to OBS and the relay.
 - `soundfork_discord_relay.exe`: renders broadcast audio to a virtual playback device.
 - `soundfork-obs.dll`: audio source plugin loaded inside OBS.
@@ -62,7 +66,7 @@ a saved preference, Korean Windows UI selects Korean; other languages fall back 
 
 Selecting a VB-CABLE or Voicemeeter virtual playback device immediately saves it
 for the current user. Stop the relay before changing devices; selection is locked
-while it runs. **Settings → Start relay when signing in to Windows** is off by
+while it runs. **Settings → Start audio forwarding at Windows sign-in** is off by
 default and requires explicit opt-in. Toggling it affects the next sign-in, not
 the currently running relay.
 
@@ -81,6 +85,16 @@ Task Manager if needed. Updates preserve registration. Uninstall removes only
 the removing account's entry for that exact installation. When uninstalling under
 a different administrator account, disable startup in the original account first;
 its registration may otherwise remain. Other user profiles are not modified.
+
+### Basic status and diagnostics
+
+The main window shows ASIO configuration, virtual-device forwarding state and
+actionable errors/waiting messages. Registry/file checks are not confirmation of
+DAC playback. A running process and copy connection do not prove nonzero PCM or
+remote reception. Unsupported copy formats may show a waiting connection while
+the game still plays. **Help → Diagnostics** shows and copies PIDs, DLL paths,
+format/block counters, startup registration and OBS plugin status. Closing that
+window does not stop playback or forwarding.
 
 ## Latency and broadcast stability
 
@@ -213,13 +227,26 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   The user's Run entry, installed copy and audio settings were not changed. Real
   sign-in/tray/late-device behavior and the full update/uninstall lifecycle still
   require manual or CI verification.
+- 2026-10-25 real use: the user reported roughly four hours of simultaneous OBS
+  recording and Discord sharing without perceived accumulating sync delay. The OBS
+  log shows a 4:27:54 recording, with 36 cumulative plugin underruns, 12 queue
+  resyncs, 387 discarded blocks and nine hub output drops. In inspected sections,
+  game video/audio reportedly stuttered together while microphone audio remained
+  continuous. This does not identify whether the game, system, capture or plugin
+  caused it, nor measure physical latency or verify sync at a Discord receiver.
+- 2026-10-26 rc.4 UI cleanup: Debug/Release CTest each passed 15/15, along with
+  `/analyze /WX` and CFG/NX/ASLR/static-runtime checks. The read-only preview was
+  used to inspect Korean/English main-window labels and diagnostics, without
+  changing the installed copy, devices, startup preferences or running forwarding.
+  Clipboard success/contention, other DPI settings and the new installer's real
+  update/uninstall/sign-in lifecycle still require manual or CI verification.
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.
 
 The following are not claimed complete:
 
-- Observing nonzero DJMAX song PCM in the monitor and a four-hour real-time simultaneous soak.
+- Observing nonzero DJMAX song PCM in the monitor and a four-hour simultaneous soak instrumenting callbacks, queues and memory.
 - Physical virtual-WASAPI driver removal/reconnection.
 - Simultaneous remote verification of a real microphone and Discord screen-share audio.
 - FiiO/Discord/dedicated OBS plugin recording sync and long-duration stability.

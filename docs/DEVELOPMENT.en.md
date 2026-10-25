@@ -150,7 +150,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 13 tests with OBS, ten without it. Coverage
+The build script runs CTest: currently 15 tests with OBS, 12 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -190,6 +190,15 @@ startup registration survives an update and is removed on uninstall. Do not run
 installation/registration tests on a working audio setup.
 
 ### Accelerated soak and hardware tests
+
+`control_status_tests` covers Korean/English summaries for missing configuration,
+late devices, input waiting, stopping and errors, without claiming successful
+delivery from process existence. `control_ui_tests --test` creates hidden real
+Win32 controls and verifies diagnostics creation, language refresh, close and
+recreation. Without arguments it opens a read-only UI preview. It does not use the
+installed GUI mutex or tray; preference writes, online actions and audio start/stop
+commands are blocked. Actual copying is excluded to preserve the user's clipboard.
+Other DPI settings, clipboard success/contention and real sign-in remain manual checks.
 
 ```powershell
 .\scripts\Test-SoundForkSoak.ps1 -Hours 4
@@ -245,15 +254,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.3
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.3 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.3 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0-rc.4 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
