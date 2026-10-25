@@ -183,6 +183,17 @@ task is unchecked. Portable OBS does not search ProgramData: manually place the
 DLL and hub EXE in `obs-plugins\64bit`, and plugin `data` contents in
 `data\obs-plugins\soundfork-obs`. Control manages the standard installation location.
 
+## Development-build diagnostic logs
+
+Development sources after the 1.0.0 snapshot provide **Help > Open log folder**.
+`%LOCALAPPDATA%\SoundFork\Logs` holds control/relay/hub lifecycle, errors,
+connection changes and metrics, with a 1 MiB current file and two backups each.
+No recorded audio or endpoint IDs are saved. Audio never waits for file writes;
+congestion, disk errors or forced exits can lose records, so missing logs do not
+prove an absence of faults. Existing installations are not updated automatically.
+See [development guidance](DEVELOPMENT.en.md#development-build-diagnostic-logs)
+for coverage, timing and tests, and the unimplemented format-expansion plan.
+
 ## Verification records and outstanding checks
 
 These are dated records, not guarantees for every driver, PC or future release.
@@ -280,6 +291,14 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   full install/upgrade/uninstall and real ClamAV checks must run separately in
   the v1.0.0 release workflow. Audio processing code and the installed copy's
   startup/settings were not changed.
+- 2026-10-26 diagnostic-log development build: added bounded asynchronous logs
+  and Korean/English log-folder menus. Debug/Release CTest each passed 18/18,
+  plus `/analyze /WX` and CFG/NX/ASLR/static-runtime checks. Coverage includes
+  rotation, restart, congestion, recovery after file contention and hardlink
+  rejection. Existing ASIO playback code, shared-memory protocol and OBS source
+  algorithm were unchanged, as were the installed copy, running audio processes
+  and startup settings. Real GUI folder opening, start/stop/reconnection log
+  correlation, physical latency and long-duration trials remain manual checks.
 
 The following are not claimed complete:
 

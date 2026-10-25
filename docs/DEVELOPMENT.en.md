@@ -150,7 +150,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 17 tests with OBS, 14 without it. Coverage
+The build script runs CTest: currently 18 tests with OBS, 15 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -245,6 +245,99 @@ a multi-hour simultaneous soak checking sound, A/V sync and metric deltas. Disti
 fixed sync error from increasing drift and record existing OBS offsets. Do not
 automatically replace installed DLLs or treat automated passing results as an audio
 quality guarantee before the user's recording checks.
+
+### Development-build diagnostic logs
+
+This feature was added after the 1.0.0 source snapshot; existing installations do
+not gain it automatically. Open **Help > Open log folder** or
+`%LOCALAPPDATA%\SoundFork\Logs`. Each of `control.log`, `relay.log`, `hub.log`
+retains a current file and `.1`/`.2` backups, capped at 1 MiB each (9 MiB total
+under normal self-generated logging). Rotation replaces older history. Logs
+remain as user diagnostic data after uninstallation. Records
+contain UTC (`Z`), PID, version and structured events, not PCM, microphone audio,
+endpoint names/IDs or shared-window titles. Paths can contain the Windows user
+name; review before sharing. OBS source statistics remain in OBS's existing log.
+
+Control logs launch origin, forwarding requests/spawns/stop signals, observed
+state changes and startup-preference errors. A spawn or signal is not proof of
+audible playback or completed shutdown. Relay logs connection/wait/restart,
+HRESULTs, exit codes and 30-second/session-end metrics. `relay_audio_gap` reports
+observed underflow/resync at most once per second. Initial `prebuffer_frames`
+are separate from real `underflow_frames`. Hub logs source changes and ASIO/hub
+drops every 30 seconds. Stream-local counters can reset on reconnection; session
+restarts do not necessarily mean a physical endpoint disconnect.
+
+`soundfork_diagnostics` is not linked into the ASIO driver/bridge. Only UI/capture
+workers enqueue into a fixed 128-record queue using `try_lock`; a separate writer
+performs file IO and rotation. Contention/full queues drop logs, reported by
+`logger_dropped`. IO errors back off and never propagate into audio failures.
+Drain/join happens only at process shutdown, never in ASIO callbacks. Crashes,
+forced exits and disk failures can lose the tail; missing logs do not prove an
+absence of faults. Diagnostics' logger counters describe the control writer.
+
+`diagnostics_tests` uses private temporary directories to test contents, newline
+sanitization, rotation, restart, concurrent producer congestion, invalid paths and
+recovery after file contention. Hardlinked log files are also tested for rejection
+without modifying their target. Opening the real GUI folder and correlating
+start/stop/device reconnection in a new build remain manual checks.
+
+## v1.1.0 capture-format expansion plan — not implemented
+
+### Scope and invariant
+
+Keep 48 kHz, stereo output channels 0/1. Support `ASIOSTInt16LSB`,
+`ASIOSTInt24LSB`, existing `ASIOSTInt32LSB`, and `ASIOSTFloat32LSB`.
+Float64, MSB, Int32LSB16/18/20/24, DSD, multichannel and 44.1/96 kHz are excluded.
+Unsupported formats still pass through to ASIO; disable only duplication and
+explain why in diagnostics. Do not claim all-driver compatibility.
+
+### Raw transport and consumer conversion
+
+1. Validate both channel formats and frame count during `createBuffers`; cache
+   sample widths, lengths and offsets. Reject mismatched capture-channel types.
+   Preserve actual backend buffer pointers, callback/`outputReady` order and the
+   existing publish point. The callback makes two raw channel copies into
+   `[all left samples][all right samples]` planar storage, with no conversion,
+   resampling, new waiting queue or logging.
+2. Shared-memory v3 explicitly describes a private wire format
+   (S16LE/S24LE/S32LE/F32LE), planar layout, sample width, channel count, rate,
+   frames and payload bytes. Derive the right offset from frames times width;
+   validate enum/width/size consistency, overflow and bounds, then cache them.
+   Retain 64 slots, at most 8192 frames, two channels and four bytes per sample:
+   the existing 64 KiB maximum slot size and prefaulting remain. Capacity is not
+   the actual amount of buffered audio. Format is immutable per generation;
+   disable duplication on an in-flight change and reopen only on safe buffer
+   recreation, without altering DAC/game settings.
+3. The hub forwards raw payloads, removing deinterleave/reinterleave work.
+   Relay converts blocks on its worker: S16 times 65536, signed S24 times 256,
+   unchanged S32, and finite/saturated F32 to Int32. Avoid signed negative left
+   shifts. F32 conversion clamps to [-1,1], rounds nearest with ties away from
+   zero, saturates to Int32 bounds, and maps NaN/Inf to zero. Existing WASAPI and
+   drift control remain.
+4. OBS keeps its integer source/interpolation/output path for integer input.
+   F32 uses a float source/interpolation path and OBS float output, avoiding an
+   Int32 round trip. Preserve finite float values and zero NaN/Inf. Do not change
+   timestamp, jitter-buffer, high-water resync, drift or target-frame policies
+   together with format expansion.
+
+### Migration, commits and acceptance
+
+1. Add decoder tests first: full-scale limits, zero, stereo isolation, signed
+   packed Int24, unaligned input, float boundaries/NaN/Inf and saturation.
+2. Add the v3 ring/raw publisher and fake-ASIO tests for all four formats. Actual
+   backend buffers must remain byte-identical; stalled consumers cannot block
+   playback. Then migrate hub/relay, followed by OBS, in separate tested commits.
+3. Use `SoundFork.Audio.v3` input and `SoundFork.CaptureHub.v2` namespace. No dual
+   v2 publishing or unsafe fallback. Upgrade driver/hub/relay/OBS as one build,
+   flag outdated installed plugin versions, and refuse incompatible reads with
+   diagnostic guidance rather than interpreting old memory as the new format.
+4. Run builds/regressions/static analysis at each step. Test corrupted metadata,
+   bad lengths, stops/reconnection and integer/float OBS waveform/timestamp and
+   jitter/drift recovery. Compare fake-ASIO callback timing distributions/drops
+   with the baseline and resolve regressions before release. Prioritize FiiO's
+   existing Int32 path. Physical FiiO 48k/64, multi-hour Discord/OBS and alternate
+   driver/format tests remain separate manual gates. No extra theoretical buffer
+   period is not a measurement of physical latency.
 
 ## Development registration and installation
 
