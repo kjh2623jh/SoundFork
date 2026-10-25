@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0-rc.3"
+  #define MyAppVersion "1.0.0-rc.4"
 #endif
 #ifndef MySourceDir
   #define MySourceDir "..\out"
@@ -37,20 +37,20 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [CustomMessages]
-english.BackendTitle=Hardware ASIO backend
+english.BackendTitle=ASIO driver to use
 english.StartupRemoveFailed=Could not remove this account's SoundFork startup entry. Close SoundFork and retry.
 korean.StartupRemoveFailed=현재 계정의 SoundFork 자동 실행 항목을 제거하지 못했습니다. SoundFork를 종료하고 다시 시도하세요.
-english.BackendDescription=Select the hardware ASIO driver SoundFork will wrap.
+english.BackendDescription=Select the ASIO driver SoundFork will use.
 english.BackendSubCaption=SoundFork never modifies or removes this driver. FiiO ASIO Driver is preferred when available.
-english.NoBackend=No compatible x64 ASIO driver is registered. Install your DAC or audio interface ASIO driver first.
+english.NoBackend=No compatible x64 ASIO driver is registered. Install a compatible ASIO driver first, such as your DAC or audio interface manufacturer's driver.
 english.InvalidSilentBackend=Silent setup requires /BACKENDCLSID={{GUID} identifying a registered x64 ASIO driver.
 english.RegistrationFailed=SoundFork driver registration failed. Setup rolled back the partial registration.
 english.GetVbCable=Open the official VB-CABLE download page (recommended for Discord)
 english.LaunchControl=Launch SoundFork Control
-korean.BackendTitle=하드웨어 ASIO 백엔드
-korean.BackendDescription=SoundFork가 감쌀 하드웨어 ASIO 드라이버를 선택하세요.
+korean.BackendTitle=사용할 ASIO 드라이버
+korean.BackendDescription=SoundFork가 사용할 ASIO 드라이버를 선택하세요.
 korean.BackendSubCaption=SoundFork는 선택한 드라이버를 수정하거나 제거하지 않습니다. FiiO ASIO Driver가 있으면 우선 선택됩니다.
-korean.NoBackend=호환되는 x64 ASIO 드라이버가 등록되어 있지 않습니다. DAC 또는 오디오 인터페이스의 ASIO 드라이버를 먼저 설치하세요.
+korean.NoBackend=호환되는 x64 ASIO 드라이버가 등록되어 있지 않습니다. DAC·오디오 인터페이스 제조사 드라이버 등 호환 ASIO 드라이버를 먼저 설치하세요.
 korean.InvalidSilentBackend=자동 설치에는 등록된 x64 ASIO 드라이버의 /BACKENDCLSID={{GUID}가 필요합니다.
 korean.RegistrationFailed=SoundFork 드라이버 등록에 실패했습니다. 부분 등록은 롤백했습니다.
 korean.GetVbCable=VB-CABLE 공식 다운로드 페이지 열기 (Discord 권장)

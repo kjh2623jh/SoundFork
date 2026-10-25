@@ -29,6 +29,7 @@
 #include "control-app/obs_plugin_strings.hpp"
 #include "control-app/update_checker.hpp"
 #include "control-app/relay_settings.hpp"
+#include "control-app/control_status.hpp"
 #include "soundfork_version.hpp"
 
 namespace {
@@ -41,6 +42,7 @@ using soundfork::control::UpdateStatus;
 using soundfork::control::check_for_updates;
 
 constexpr wchar_t kWindowClass[] = L"SoundForkControlWindow";
+constexpr wchar_t kDiagnosticClass[] = L"SoundForkDiagnosticWindow";
 constexpr wchar_t kSoundForkClsid[] =
     L"{A04A0128-E43C-4D08-B701-87EC1A847A89}";
 constexpr UINT_PTR kRefreshTimer = 1;
@@ -64,6 +66,9 @@ constexpr int kStartupRelay = 2003;
 constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
 constexpr int kShowAbout = 2103;
+constexpr int kShowDiagnostics = 2104;
+constexpr int kCopyDiagnostics = 2401;
+constexpr int kCloseDiagnostics = 2402;
 constexpr int kTrayOpen = 2201;
 constexpr int kTrayToggleRelay = 2202;
 constexpr int kTrayExitControl = 2203;
@@ -192,18 +197,18 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"Windows x64\nGPL-3.0-only\n\nLow-latency ASIO loopback bridge",
       L"Open SoundFork Control",
       L"Exit SoundFork Control",
-      L"Stop relay and exit",
+      L"Stop forwarding and exit",
       L"SoundFork is still running",
-      L"The broadcast relay is still running in the notification area.",
-      L"Hardware ASIO backend",
+      L"Audio forwarding is still running in the notification area.",
+      L"ASIO driver to use",
       L"Apply",
-      L"Broadcast render endpoint (choose a virtual endpoint)",
-      L"Start relay",
-      L"Stop relay",
+      L"Broadcast audio device (virtual device)",
+      L"Start forwarding",
+      L"Stop forwarding",
       L"Refresh devices",
       L"Get VB-CABLE",
       L"VB-CABLE detected",
-      L"The control app is optional for ASIO playback. Closing it does not stop an active relay.",
+      L"Discord: entire-screen sharing only. OBS plugin capture needs no forwarding.",
       L"Recommended",
       L"Supported",
       L"Ready",
@@ -211,9 +216,9 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"Not configured",
       L"Not registered",
       L"ASIO driver",
-      L"Backend",
+      L"Selected ASIO driver",
       L"Driver DLL",
-      L"ASIO stream",
+      L"Audio copy connection",
       L"Active",
       L"Inactive",
       L"Format",
@@ -225,25 +230,25 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"None",
       L"Broadcast",
       L"Not ready - install VB-CABLE or select VoiceMeeter",
-      L"Discord relay",
+      L"Forwarding to virtual device",
       L"Running",
       L"Stopped",
       L"Discord mode: Entire-screen share only",
-      L"Application-window share excludes the separate relay process.",
+      L"Application-window share excludes the separate forwarding process.",
       L"soundfork_discord_relay.exe was not found next to the control app.",
-      L"Could not start the Discord relay (Windows error ",
-      L"The relay stop channel was not found.",
-      L"Could not signal the relay to stop.",
-      L"Select an ASIO backend first.",
-      L"Backend updated. Restart the ASIO host if it is already open.",
-      L"Backend update was cancelled or failed.",
+      L"Could not start audio forwarding (Windows error ",
+      L"The audio forwarding stop channel was not found.",
+      L"Could not signal audio forwarding to stop.",
+      L"Select an ASIO driver first.",
+      L"ASIO driver updated. Restart the game or DAW if it is already open.",
+      L"ASIO driver change was cancelled or failed.",
       L"Another capture consumer is active. Stop soundfork_capture_monitor or the other consumer first.",
-      L"Select a virtual render endpoint first.",
+      L"Select a virtual broadcast audio device first.",
       L"Could not open the official VB-CABLE download page.",
       L"COM initialization failed.",
       L"The selected ASIO driver is no longer registered.",
       L"SoundFork is not registered or administrator access was denied.",
-      L"Could not update the SoundFork backend."};
+      L"Could not change the ASIO driver SoundFork uses."};
   static constexpr UiStrings korean{
       L"SoundFork 제어판",
       L"설정",
@@ -261,18 +266,18 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"Windows x64\nGPL-3.0-only\n\n저지연 ASIO 루프백 브리지",
       L"SoundFork 제어판 열기",
       L"SoundFork 제어판 종료",
-      L"릴레이 중지 후 종료",
+      L"전달 중지 후 종료",
       L"SoundFork가 계속 실행 중입니다",
-      L"방송 릴레이가 알림 영역에서 계속 실행 중입니다.",
-      L"하드웨어 ASIO 백엔드",
+      L"오디오 전달이 알림 영역에서 계속 실행 중입니다.",
+      L"사용할 ASIO 드라이버",
       L"적용",
-      L"방송 출력 엔드포인트 (가상 장치 선택)",
-      L"릴레이 시작",
-      L"릴레이 중지",
+      L"방송용 오디오 장치 (가상 장치 선택)",
+      L"전달 시작",
+      L"전달 중지",
       L"장치 새로 고침",
       L"VB-CABLE 받기",
       L"VB-CABLE 감지됨",
-      L"제어판을 닫아도 ASIO 재생과 실행 중인 릴레이는 계속 동작합니다.",
+      L"Discord는 전체 화면 공유만 지원합니다. OBS 플러그인은 전달을 켜지 않아도 됩니다.",
       L"권장",
       L"지원됨",
       L"준비됨",
@@ -280,9 +285,9 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"설정되지 않음",
       L"등록되지 않음",
       L"ASIO 드라이버",
-      L"백엔드",
+      L"선택한 ASIO 드라이버",
       L"드라이버 DLL",
-      L"ASIO 스트림",
+      L"오디오 복제 연결",
       L"활성",
       L"비활성",
       L"포맷",
@@ -294,25 +299,25 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"없음",
       L"방송",
       L"준비되지 않음 - VB-CABLE을 설치하거나 VoiceMeeter를 선택하세요",
-      L"Discord 릴레이",
+      L"가상 장치로 오디오 전달",
       L"실행 중",
       L"중지됨",
       L"Discord 모드: 전체 화면 공유 전용",
-      L"애플리케이션 창 공유에는 별도 릴레이 프로세스의 오디오가 포함되지 않습니다.",
+      L"애플리케이션 창 공유에는 별도 오디오 전달 프로세스의 소리가 포함되지 않습니다.",
       L"제어판과 같은 폴더에서 soundfork_discord_relay.exe를 찾을 수 없습니다.",
-      L"Discord 릴레이를 시작할 수 없습니다 (Windows 오류 ",
-      L"릴레이 종료 채널을 찾을 수 없습니다.",
-      L"릴레이에 종료 신호를 보낼 수 없습니다.",
-      L"먼저 ASIO 백엔드를 선택하세요.",
-      L"백엔드를 변경했습니다. ASIO 호스트가 열려 있다면 다시 시작하세요.",
-      L"백엔드 변경이 취소됐거나 실패했습니다.",
+      L"오디오 전달을 시작할 수 없습니다 (Windows 오류 ",
+      L"오디오 전달 종료 채널을 찾을 수 없습니다.",
+      L"오디오 전달에 종료 신호를 보낼 수 없습니다.",
+      L"먼저 ASIO 드라이버를 선택하세요.",
+      L"ASIO 드라이버를 변경했습니다. 게임이나 DAW가 열려 있다면 다시 시작하세요.",
+      L"ASIO 드라이버 변경이 취소됐거나 실패했습니다.",
       L"다른 캡처 소비자가 실행 중입니다. soundfork_capture_monitor 또는 다른 소비자를 먼저 종료하세요.",
-      L"먼저 가상 출력 엔드포인트를 선택하세요.",
+      L"먼저 방송용 가상 오디오 장치를 선택하세요.",
       L"VB-CABLE 공식 다운로드 페이지를 열 수 없습니다.",
       L"COM 초기화에 실패했습니다.",
       L"선택한 ASIO 드라이버가 더 이상 등록되어 있지 않습니다.",
       L"SoundFork가 등록되어 있지 않거나 관리자 권한이 거부됐습니다.",
-      L"SoundFork 백엔드를 변경할 수 없습니다."};
+      L"SoundFork가 사용할 ASIO 드라이버를 변경할 수 없습니다."};
   return language == UiLanguage::korean ? korean : english;
 }
 
@@ -337,6 +342,11 @@ struct AppState {
   HWND relay_button = nullptr;
   HWND vb_cable_button = nullptr;
   HWND status = nullptr;
+  HWND diagnostic_window = nullptr;
+  HWND diagnostic_text = nullptr;
+  HWND diagnostic_copy = nullptr;
+  HWND diagnostic_close = nullptr;
+  std::wstring diagnostic_snapshot;
   HWND backend_label = nullptr;
   HWND apply_button = nullptr;
   HWND endpoint_label = nullptr;
@@ -378,13 +388,13 @@ struct StartupStrings {
 };
 const StartupStrings& startup_strings(UiLanguage language) {
   static constexpr StartupStrings en{
-    L"Start relay when signing in to Windows", L"Could not save the relay setting. Windows error: ",
-    L"Automatic relay startup failed. ", L"Saved virtual device is unavailable; no other device was selected.",
+    L"Start audio forwarding at Windows sign-in", L"Could not save the audio forwarding setting. Windows error: ",
+    L"Automatic audio forwarding failed. ", L"Saved virtual device is unavailable; no other device was selected.",
     L"Waiting for the saved virtual device or ASIO audio", L"Windows sign-in startup: On",
     L"Windows sign-in startup: Off"};
   static constexpr StartupStrings ko{
-    L"Windows 로그인 시 릴레이 자동 시작", L"릴레이 설정을 저장하지 못했습니다. Windows 오류: ",
-    L"릴레이 자동 시작에 실패했습니다. ", L"저장한 가상 장치를 찾을 수 없습니다. 다른 장치로 전환하지 않습니다.",
+    L"Windows 로그인 시 오디오 전달 시작", L"오디오 전달 설정을 저장하지 못했습니다. Windows 오류: ",
+    L"자동 오디오 전달에 실패했습니다. ", L"저장한 가상 장치를 찾을 수 없습니다. 다른 장치로 전환하지 않습니다.",
     L"저장한 가상 장치 또는 ASIO 오디오 대기 중", L"Windows 로그인 자동 시작: 켜짐",
     L"Windows 로그인 자동 시작: 꺼짐"};
   return language == UiLanguage::korean ? ko : en;
@@ -1394,12 +1404,138 @@ void update_status(AppState* state) {
     text << startup.waiting << L"\r\n";
   text << strings.discord_mode << L"\r\n";
   text << strings.application_share_note;
-  SetWindowTextW(state->status, text.str().c_str());
+  state->diagnostic_snapshot = L"SoundFork v" SOUNDFORK_VERSION_WIDE L"\r\n\r\n" + text.str();
+  if (state->diagnostic_text != nullptr) {
+    // Keep reading/selection position while the existing UI timer refreshes data.
+    DWORD selection_start = 0, selection_end = 0;
+    SendMessageW(state->diagnostic_text, EM_GETSEL,
+        reinterpret_cast<WPARAM>(&selection_start), reinterpret_cast<LPARAM>(&selection_end));
+    const auto first_line = SendMessageW(state->diagnostic_text, EM_GETFIRSTVISIBLELINE, 0, 0);
+    SetWindowTextW(state->diagnostic_text, state->diagnostic_snapshot.c_str());
+    SendMessageW(state->diagnostic_text, EM_SETSEL, selection_start, selection_end);
+    const auto new_first_line = SendMessageW(state->diagnostic_text, EM_GETFIRSTVISIBLELINE, 0, 0);
+    SendMessageW(state->diagnostic_text, EM_LINESCROLL, 0, first_line - new_first_line);
+  }
+  const soundfork::control::ControlStatus summary{
+      ready, relay_running,
+      broadcast_endpoint != nullptr && is_broadcast_endpoint(*broadcast_endpoint),
+      stream.producer_active, state->startup_error};
+  SetWindowTextW(state->status, soundfork::control::control_status_text(
+      summary, state->language == UiLanguage::korean).c_str());
   SetWindowTextW(
       state->relay_button,
       relay_running ? strings.stop_relay : strings.start_relay);
   EnableWindow(state->endpoint_combo, relay_running ? FALSE : TRUE);
   update_tray_icon(state);
+}
+
+bool copy_diagnostics(AppState* state) {
+  const auto& text = state->diagnostic_snapshot;
+  const auto bytes = (text.size() + 1) * sizeof(wchar_t);
+  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+  if (memory == nullptr) return false;
+  auto* destination = static_cast<wchar_t*>(GlobalLock(memory));
+  if (destination == nullptr) { GlobalFree(memory); return false; }
+  std::copy_n(text.c_str(), text.size() + 1, destination);
+  GlobalUnlock(memory);
+  bool copied = false;
+  if (OpenClipboard(state->diagnostic_window)) {
+    if (EmptyClipboard()) copied = SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+    CloseClipboard();
+  }
+  if (!copied) GlobalFree(memory);  // Windows owns it only after successful SetClipboardData.
+  return copied;
+}
+
+LRESULT CALLBACK diagnostic_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+  auto* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+  if (message == WM_NCCREATE) {
+    state = static_cast<AppState*>(reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
+    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+  }
+  if (state == nullptr) return DefWindowProcW(window, message, wparam, lparam);
+  const auto& text = soundfork::control::diagnostic_strings(state->language == UiLanguage::korean);
+  switch (message) {
+    case WM_CREATE:
+      state->diagnostic_window = window;
+      state->diagnostic_text = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", nullptr,
+          WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
+          12, 12, 600, 300, window, nullptr, nullptr, nullptr);
+      state->diagnostic_copy = CreateWindowExW(0, L"BUTTON", text.copy,
+          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+          12, 320, 110, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCopyDiagnostics)), nullptr, nullptr);
+      state->diagnostic_close = CreateWindowExW(0, L"BUTTON", text.close,
+          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+          510, 320, 110, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCloseDiagnostics)), nullptr, nullptr);
+      if (!state->diagnostic_text || !state->diagnostic_copy || !state->diagnostic_close) return -1;
+      for (HWND item : {state->diagnostic_text, state->diagnostic_copy, state->diagnostic_close})
+        set_control_font(item, state->font);
+      update_status(state);
+      return 0;
+    case WM_GETMINMAXINFO: {
+      auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
+      size->ptMinTrackSize = {540, 320};
+      return 0;
+    }
+    case WM_SIZE: {
+      const int width = LOWORD(lparam), height = HIWORD(lparam);
+      if (state->diagnostic_text) {
+        MoveWindow(state->diagnostic_text, 12, 12, (std::max)(100, width - 24), (std::max)(80, height - 66), TRUE);
+        MoveWindow(state->diagnostic_copy, 12, (std::max)(100, height - 42), 110, 30, TRUE);
+        MoveWindow(state->diagnostic_close, (std::max)(140, width - 122), (std::max)(100, height - 42), 110, 30, TRUE);
+      }
+      return 0;
+    }
+    case WM_COMMAND:
+      if (LOWORD(wparam) == kCopyDiagnostics && HIWORD(wparam) == BN_CLICKED) {
+        if (!copy_diagnostics(state)) MessageBoxW(window, text.copy_failed, L"SoundFork", MB_ICONERROR);
+        return 0;
+      }
+      if (LOWORD(wparam) == kCloseDiagnostics || LOWORD(wparam) == IDCANCEL) {
+        DestroyWindow(window);
+        return 0;
+      }
+      break;
+    case WM_CLOSE: DestroyWindow(window); return 0;
+    case WM_DESTROY:
+      state->diagnostic_window = nullptr;
+      state->diagnostic_text = nullptr;
+      state->diagnostic_copy = nullptr;
+      state->diagnostic_close = nullptr;
+      return 0;
+    default: break;
+  }
+  return DefWindowProcW(window, message, wparam, lparam);
+}
+
+void show_diagnostics(AppState* state) {
+  if (state->diagnostic_window != nullptr) {
+    ShowWindow(state->diagnostic_window, SW_RESTORE);
+    SetForegroundWindow(state->diagnostic_window);
+    return;
+  }
+  const auto& text = soundfork::control::diagnostic_strings(state->language == UiLanguage::korean);
+  const auto title = std::wstring(L"SoundFork — ") + text.title;
+  HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, kDiagnosticClass, title.c_str(),
+      WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 740, 480,
+      state->window, nullptr, GetModuleHandleW(nullptr), state);
+  if (window == nullptr) { MessageBoxW(state->window, text.open_failed, L"SoundFork", MB_ICONERROR); return; }
+  ShowWindow(window, SW_SHOWNORMAL);
+  SetFocus(state->diagnostic_text);
+}
+
+void layout_controls(AppState* state, int width) {
+  constexpr int margin = 18, button_width = 160;
+  const int content = (std::max)(400, width - 2 * margin);
+  const int combo_width = content - button_width - 12;
+  MoveWindow(state->backend_label, margin, 14, content, 22, TRUE);
+  MoveWindow(state->backend_combo, margin, 37, combo_width, 220, TRUE);
+  MoveWindow(state->apply_button, margin + combo_width + 12, 36, button_width, 28, TRUE);
+  MoveWindow(state->endpoint_label, margin, 75, content, 22, TRUE);
+  MoveWindow(state->endpoint_combo, margin, 98, combo_width, 240, TRUE);
+  MoveWindow(state->relay_button, margin + combo_width + 12, 97, button_width, 28, TRUE);
+  MoveWindow(state->status, margin, 187, content, 90, TRUE);
+  MoveWindow(state->note, margin, 283, content, 44, TRUE);
 }
 
 void create_controls(AppState* state) {
@@ -1537,11 +1673,10 @@ void create_controls(AppState* state) {
       nullptr,
       nullptr);
   state->status = CreateWindowExW(
-      WS_EX_CLIENTEDGE,
-      L"EDIT",
+      0,
+      L"STATIC",
       nullptr,
-      WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_READONLY |
-          ES_AUTOVSCROLL | WS_VSCROLL,
+      WS_CHILD | WS_VISIBLE | SS_LEFT,
       18,
       189,
       652,
@@ -1562,6 +1697,9 @@ void create_controls(AppState* state) {
                        state->status}) {
     set_control_font(control, state->font);
   }
+  RECT client{};
+  GetClientRect(state->window, &client);
+  layout_controls(state, client.right);
 }
 
 void rebuild_menu(AppState* state) {
@@ -1627,6 +1765,8 @@ void rebuild_menu(AppState* state) {
       kCheckForUpdates,
       ui_strings(state->language).check_for_updates);
   AppendMenuW(help, MF_STRING, kOpenProject, ui_strings(state->language).open_project);
+  AppendMenuW(help, MF_STRING, kShowDiagnostics,
+      soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).title);
   AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(help, MF_STRING, kShowAbout, ui_strings(state->language).about);
   AppendMenuW(
@@ -1661,6 +1801,13 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   SetWindowTextW(state->endpoint_label, strings.endpoint_label);
   SetWindowTextW(state->refresh_button, strings.refresh_devices);
   SetWindowTextW(state->note, strings.note);
+  if (state->diagnostic_window != nullptr) {
+    const auto& diagnostic = soundfork::control::diagnostic_strings(language == UiLanguage::korean);
+    const auto title = std::wstring(L"SoundFork — ") + diagnostic.title;
+    SetWindowTextW(state->diagnostic_window, title.c_str());
+    SetWindowTextW(state->diagnostic_copy, diagnostic.copy);
+    SetWindowTextW(state->diagnostic_close, diagnostic.close);
+  }
   rebuild_menu(state);
   populate_endpoint_combo(state);
   if (!selected_endpoint_id.empty()) {
@@ -1724,18 +1871,13 @@ LRESULT CALLBACK window_proc(
           MF_BYCOMMAND | (soundfork::control::RelaySettings{}.startup_enabled(executable_path())
                               ? MF_CHECKED : MF_UNCHECKED));
       return 0;
+    case WM_GETMINMAXINFO: {
+      auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
+      size->ptMinTrackSize = {720, 400};
+      return 0;
+    }
     case WM_SIZE: {
-      const int width = LOWORD(lparam);
-      const int height = HIWORD(lparam);
-      if (state->status != nullptr) {
-        MoveWindow(
-            state->status,
-            18,
-            189,
-            std::max(200, width - 36),
-            std::max(120, height - 207),
-            TRUE);
-      }
+      if (state->status != nullptr && wparam != SIZE_MINIMIZED) layout_controls(state, LOWORD(lparam));
       return 0;
     }
     case WM_TIMER:
@@ -1768,6 +1910,7 @@ LRESULT CALLBACK window_proc(
       return 0;
     }
     case WM_CLOSE:
+      if (state->diagnostic_window != nullptr) DestroyWindow(state->diagnostic_window);
       if (!state->force_exit && relay_is_running()) {
         if (state->tray_icon_added || add_tray_icon(state)) {
           ShowWindow(window, SW_HIDE);
@@ -1857,6 +2000,7 @@ LRESULT CALLBACK window_proc(
     }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
+      if (control == kShowDiagnostics) { show_diagnostics(state); return 0; }
       if (control == kEndpointCombo && HIWORD(wparam) == CBN_SELCHANGE) {
         const auto selected = SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
         if (selected >= 0 && static_cast<std::size_t>(selected) < state->endpoints.size() &&
@@ -2081,6 +2225,7 @@ LRESULT CALLBACK window_proc(
       break;
     }
     case WM_DESTROY:
+      if (state->diagnostic_window != nullptr) DestroyWindow(state->diagnostic_window);
       state->shutting_down.store(true, std::memory_order_release);
       KillTimer(window, kRefreshTimer);
       remove_tray_icon(state);
@@ -2144,6 +2289,10 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
   if (RegisterClassExW(&window_class) == 0) {
     return 2;
   }
+  auto diagnostic_class = window_class;
+  diagnostic_class.lpfnWndProc = &diagnostic_proc;
+  diagnostic_class.lpszClassName = kDiagnosticClass;
+  if (RegisterClassExW(&diagnostic_class) == 0) return 2;
   HWND window = CreateWindowExW(
       0,
       kWindowClass,
@@ -2151,8 +2300,8 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
       WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT,
       CW_USEDEFAULT,
-      710,
-      510,
+      760,
+      420,
       nullptr,
       nullptr,
       instance,
@@ -2165,6 +2314,7 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
   if (startup_launch) PostMessageW(window, kStartSavedRelayMessage, 0, 0);
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+    if (state.diagnostic_window != nullptr && IsDialogMessageW(state.diagnostic_window, &message)) continue;
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }

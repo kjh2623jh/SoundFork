@@ -243,6 +243,23 @@ if(SOUNDFORK_BUILD_OBS_PLUGIN)
 endif()
 
 if(BUILD_TESTING)
+  add_executable(soundfork_control_ui_tests
+    tests/control_ui_tests.cpp
+    src/control-app/update_checker.cpp
+    src/control-app/soundfork_control.rc
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"
+    src/capture-backend/shared_ring.cpp
+  )
+  target_include_directories(soundfork_control_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  target_link_libraries(soundfork_control_ui_tests PRIVATE soundfork_obs_manager soundfork_relay_settings
+    soundfork_warnings ole32 uuid advapi32 shell32 winhttp)
+  add_test(NAME soundfork_control_ui_tests COMMAND soundfork_control_ui_tests --test)
+  set_tests_properties(soundfork_control_ui_tests PROPERTIES TIMEOUT 20)
+  add_executable(soundfork_control_status_tests tests/control_status_tests.cpp)
+  target_include_directories(soundfork_control_status_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(soundfork_control_status_tests PRIVATE soundfork_warnings)
+  add_test(NAME soundfork_control_status_tests COMMAND soundfork_control_status_tests)
   add_executable(soundfork_relay_settings_tests tests/relay_settings_tests.cpp)
   target_link_libraries(soundfork_relay_settings_tests PRIVATE soundfork_relay_settings ole32)
   add_dependencies(soundfork_relay_settings_tests soundfork_control)

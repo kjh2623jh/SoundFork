@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $existing = @(Get-Process -Name 'soundfork_discord_relay' -ErrorAction SilentlyContinue)
 if ($existing.Count) {
-    throw "SoundFork relay is already running (PID $($existing.Id -join ', '))."
+    throw "SoundFork audio forwarding is already running (PID $($existing.Id -join ', '))."
 }
 if (Get-Process -Name 'soundfork_capture_monitor' -ErrorAction SilentlyContinue) {
     throw 'Stop soundfork_capture_monitor first. The shared ring supports one consumer.'
@@ -47,5 +47,5 @@ if ([string]::IsNullOrWhiteSpace($selectedEndpoint)) {
 $quotedEndpoint = '"' + $selectedEndpoint.Replace('"', '\"') + '"'
 $arguments = @('--endpoint', $quotedEndpoint, '--system-share', '--persistent')
 $process = Start-Process -FilePath $relayExe -ArgumentList $arguments -PassThru -WindowStyle Hidden
-Write-Host "SoundFork Discord relay started on '$selectedEndpoint' (PID $($process.Id))."
+Write-Host "SoundFork audio forwarding started on '$selectedEndpoint' (PID $($process.Id))."
 Write-Host 'Use Discord entire-screen sharing. Application-window audio is not supported by the validated path.'

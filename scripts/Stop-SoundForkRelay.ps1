@@ -3,7 +3,7 @@ param()
 
 $relay = @(Get-Process -Name 'soundfork_discord_relay' -ErrorAction SilentlyContinue)
 if (-not $relay.Count) {
-    Write-Host 'SoundFork Discord relay is already stopped.'
+    Write-Host 'SoundFork audio forwarding is already stopped.'
     return
 }
 
@@ -22,6 +22,6 @@ if ($relayExe) {
 }
 $relay | Wait-Process -Timeout 5 -ErrorAction SilentlyContinue
 if (@(Get-Process -Name 'soundfork_discord_relay' -ErrorAction SilentlyContinue).Count) {
-    throw 'The SoundFork Discord relay did not stop within five seconds.'
+    throw 'SoundFork audio forwarding did not stop within five seconds.'
 }
-Write-Host "SoundFork Discord relay stopped (PID $($relay.Id -join ', '))."
+Write-Host "SoundFork audio forwarding stopped (PID $($relay.Id -join ', '))."
