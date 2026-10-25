@@ -262,6 +262,24 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
 - Hub and real-libobs automation covers stereo PCM, increasing timestamps, slow
   consumer isolation, game/hub restart and simultaneous relay reception. It does
   not establish a real OBS UI recording result.
+- 2026-10-26 v1.0.0 preparation: the user confirmed forwarding after Windows
+  sign-in and repeated forwarding stop/start operations. Read-only inspection
+  found one control, relay and hub process each, preserved endpoint/startup
+  settings, and no matching SoundFork crash/hang events in the preceding two
+  hours of the Windows Application log. Start/stop history is not automatically
+  saved to a file; no ASIO stream was present, so drops/underruns during those
+  operations could not be verified retrospectively. The
+  [rc.6 release workflow](https://github.com/kjh2623jh/SoundFork/actions/runs/40224232055)
+  passed isolated install/upgrade/uninstall tests using synthetic backend
+  registration, real ClamAV scanning and publication. This does not replace
+  checks of the final v1.0.0 files or testing with a physical FiiO device.
+  Local explicitly versioned v1.0.0 Debug/Release builds each passed 17/17 CTest
+  tests, including selection-policy and timeout coverage; all three compiled
+  unattended rejection paths also passed. CFG/NX/ASLR/static-runtime checks
+  passed. Security-tool tests had 30 passes and one real-ClamAV skip. Final
+  full install/upgrade/uninstall and real ClamAV checks must run separately in
+  the v1.0.0 release workflow. Audio processing code and the installed copy's
+  startup/settings were not changed.
 
 The following are not claimed complete:
 
