@@ -342,6 +342,7 @@ struct AppState {
   HWND relay_button = nullptr;
   HWND vb_cable_button = nullptr;
   HWND status = nullptr;
+  HWND startup_checkbox = nullptr;
   HWND diagnostic_window = nullptr;
   HWND diagnostic_text = nullptr;
   HWND diagnostic_copy = nullptr;
@@ -1422,6 +1423,8 @@ void update_status(AppState* state) {
       stream.producer_active, state->startup_error};
   SetWindowTextW(state->status, soundfork::control::control_status_text(
       summary, state->language == UiLanguage::korean).c_str());
+  SendMessageW(state->startup_checkbox, BM_SETCHECK,
+      soundfork::control::RelaySettings{}.startup_enabled(executable_path()) ? BST_CHECKED : BST_UNCHECKED, 0);
   SetWindowTextW(
       state->relay_button,
       relay_running ? strings.stop_relay : strings.start_relay);
@@ -1534,8 +1537,9 @@ void layout_controls(AppState* state, int width) {
   MoveWindow(state->endpoint_label, margin, 75, content, 22, TRUE);
   MoveWindow(state->endpoint_combo, margin, 98, combo_width, 240, TRUE);
   MoveWindow(state->relay_button, margin + combo_width + 12, 97, button_width, 28, TRUE);
-  MoveWindow(state->status, margin, 187, content, 90, TRUE);
-  MoveWindow(state->note, margin, 283, content, 44, TRUE);
+  MoveWindow(state->startup_checkbox, margin, 177, content, 26, TRUE);
+  MoveWindow(state->status, margin, 216, content, 90, TRUE);
+  MoveWindow(state->note, margin, 312, content, 44, TRUE);
 }
 
 void create_controls(AppState* state) {
@@ -1672,6 +1676,10 @@ void create_controls(AppState* state) {
       nullptr,
       nullptr,
       nullptr);
+  state->startup_checkbox = CreateWindowExW(0, L"BUTTON", startup_strings(state->language).menu,
+      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+      18, 177, 652, 26, state->window,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartupRelay)), nullptr, nullptr);
   state->status = CreateWindowExW(
       0,
       L"STATIC",
@@ -1694,6 +1702,7 @@ void create_controls(AppState* state) {
                        state->refresh_button,
                        state->vb_cable_button,
                        state->note,
+                       state->startup_checkbox,
                        state->status}) {
     set_control_font(control, state->font);
   }
@@ -1740,9 +1749,6 @@ void rebuild_menu(AppState* state) {
       MF_POPUP,
       reinterpret_cast<UINT_PTR>(language),
       ui_strings(state->language).language_menu);
-  AppendMenuW(settings, MF_STRING |
-      (soundfork::control::RelaySettings{}.startup_enabled(executable_path()) ? MF_CHECKED : MF_UNCHECKED),
-      kStartupRelay, startup_strings(state->language).menu);
   const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
   AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsInstalledStatus, L"");
   AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsBundledStatus, L"");
@@ -1801,6 +1807,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   SetWindowTextW(state->endpoint_label, strings.endpoint_label);
   SetWindowTextW(state->refresh_button, strings.refresh_devices);
   SetWindowTextW(state->note, strings.note);
+  SetWindowTextW(state->startup_checkbox, startup_strings(language).menu);
   if (state->diagnostic_window != nullptr) {
     const auto& diagnostic = soundfork::control::diagnostic_strings(language == UiLanguage::korean);
     const auto title = std::wstring(L"SoundFork — ") + diagnostic.title;
@@ -1867,13 +1874,10 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_INITMENU:
       if (!state->obs_operation_in_progress) refresh_obs_status(state);
-      CheckMenuItem(GetSubMenu(GetMenu(window), 0), kStartupRelay,
-          MF_BYCOMMAND | (soundfork::control::RelaySettings{}.startup_enabled(executable_path())
-                              ? MF_CHECKED : MF_UNCHECKED));
       return 0;
     case WM_GETMINMAXINFO: {
       auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
-      size->ptMinTrackSize = {720, 400};
+      size->ptMinTrackSize = {720, 430};
       return 0;
     }
     case WM_SIZE: {
@@ -2011,18 +2015,22 @@ LRESULT CALLBACK window_proc(
         update_status(state);
         return 0;
       }
-      if (control == kStartupRelay) {
+      if (control == kStartupRelay && HIWORD(wparam) == BN_CLICKED) {
         soundfork::control::RelaySettings settings;
         const auto exe = executable_path();
-        const bool enable = !settings.startup_enabled(exe);
+        const bool enable = SendMessageW(state->startup_checkbox, BM_GETCHECK, 0, 0) == BST_CHECKED;
         if (enable) {
           const auto selected = SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
           if (selected < 0 || static_cast<std::size_t>(selected) >= state->endpoints.size() ||
               !is_broadcast_endpoint(state->endpoints[static_cast<std::size_t>(selected)])) {
             MessageBoxW(window, ui_strings(state->language).select_endpoint, L"SoundFork", MB_ICONWARNING);
+            update_status(state);
             return 0;
           }
-          if (!save_endpoint(state, state->endpoints[static_cast<std::size_t>(selected)].id)) return 0;
+          if (!save_endpoint(state, state->endpoints[static_cast<std::size_t>(selected)].id)) {
+            update_status(state);
+            return 0;
+          }
         }
         const auto result = settings.set_startup(exe, enable);
         if (result != ERROR_SUCCESS) {
@@ -2301,7 +2309,7 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
       CW_USEDEFAULT,
       CW_USEDEFAULT,
       760,
-      420,
+      450,
       nullptr,
       nullptr,
       instance,

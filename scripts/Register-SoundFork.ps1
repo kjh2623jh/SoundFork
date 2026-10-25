@@ -3,7 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DllPath,
 
-    [string]$BackendName = 'FiiO ASIO Driver'
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$BackendName
 )
 
 $ErrorActionPreference = 'Stop'

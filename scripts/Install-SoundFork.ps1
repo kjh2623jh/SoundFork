@@ -2,7 +2,9 @@
 param(
     [string]$BuildDirectory,
     [string]$InstallDirectory = (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'SoundFork'),
-    [string]$BackendName = 'FiiO ASIO Driver'
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$BackendName
 )
 
 $ErrorActionPreference = 'Stop'

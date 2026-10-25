@@ -76,6 +76,18 @@ try {
     try { $preferredAsio.SetValue('CLSID', $preferredClsid, [Microsoft.Win32.RegistryValueKind]::String) } finally { $preferredAsio.Dispose() }
     $preferredCom = $baseKey.CreateSubKey("SOFTWARE\Classes\CLSID\$preferredClsid\InprocServer32", $true)
     try { $preferredCom.SetValue('', "$env:SystemRoot\System32\kernel32.dll", [Microsoft.Win32.RegistryValueKind]::String) } finally { $preferredCom.Dispose() }
+    # A fresh unattended install must never guess a driver, even with FiiO present.
+    $soundForkMayHaveBeenCreated = $true
+    $unselected = Start-Process -FilePath $resolvedSetup -ArgumentList @(
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$fullTestDirectory`""
+    ) -Wait -PassThru -WindowStyle Hidden
+    if ($unselected.ExitCode -eq 0) { throw 'Fresh unattended setup accepted a missing ASIO selection.' }
+    $unexpectedAsio = $baseKey.OpenSubKey('SOFTWARE\ASIO\SoundFork', $false)
+    if ($null -ne $unexpectedAsio) {
+        $unexpectedAsio.Dispose()
+        throw 'Setup registered an ASIO driver without an explicit selection.'
+    }
+    if (Test-Path -LiteralPath $fullTestDirectory) { throw 'Rejected setup created the installation directory.' }
     $installArguments = @(
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
@@ -141,6 +153,9 @@ try {
     $selfTest = Start-Process -FilePath $control -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
     if ($selfTest.ExitCode -ne 0) {
         throw "Installed control app self-test failed with exit code $($selfTest.ExitCode)."
+    }
+    if ($null -ne $userRun.GetValue('SoundFork', $null)) {
+        throw 'A fresh install enabled user startup without opt-in.'
     }
     # Simulate the user's opt-in without launching a GUI or audio process.
     $startupCommand = '"' + $control + '" --startup'

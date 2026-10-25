@@ -44,7 +44,7 @@ int wmain(int argc, wchar_t**) {
     state.language = UiLanguage::korean;
     state.force_exit = true;  // Closing this test host never touches the installed relay.
     HWND window = CreateWindowExW(0, L"SoundForkReadOnlyControlTest", L"SoundFork UI preview (read-only)",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 420, nullptr, nullptr,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 450, nullptr, nullptr,
         GetModuleHandleW(nullptr), &state);
     if (window == nullptr) throw std::runtime_error("preview window failed");
     struct WindowEnd { HWND value; ~WindowEnd() { if (IsWindow(value)) DestroyWindow(value); } } window_end{window};
@@ -67,7 +67,18 @@ int wmain(int argc, wchar_t**) {
       GetClassNameW(state.status, class_name.data(), static_cast<int>(class_name.size()));
       require_ui(std::wstring_view(class_name.data()) == L"Static", "main status is not compact static text");
       require_ui((GetWindowLongPtrW(state.status, GWL_STYLE) & WS_VSCROLL) == 0, "main status still scrolls");
-      MoveWindow(window, 0, 0, 720, 400, FALSE);
+      if (state.startup_checkbox == nullptr) throw std::runtime_error("startup checkbox missing");
+      const HWND startup_checkbox = state.startup_checkbox;
+      require_ui(GetDlgItem(window, kStartupRelay) == startup_checkbox, "startup checkbox is not on main window");
+      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
+          "startup is not off for an unregistered test executable");
+      SendMessageW(state.startup_checkbox, BM_SETCHECK, BST_CHECKED, 0);
+      update_status(&state);
+      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
+          "checkbox did not synchronize with saved preference");
+      require_ui(GetMenuState(GetSubMenu(GetMenu(window), 0), kStartupRelay, MF_BYCOMMAND) == static_cast<UINT>(-1),
+          "startup option still duplicated in menu");
+      MoveWindow(window, 0, 0, 720, 430, FALSE);
       RECT client{}, note{};
       GetClientRect(window, &client);
       GetWindowRect(state.note, &note);
@@ -75,6 +86,10 @@ int wmain(int argc, wchar_t**) {
       require_ui(note.right <= client.right && note.bottom <= client.bottom, "compact layout clipped at minimum size");
       for (const auto language : {UiLanguage::korean, UiLanguage::english}) {
         apply_language(&state, language, false);
+        std::vector<wchar_t> checkbox_text(128);
+        GetWindowTextW(startup_checkbox, checkbox_text.data(), static_cast<int>(checkbox_text.size()));
+        require_ui(std::wstring_view(checkbox_text.data()) == startup_strings(language).menu,
+            "startup checkbox translation wrong");
         const auto& strings = soundfork::control::diagnostic_strings(language == UiLanguage::korean);
         std::array<wchar_t, 64> menu_text{};
         require_ui(GetMenuStringW(GetSubMenu(GetMenu(window), 1), kShowDiagnostics, menu_text.data(),
