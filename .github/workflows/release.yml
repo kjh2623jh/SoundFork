@@ -140,6 +140,17 @@ jobs:
             }
           }
 
+      - name: Preserve CTest logs even on failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: SoundFork-${{ steps.version.outputs.version }}-test-logs
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            build/windows-msvc-x64/Testing/Temporary/LastTest.log
+            build/windows-msvc-x64/Testing/Temporary/LastTestsFailed.log
+
       - name: Verify release binary dependencies
         shell: pwsh
         run: ./scripts/Test-ReleaseDependencies.ps1

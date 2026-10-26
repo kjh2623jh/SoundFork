@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import subprocess
@@ -21,6 +22,33 @@ scan = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(scan)
 VERSION = "1.0.0-rc.3"
 ROOT = f"SoundFork-v{VERSION}-windows-x64"
+
+
+class BuildPolicyTests(unittest.TestCase):
+    def test_only_codeql_skips_execution_not_compilation(self):
+        repository = Path(__file__).resolve().parents[1]
+        build = (repository / "scripts/Build-SoundFork.ps1").read_text(encoding="utf-8")
+        self.assertRegex(build, r"\[switch\]\$SkipTests\s*\)")
+        self.assertNotRegex(build, r"\$SkipTests\s*=\s*\$true")
+        self.assertLess(build.index("& $cmake --build --preset"), build.index("if ($SkipTests)"))
+        self.assertRegex(build, r"(?s)if \(\$SkipTests\).*?else\s*\{.*?& \$ctest .*?--output-on-failure")
+        codeql = (repository / ".github/workflows/codeql.yml").read_text(encoding="utf-8")
+        self.assertRegex(codeql, r"run: .*Build-SoundFork.ps1[^\n]*-WithObsPlugin[^\n]*-SkipTests")
+        self.assertIn("build-mode: manual", codeql)
+        self.assertIn("queries: security-extended", codeql)
+        for file in (".github/workflows/ci.yml", ".github/workflows/release.yml",
+                     "scripts/Build-ReleasePackage.ps1"):
+            self.assertNotIn("-SkipTests", (repository / file).read_text(encoding="utf-8"))
+
+    def test_ci_and_release_preserve_test_failure_logs(self):
+        repository = Path(__file__).resolve().parents[1]
+        for file in ("ci.yml", "release.yml"):
+            workflow = (repository / ".github/workflows" / file).read_text(encoding="utf-8")
+            step = re.search(r"(?ms)^      - name: Preserve CTest logs.*?(?=^      - name:|\Z)", workflow)
+            self.assertIsNotNone(step)
+            self.assertIn("if: always()", step.group())
+            self.assertIn("LastTest.log", step.group())
+            self.assertIn("LastTestsFailed.log", step.group())
 
 
 class ReleaseScanTests(unittest.TestCase):

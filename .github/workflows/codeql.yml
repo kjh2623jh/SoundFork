@@ -35,9 +35,10 @@ jobs:
 
       # A fresh hosted runner builds the real Windows-only targets, including OBS.
       # Do not reuse compiled objects: CodeQL must observe the compiler invocations.
-      - name: Build and test
+      # Execution tests run in CI/Release, not under the CodeQL process tracer.
+      - name: Build for CodeQL analysis
         shell: pwsh
-        run: ./scripts/Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+        run: ./scripts/Build-SoundFork.ps1 -Configuration Release -WithObsPlugin -SkipTests
 
       - name: Analyze source
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0

@@ -13,7 +13,9 @@ compatibility, latency figures and verification records belong in [program detai
 - Inno Setup 6 for Setup.exe; Python 3.10+ for security-tool tests.
 
 Run from the repository root in PowerShell. The build script also locates Visual
-Studio's bundled CMake, then configures, builds and runs CTest.
+Studio's bundled CMake, then configures, builds and runs CTest by default.
+`-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
+normal CI and releases do not pass this switch.
 
 ```powershell
 .\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
@@ -150,7 +152,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest: currently 18 tests with OBS, 15 without it. Coverage
+The build script runs CTest by default: currently 20 tests with OBS, 17 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -183,7 +185,17 @@ Settings tests use only GUID-named temporary HKCU subkeys. They cover off-by-def
 startup, saved devices, quoted space/Unicode paths, foreign-value preservation,
 malformed data, DACL access denial, cross-process single-instance behavior and
 disabled `--startup` early exit. Device-ID matching is tested without opening
-audio devices. Real sign-out/sign-in, tray relaunch, late devices, manual-stop
+audio devices. CTest separates settings/permissions (`soundfork_relay_settings_tests`,
+20 seconds), singleton behavior (`soundfork_control_instance_tests`, 30 seconds)
+and disabled startup (`soundfork_disabled_startup_tests`, 30 seconds). Immediate
+progress includes UTC start times, phase durations, child PIDs, wait results and
+exit codes. Each child gets 10 seconds, followed on timeout by termination of
+that exact child and at most two seconds to reap it. An intentionally delayed
+child verifies termination/cleanup. Use
+`ctest --test-dir build/windows-msvc-x64 -C Release -R 'soundfork_(relay_settings|control_instance|disabled_startup)_tests' -V`
+for verbose progress. Normal CI/releases preserve `LastTest.log` and
+`LastTestsFailed.log` for 30 days in `*-test-logs` artifacts, including on failure.
+Test failures still block builds/publication. Real sign-out/sign-in, tray relaunch, late devices, manual-stop
 persistence, Windows Startup-app blocking and alternate-administrator uninstall
 still need manual verification. The isolated runner's installer test checks
 startup registration survives an update and is removed on uninstall. Do not run
@@ -412,6 +424,11 @@ Suffix tags publish prereleases; plain version tags publish normal releases.
 ## Security-check operations
 
 ### CodeQL and dependencies
+
+CodeQL passes `-SkipTests`: it still compiles test sources, but does not duplicate
+child-process execution tests under the process tracer. Full execution tests
+remain in normal Debug/Release CI and releases. Build-policy tests verify that
+only CodeQL receives this switch and that failure-log retention is preserved.
 
 On main pushes, PRs, Tuesdays at 03:23 UTC and manual runs, CodeQL observes an
 OBS-enabled Windows C/C++ build and uploads `security-extended` results to

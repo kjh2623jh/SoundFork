@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <exception>
 
 #include "control-app/relay_settings.hpp"
 
@@ -13,6 +14,83 @@ namespace {
 using soundfork::control::RelaySettings;
 using soundfork::control::ControlInstance;
 void require(bool ok, const char* reason) { if (!ok) throw std::runtime_error(reason); }
+struct Phase {
+  const char* name;
+  ULONGLONG started = GetTickCount64();
+  int exceptions = std::uncaught_exceptions();
+  explicit Phase(const char* value) : name(value) {
+    SYSTEMTIME time{};
+    GetSystemTime(&time);
+    char stamp[40]{};
+    _snprintf_s(stamp, sizeof(stamp), _TRUNCATE, "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ",
+        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+    std::cout << stamp << " START " << name << std::endl;
+  }
+  ~Phase() {
+    std::cout << (std::uncaught_exceptions() > exceptions ? "FAIL " : "END ") << name
+              << " elapsed_ms=" << GetTickCount64() - started << std::endl;
+  }
+};
+
+struct OwnedChild {
+  PROCESS_INFORMATION info{};
+  bool cleanup_attempted = false;
+  bool terminate() noexcept {
+    cleanup_attempted = true;
+    const BOOL requested = TerminateProcess(info.hProcess, 255);
+    const auto result = WaitForSingleObject(info.hProcess, 2000);
+    if (!requested && result != WAIT_OBJECT_0) return false;
+    return result == WAIT_OBJECT_0;
+  }
+  ~OwnedChild() {
+    if (info.hProcess != nullptr) {
+      if (!cleanup_attempted && WaitForSingleObject(info.hProcess, 0) != WAIT_OBJECT_0 && !terminate())
+        std::cerr << "Child cleanup failed pid=" << info.dwProcessId << std::endl;
+      CloseHandle(info.hProcess);
+    }
+    if (info.hThread != nullptr) CloseHandle(info.hThread);
+  }
+};
+struct ChildResult { DWORD code; bool timed_out; };
+ChildResult run_child(const wchar_t* executable, std::wstring command, const char* stage,
+                      DWORD timeout_ms = 10000) {
+  Phase phase(stage);
+  STARTUPINFOW startup{sizeof(startup)};
+  OwnedChild child;
+  std::cout << "Creating test child timeout_ms=" << timeout_ms << std::endl;
+  if (!CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                      nullptr, nullptr, &startup, &child.info)) {
+    const auto error = GetLastError();
+    throw std::runtime_error(std::string(stage) + " CreateProcess win32=" + std::to_string(error));
+  }
+  // No thread operations are needed after launch. Release this handle immediately
+  // rather than retaining it through a potentially long process wait.
+  CloseHandle(child.info.hThread);
+  child.info.hThread = nullptr;
+  std::cout << "Waiting for test child pid=" << child.info.dwProcessId << std::endl;
+  const auto waited = WaitForSingleObject(child.info.hProcess, timeout_ms);
+  const auto wait_error = waited == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+  bool cleaned = true;
+  if (waited != WAIT_OBJECT_0) {
+    // Only the exact child created by this fixture, never image-name termination.
+    cleaned = child.terminate();
+  }
+  DWORD code = 255;
+  const BOOL queried = GetExitCodeProcess(child.info.hProcess, &code);
+  std::cout << "Child result stage=" << stage << " pid=" << child.info.dwProcessId
+            << " wait=" << waited << " win32=" << wait_error << " exit_code=" << code
+            << " cleanup_complete=" << cleaned << std::endl;
+  require(cleaned && queried, "test child exit/cleanup failed");
+  require(waited == WAIT_OBJECT_0 || waited == WAIT_TIMEOUT, "test child wait failed");
+  return {code, waited == WAIT_TIMEOUT};
+}
+
+std::wstring test_executable() {
+  std::vector<wchar_t> exe(32768);
+  const auto length = GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
+  require(length != 0 && length < exe.size(), "exe path failed");
+  return {exe.data(), length};
+}
 struct RegistryFixture {
   HKEY root = nullptr;
   std::wstring path;
@@ -123,20 +201,10 @@ void test_access_denied() {
 }
 
 DWORD child_probe(const std::wstring& name) {
-  std::vector<wchar_t> exe(32768);
-  require(GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size())) != 0, "exe path failed");
-  std::wstring command = L"\"" + std::wstring(exe.data()) + L"\" --instance-probe " + name;
-  STARTUPINFOW startup{sizeof(startup)};
-  PROCESS_INFORMATION process{};
-  require(CreateProcessW(exe.data(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                        nullptr, nullptr, &startup, &process) != FALSE, "probe process failed");
-  const auto waited = WaitForSingleObject(process.hProcess, 5000);
-  DWORD code = 255;
-  const auto exited = GetExitCodeProcess(process.hProcess, &code);
-  CloseHandle(process.hThread);
-  CloseHandle(process.hProcess);
-  require(waited == WAIT_OBJECT_0 && exited, "probe did not finish");
-  return code;
+  const auto exe = test_executable();
+  const auto result = run_child(exe.c_str(), L"\"" + exe + L"\" --instance-probe " + name, "instance-child");
+  require(!result.timed_out, "instance probe timed out after cleanup");
+  return result.code;
 }
 
 void test_disabled_startup_command(const wchar_t* control) {
@@ -152,24 +220,11 @@ void test_disabled_startup_command(const wchar_t* control) {
   require(StringFromGUID2(guid, guid_text.data(), static_cast<int>(guid_text.size())) != 0,
           "temp GUID text failed");
   const auto copy = std::wstring(temp.data()) + L"SoundFork-startup-test-" + guid_text.data() + L".exe";
+  std::cout << "Copying private renamed control fixture" << std::endl;
   require(CopyFileW(control, copy.c_str(), TRUE) != FALSE, "control fixture copy failed");
   struct Remove { const std::wstring& path; ~Remove() { DeleteFileW(path.c_str()); } } remove{copy};
-  std::wstring command = L"\"" + copy + L"\" --startup";
-  STARTUPINFOW startup{sizeof(startup)};
-  PROCESS_INFORMATION process{};
-  require(CreateProcessW(copy.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                        nullptr, nullptr, &startup, &process) != FALSE, "disabled startup process failed");
-  const auto waited = WaitForSingleObject(process.hProcess, 5000);
-  DWORD code = 255;
-  GetExitCodeProcess(process.hProcess, &code);
-  if (waited != WAIT_OBJECT_0) {
-    // Only the test's exact, freshly created child; never a user's process.
-    TerminateProcess(process.hProcess, 255);
-    WaitForSingleObject(process.hProcess, 5000);
-  }
-  CloseHandle(process.hThread);
-  CloseHandle(process.hProcess);
-  require(waited == WAIT_OBJECT_0 && code == 0, "disabled startup did not exit quietly");
+  const auto result = run_child(copy.c_str(), L"\"" + copy + L"\" --startup", "disabled-startup-child");
+  require(!result.timed_out && result.code == 0, "disabled startup did not exit quietly after cleanup");
 }
 void test_instances() {
   const auto name = L"Local\\SoundFork.Control.Test-" + std::to_wstring(GetCurrentProcessId());
@@ -180,19 +235,41 @@ void test_instances() {
   }
   require(child_probe(name) == 0, "instance was not released after exit");
 }
+void test_timeout_cleanup() {
+  const auto exe = test_executable();
+  const auto result = run_child(exe.c_str(), L"\"" + exe + L"\" --slow-child", "timeout-cleanup", 100);
+  require(result.timed_out && result.code == 255, "intentional timeout did not terminate/reap its child");
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  if (argc == 2 && std::wstring_view(argv[1]) == L"--slow-child") {
+    Sleep(60000);  // Isolated fixture: parent must terminate it at its deadline.
+    return 0;
+  }
   if (argc == 3 && std::wstring_view(argv[1]) == L"--instance-probe") {
     ControlInstance instance(argv[2]);
     return !instance.valid() ? 3 : (instance.primary() ? 0 : 2);
   }
   try {
-    test_settings();
-    test_access_denied();
-    test_instances();
-    if (argc == 2) test_disabled_startup_command(argv[1]);
-    std::cout << "Relay settings/startup ownership, error handling and cross-process instance tests passed\n";
+    const bool selected = argc >= 3 && std::wstring_view(argv[1]) == L"--case";
+    const std::wstring_view name = selected ? argv[2] : L"all";
+    require((!selected && argc <= 2) || (selected &&
+        ((argc == 3 && (name == L"settings" || name == L"instances")) ||
+         (argc == 4 && name == L"disabled-startup"))), "invalid test case arguments");
+    if (name == L"settings" || name == L"all") {
+      { Phase phase("settings"); test_settings(); }
+      { Phase phase("access-denied"); test_access_denied(); }
+    }
+    if (name == L"instances" || name == L"all") {
+      { Phase phase("instances"); test_instances(); }
+      { Phase phase("child-timeout-cleanup"); test_timeout_cleanup(); }
+    }
+    if (name == L"disabled-startup" || (!selected && argc == 2)) {
+      Phase phase("disabled-startup");
+      test_disabled_startup_command(selected ? argv[3] : argv[1]);
+    }
+    std::cout << "Selected relay settings/startup tests passed" << std::endl;
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

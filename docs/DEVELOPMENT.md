@@ -13,7 +13,8 @@
 - Setup.exe 제작에는 Inno Setup 6, 보안 도구 테스트에는 Python 3.10 이상이 추가로 필요하다.
 
 저장소 루트의 PowerShell에서 실행한다. 빌드 스크립트는 Visual Studio에 포함된
-CMake도 찾으며, 구성·빌드 후 CTest까지 실행한다.
+CMake도 찾으며, 구성·빌드 후 기본적으로 CTest까지 실행한다. `-SkipTests`는 컴파일은 유지하고
+CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서는 사용하지 않는다.
 
 ```powershell
 .\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
@@ -134,7 +135,7 @@ UI는 릴레이에 `--endpoint-id <opaque-id>`를 전달한다. 정확한 ID가 
 
 ### 자동 회귀와 정적 분석
 
-빌드 스크립트가 CTest를 실행한다. 현재 OBS 포함 시 18개, 제외 시 15개다. 프록시·COM·
+빌드 스크립트가 기본적으로 CTest를 실행한다. 현재 OBS 포함 시 20개, 제외 시 17개다. 프록시·COM·
 공유 링·허브·릴레이 클럭·장치 열거·제어판·플러그인 관리와 선택적 실제 libobs 통합을 다룬다.
 libobs 테스트는 DLL 로드, 소스 생성, 연속 스테레오 파형, 타임스탬프 간격, 예기치 않은
 무음·불연속, 생산자 일시 중단 후 복구와 릴레이 동시 수신을 검증한다. 생산자는 누적
@@ -161,6 +162,14 @@ UAC 승인·취소는 별도 수동 시험으로 남기고, 건너뛴 시험을 
 설정 테스트는 GUID로 구분한 임시 HKCU 하위 키만 사용한다. 기본 꺼짐·장치 저장·공백과
 한글 경로 인용·타사 값 보존·잘못된 값·DACL 접근 거부·프로세스 간 단일 실행·비활성
 `--startup` 조기 종료를 검사한다. 장치 ID 일치 정책은 실제 장치를 열지 않고 검사한다.
+CTest는 설정·권한(`soundfork_relay_settings_tests`, 20초), 단일 실행
+(`soundfork_control_instance_tests`, 30초), 비활성 자동 시작
+(`soundfork_disabled_startup_tests`, 30초)을 분리한다. UTC 시작 시각·단계별 경과 시간과
+자식 PID·대기 결과·종료 코드를 즉시 출력한다. 자식은 10초 내 종료되지 않으면 해당
+프로세스만 종료하고 최대 2초간 회수하며, 의도적인 지연 자식의 종료·회수도 검사한다.
+`ctest --test-dir build/windows-msvc-x64 -C Release -R 'soundfork_(relay_settings|control_instance|disabled_startup)_tests' -V`
+명령으로 상세 진행을 볼 수 있다. 일반 CI·릴리스는 실패 시에도 `*-test-logs` 아티팩트에
+`LastTest.log`, `LastTestsFailed.log`를 30일 보관한다. 테스트 실패는 계속 빌드/배포를 막는다.
 실제 로그아웃·로그인, 트레이 재실행, 장치 지연 연결, 수동 중지 유지, Windows 시작프로그램
 차단과 다른 관리자 계정 제거는 수동 확인이 필요하다. 설치 시험은 격리 runner에서만
 자동 시작 등록의 업데이트 유지·제거 정리까지 검사한다. 로컬에서는 설치·등록을 실행하지 않는다.
@@ -378,6 +387,9 @@ PR·`main` CI는 Windows Debug·Release 빌드·CTest, Release 정적 분석과 
 CodeQL은 `main` push·PR·매주 화요일 03:23 UTC·수동 실행에서 OBS 포함 Windows
 C/C++ 빌드를 직접 추적하고 `security-extended` 결과를 Security → Code scanning에
 등록한다. 기존 CI·배포와 독립적이며 분석 실행 성공이 경고 0개라는 의미는 아니다.
+`-SkipTests`로 테스트 소스까지 컴파일하되 자식 프로세스를 실행하는 CTest는 추적 환경에서
+중복 수행하지 않는다. 전체 실행 검사는 일반 Debug·Release CI와 릴리스에 유지한다.
+빌드 정책 자동 시험은 이 옵션이 CodeQL에만 전달되고 실패 로그 보관이 유지되는지 검사한다.
 PowerShell·Inno Setup·Python이나 실제 장치 동작은 이 C/C++ 분석의 대상이 아니다.
 공개 저장소의 Code scanning·Actions가 필요하며 Default setup을 쓰고 있었다면
 중복되지 않도록 Advanced setup으로 전환한다. 설정을 자동 변경하지 않는다.

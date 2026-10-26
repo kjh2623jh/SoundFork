@@ -3,7 +3,8 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
     [string]$Version,
-    [switch]$WithObsPlugin
+    [switch]$WithObsPlugin,
+    [switch]$SkipTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,8 +56,16 @@ try {
     & $cmake --build build/windows-msvc-x64 --config $Configuration --target soundfork_tests soundfork_host soundfork_driver
     if ($LASTEXITCODE -ne 0) { throw 'Target build failed.' }
 
-    & $cmake --build build/windows-msvc-x64 --config $Configuration --target RUN_TESTS
-    if ($LASTEXITCODE -ne 0) { throw 'CTest failed.' }
+    if ($SkipTests) {
+        Write-Host 'Compilation completed; CTest execution skipped (-SkipTests).'
+    } else {
+        $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
+        if (-not (Test-Path -LiteralPath $ctest -PathType Leaf)) {
+            throw "CTest was not found beside CMake: $ctest"
+        }
+        & $ctest --test-dir build/windows-msvc-x64 -C $Configuration --output-on-failure
+        if ($LASTEXITCODE -ne 0) { throw 'CTest failed. See build/windows-msvc-x64/Testing/Temporary/LastTest.log.' }
+    }
 } finally {
     Pop-Location
 }

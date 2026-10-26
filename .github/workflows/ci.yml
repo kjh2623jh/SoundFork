@@ -40,6 +40,17 @@ jobs:
         shell: pwsh
         run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}' -WithObsPlugin
 
+      - name: Preserve CTest logs even on failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: soundfork-windows-x64-${{ matrix.configuration }}-test-logs
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            build/windows-msvc-x64/Testing/Temporary/LastTest.log
+            build/windows-msvc-x64/Testing/Temporary/LastTestsFailed.log
+
       - name: MSVC static analysis
         if: matrix.configuration == 'Release'
         shell: pwsh
