@@ -258,10 +258,10 @@ fixed sync error from increasing drift and record existing OBS offsets. Do not
 automatically replace installed DLLs or treat automated passing results as an audio
 quality guarantee before the user's recording checks.
 
-### Development-build diagnostic logs
+### Diagnostic logs
 
-This feature was added after the 1.0.0 source snapshot; existing installations do
-not gain it automatically. Open **Help > Open log folder** or
+Available starting with v1.0.1; existing installations need an update.
+Open **Help > Open log folder** or
 `%LOCALAPPDATA%\SoundFork\Logs`. Each of `control.log`, `relay.log`, `hub.log`
 retains a current file and `.1`/`.2` backups, capped at 1 MiB each (9 MiB total
 under normal self-generated logging). Rotation replaces older history. Logs
@@ -379,15 +379,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

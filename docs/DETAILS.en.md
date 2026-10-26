@@ -183,15 +183,15 @@ task is unchecked. Portable OBS does not search ProgramData: manually place the
 DLL and hub EXE in `obs-plugins\64bit`, and plugin `data` contents in
 `data\obs-plugins\soundfork-obs`. Control manages the standard installation location.
 
-## Development-build diagnostic logs
+## Diagnostic logs
 
-Development sources after the 1.0.0 snapshot provide **Help > Open log folder**.
+Starting with v1.0.1, **Help > Open log folder** is available.
 `%LOCALAPPDATA%\SoundFork\Logs` holds control/relay/hub lifecycle, errors,
 connection changes and metrics, with a 1 MiB current file and two backups each.
 No recorded audio or endpoint IDs are saved. Audio never waits for file writes;
 congestion, disk errors or forced exits can lose records, so missing logs do not
 prove an absence of faults. Existing installations are not updated automatically.
-See [development guidance](DEVELOPMENT.en.md#development-build-diagnostic-logs)
+See [development guidance](DEVELOPMENT.en.md#diagnostic-logs)
 for coverage, timing and tests, and the unimplemented format-expansion plan.
 
 ## Verification records and outstanding checks
@@ -299,6 +299,18 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   algorithm were unchanged, as were the installed copy, running audio processes
   and startup settings. Real GUI folder opening, start/stop/reconnection log
   correlation, physical latency and long-duration trials remain manual checks.
+
+- 2026-10-26 v1.0.1 preparation: includes diagnostic logs and the log-folder menu,
+  separation of CodeQL compilation from execution tests, startup-test phase logs,
+  bounded child-process waits/cleanup, and CI/release failure-log retention.
+  Explicitly versioned v1.0.1 Debug/Release builds each passed 20/20 CTest cases;
+  security-tool tests passed 32 with one real-ClamAV test skipped. All three compiled
+  unattended setup rejection paths, CFG/NX/ASLR/static-runtime checks, and 1.0.1
+  version resources in Control and the OBS plugin were verified.
+  The ASIO playback path, shared-memory format and OBS audio processing are unchanged.
+  Existing installations/startup settings were not replaced. Actual GitHub CodeQL,
+  ClamAV scans of the final distribution files and the full install/update/uninstall
+  lifecycle still need separate verification.
 
 The following are not claimed complete:
 

@@ -224,9 +224,9 @@ OBS 플러그인 수정 후에는 같은 곡을 전용 소스와 `CABLE Input` �
 고정 영상/음성 오차와 시간이 지날수록 커지는 드리프트를 구분하고, 기존 OBS 오프셋을
 기록한다. 설치된 DLL은 자동 교체하지 않으며 사용자 검증 전 수정 완료를 음질 보장으로 해석하지 않는다.
 
-### 개발 버전의 진단 로그
+### 진단 로그
 
-정식 1.0.0 이후 소스에 추가한 기능이며 기존 설치본에 소급 적용되지 않는다.
+v1.0.1부터 제공하며 기존 설치본에는 업데이트 후 적용된다.
 제어판의 **도움말 → 로그 폴더 열기** 또는 `%LOCALAPPDATA%\SoundFork\Logs`에서 확인한다.
 `control.log`, `relay.log`, `hub.log`는 각각 현재 파일과 `.1`, `.2` 백업을 유지한다.
 파일당 1 MiB, 정상적인 자체 기록 기준 총 9 MiB까지이며 오래된 내용은 회전 시 교체한다.
@@ -338,15 +338,15 @@ Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 �
 아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1 -SkipInstaller
 ```
 
 인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
 인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.0 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
