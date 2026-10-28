@@ -11,15 +11,18 @@ constexpr double kMaximumCorrectionPpm = 2000.0;
 constexpr double kProportionalPpmPerFrame = 6.0;
 constexpr double kIntegralPpmPerFrameSecond = 0.05;
 
-std::int32_t interpolate(
-    std::int32_t first, std::int32_t second, double phase) noexcept {
+template <typename Sample>
+Sample interpolate(Sample first, Sample second, double phase) noexcept {
   const double value = static_cast<double>(first) +
                        (static_cast<double>(second) - first) * phase;
-  const double bounded = (std::clamp)(
+  if constexpr (std::is_same_v<Sample, float>) return static_cast<float>(value);
+  else {
+    const double bounded = (std::clamp)(
       value,
       static_cast<double>((std::numeric_limits<std::int32_t>::min)()),
       static_cast<double>((std::numeric_limits<std::int32_t>::max)()));
-  return static_cast<std::int32_t>(std::llround(bounded));
+    return static_cast<std::int32_t>(std::llround(bounded));
+  }
 }
 
 }  // namespace
@@ -66,10 +69,12 @@ double RelayClockController::correction_ppm() const noexcept {
   return correction_ppm_;
 }
 
-RelayAudioSource::RelayAudioSource(const StreamFormat& format) noexcept
+template <typename Sample>
+RelaySampleSource<Sample>::RelaySampleSource(const StreamFormat& format) noexcept
     : format_(format) {}
 
-void RelayAudioSource::reset() noexcept {
+template <typename Sample>
+void RelaySampleSource<Sample>::reset() noexcept {
   block_frames_ = 0;
   block_offset_ = 0;
   first_ = {};
@@ -78,7 +83,8 @@ void RelayAudioSource::reset() noexcept {
   phase_ = 0.0;
 }
 
-std::uint64_t RelayAudioSource::buffered_frames(
+template <typename Sample>
+std::uint64_t RelaySampleSource<Sample>::buffered_frames(
     const SharedRingReader& reader) const noexcept {
   const std::uint64_t queued =
       reader.queued_blocks() * format_.frames_per_block;
@@ -88,18 +94,20 @@ std::uint64_t RelayAudioSource::buffered_frames(
   return queued + local + (have_pair_ ? 2U : 0U);
 }
 
-bool RelayAudioSource::take_source_frame(
+template <typename Sample>
+bool RelaySampleSource<Sample>::take_source_frame(
     SharedRingReader& reader,
-    std::array<std::int32_t, 2>* frame) noexcept {
+    std::array<Sample, 2>* frame) noexcept {
   if (frame == nullptr) {
     return false;
   }
   if (block_offset_ >= block_frames_) {
     block_offset_ = 0;
     block_frames_ = 0;
-    if (!reader.read_int32_stereo(
-            block_.data(), block_.size(), &block_frames_)) {
-      return false;
+    if constexpr (std::is_same_v<Sample, float>) {
+      if (!reader.read_float_stereo(block_.data(), block_.size(), &block_frames_)) return false;
+    } else {
+      if (!reader.read_int32_stereo(block_.data(), block_.size(), &block_frames_)) return false;
     }
   }
   (*frame)[0] = block_[block_offset_ * 2];
@@ -108,7 +116,8 @@ bool RelayAudioSource::take_source_frame(
   return true;
 }
 
-bool RelayAudioSource::ensure_pair(SharedRingReader& reader) noexcept {
+template <typename Sample>
+bool RelaySampleSource<Sample>::ensure_pair(SharedRingReader& reader) noexcept {
   if (have_pair_) {
     return true;
   }
@@ -121,12 +130,14 @@ bool RelayAudioSource::ensure_pair(SharedRingReader& reader) noexcept {
   return true;
 }
 
-bool RelayAudioSource::render(
+template <typename Sample>
+bool RelaySampleSource<Sample>::render(
     SharedRingReader& reader,
-    std::int32_t* destination,
+    Sample* destination,
     std::uint32_t frames,
     double source_frames_per_output_frame) noexcept {
-  if (destination == nullptr || source_frames_per_output_frame <= 0.0) {
+  if (destination == nullptr || !std::isfinite(source_frames_per_output_frame) ||
+      source_frames_per_output_frame <= 0.0 || source_frames_per_output_frame > 2.0) {
     return false;
   }
   bool any_audio = false;
@@ -156,8 +167,12 @@ bool RelayAudioSource::render(
   return any_audio;
 }
 
-RelaySourceMetrics RelayAudioSource::metrics() const noexcept {
+template <typename Sample>
+RelaySourceMetrics RelaySampleSource<Sample>::metrics() const noexcept {
   return metrics_;
 }
+
+template class RelaySampleSource<std::int32_t>;
+template class RelaySampleSource<float>;
 
 }  // namespace soundfork::capture

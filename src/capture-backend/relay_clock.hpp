@@ -34,15 +34,16 @@ struct RelaySourceMetrics {
   std::uint64_t silent_frames = 0;
 };
 
-class RelayAudioSource final {
+template <typename Sample>
+class RelaySampleSource final {
  public:
-  explicit RelayAudioSource(const StreamFormat& format) noexcept;
+  explicit RelaySampleSource(const StreamFormat& format) noexcept;
 
   void reset() noexcept;
   std::uint64_t buffered_frames(const SharedRingReader& reader) const noexcept;
   bool render(
       SharedRingReader& reader,
-      std::int32_t* destination,
+      Sample* destination,
       std::uint32_t frames,
       double source_frames_per_output_frame) noexcept;
   RelaySourceMetrics metrics() const noexcept;
@@ -50,20 +51,25 @@ class RelayAudioSource final {
  private:
   bool take_source_frame(
       SharedRingReader& reader,
-      std::array<std::int32_t, 2>* frame) noexcept;
+      std::array<Sample, 2>* frame) noexcept;
   bool ensure_pair(SharedRingReader& reader) noexcept;
 
   StreamFormat format_{};
-  std::array<std::int32_t,
+  std::array<Sample,
              kMaxFramesPerBlock * kChannelCount>
       block_{};
   std::uint32_t block_frames_ = 0;
   std::uint32_t block_offset_ = 0;
-  std::array<std::int32_t, 2> first_{};
-  std::array<std::int32_t, 2> second_{};
+  std::array<Sample, 2> first_{};
+  std::array<Sample, 2> second_{};
   bool have_pair_ = false;
   double phase_ = 0.0;
   RelaySourceMetrics metrics_{};
 };
+
+using RelayAudioSource = RelaySampleSource<std::int32_t>;
+using RelayFloatAudioSource = RelaySampleSource<float>;
+extern template class RelaySampleSource<std::int32_t>;
+extern template class RelaySampleSource<float>;
 
 }  // namespace soundfork::capture

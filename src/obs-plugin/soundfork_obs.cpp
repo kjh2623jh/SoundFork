@@ -86,15 +86,43 @@ struct AudioScheduling {
   HANDLE handle = nullptr;
 };
 
+// Selection and allocation happen only on this capture worker when attaching.
+// Float sources never travel through Int32; both variants share timing policy.
+class ObsAudioSource {
+ public:
+  explicit ObsAudioSource(const soundfork::capture::StreamFormat& format) {
+    if (format.sample_format == soundfork::capture::SampleFormat::f32le)
+      floating_ = std::make_unique<soundfork::capture::RelayFloatAudioSource>(format);
+    else integer_ = std::make_unique<soundfork::capture::RelayAudioSource>(format);
+  }
+  bool is_float() const noexcept { return floating_ != nullptr; }
+  void reset() noexcept { if (floating_) floating_->reset(); else integer_->reset(); }
+  std::uint64_t buffered_frames(const soundfork::capture::SharedRingReader& reader) const noexcept {
+    return floating_ ? floating_->buffered_frames(reader) : integer_->buffered_frames(reader);
+  }
+  soundfork::capture::RelaySourceMetrics metrics() const noexcept {
+    return floating_ ? floating_->metrics() : integer_->metrics();
+  }
+  void render(soundfork::capture::SharedRingReader& reader, std::int32_t* integer,
+              float* floating, std::uint32_t frames, double ratio) noexcept {
+    if (floating_) floating_->render(reader, floating, frames, ratio);
+    else integer_->render(reader, integer, frames, ratio);
+  }
+ private:
+  std::unique_ptr<soundfork::capture::RelayAudioSource> integer_;
+  std::unique_ptr<soundfork::capture::RelayFloatAudioSource> floating_;
+};
+
 void capture(Source& state) {
   using namespace soundfork::capture;
   HubClient hub(HubRole::obs);
   SharedRingReader reader;
-  std::unique_ptr<RelayAudioSource> audio;
+  std::unique_ptr<ObsAudioSource> audio;
   std::unique_ptr<RelayClockController> clock;
   std::unique_ptr<soundfork::obs::AudioBufferPolicy> buffering;
   constexpr std::uint32_t frames = 480;
   std::array<std::int32_t, frames * 2> samples{};
+  std::array<float, frames * 2> float_samples{};
   HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr,
       CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
   if (timer == nullptr) timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
@@ -154,7 +182,7 @@ void capture(Source& state) {
               buffering.reset();
               continue;
             }
-            audio = std::make_unique<RelayAudioSource>(format);
+            audio = std::make_unique<ObsAudioSource>(format);
             clock = std::make_unique<RelayClockController>(
                 format.sample_rate, format.frames_per_block, buffering->target_blocks());
             ++metrics.attachments;
@@ -179,6 +207,7 @@ void capture(Source& state) {
     for (std::uint32_t packet_index = 0; packet_index < batch.packets; ++packet_index) {
       if (WaitForSingleObject(state.stop, 0) != WAIT_TIMEOUT) break;
       samples.fill(0);
+      float_samples.fill(0);
       if (reader.is_open() && audio && clock && buffering) {
         auto queued = audio->buffered_frames(reader);
         metrics.maximum_queue = (std::max)(metrics.maximum_queue, queued);
@@ -204,7 +233,7 @@ void capture(Source& state) {
               queued > pending_frames ? queued - pending_frames : 0, frames);
           metrics.maximum_ppm = (std::max)(metrics.maximum_ppm, std::abs(clock->correction_ppm()));
           const auto before = audio->metrics().silent_frames;
-          audio->render(reader, samples.data(), frames, ratio);
+          audio->render(reader, samples.data(), float_samples.data(), frames, ratio);
           const auto missing = audio->metrics().silent_frames - before;
           metrics.underrun_silence_frames += missing;
           if (missing != 0) {
@@ -223,10 +252,12 @@ void capture(Source& state) {
         metrics.idle_silence_frames += frames;
       }
       obs_source_audio packet{};
-      packet.data[0] = reinterpret_cast<const std::uint8_t*>(samples.data());
+      const bool float_output = audio && audio->is_float();
+      packet.data[0] = float_output ? reinterpret_cast<const std::uint8_t*>(float_samples.data())
+                                   : reinterpret_cast<const std::uint8_t*>(samples.data());
       packet.frames = frames;
       packet.speakers = SPEAKERS_STEREO;
-      packet.format = AUDIO_FORMAT_32BIT;
+      packet.format = float_output ? AUDIO_FORMAT_FLOAT : AUDIO_FORMAT_32BIT;
       packet.samples_per_sec = 48000;
       packet.timestamp = timeline.timestamp();
       obs_source_output_audio(state.source, &packet);

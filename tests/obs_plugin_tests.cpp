@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,7 @@ struct Observed {
   std::uint32_t silent_run = 0;
   float previous = 0;
   bool checking = false;
+  float stereo_tolerance = 0.00001F;
 };
 void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
   auto& seen = *static_cast<Observed*>(data);
@@ -58,7 +60,7 @@ void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
   if (left != nullptr && right != nullptr) {
     for (std::uint32_t frame = 0; frame < audio->frames; ++frame) {
       if (std::abs(left[frame]) > 0.01F &&
-          std::abs(right[frame] + left[frame] * 0.5F) < 0.00001F) {
+          std::abs(right[frame] + left[frame] * 0.5F) < seen.stereo_tolerance) {
         seen.stereo_pcm.store(true);
         if (seen.first_audio_at == 0) seen.first_audio_at = now;
       }
@@ -66,7 +68,7 @@ void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
       if (check) {
         if (!std::isfinite(left[frame]) || !std::isfinite(right[frame]) ||
             std::abs(left[frame]) > 0.251F ||
-            std::abs(right[frame] + left[frame] * 0.5F) > 0.00001F)
+            std::abs(right[frame] + left[frame] * 0.5F) > seen.stereo_tolerance)
           ++seen.bad_stereo_frames;
         if (seen.checking && std::abs(left[frame] - seen.previous) > 0.025F)
           ++seen.discontinuities;
@@ -86,18 +88,34 @@ void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
+void encode_sample(std::byte* destination, soundfork::capture::SampleFormat format, std::int32_t value) {
+  using soundfork::capture::SampleFormat;
+  if (format == SampleFormat::s16le) { const auto sample = static_cast<std::int16_t>(value / 65536); std::memcpy(destination, &sample, 2); }
+  else if (format == SampleFormat::s24le) {
+    const auto sample = static_cast<std::uint32_t>(value / 256);
+    for (unsigned i = 0; i < 3; ++i) destination[i] = static_cast<std::byte>((sample >> (8 * i)) & 255);
+  } else if (format == SampleFormat::f32le) {
+    const float sample = static_cast<float>(static_cast<double>(value) / 2147483648.0);
+    std::memcpy(destination, &sample, 4);
+  } else std::memcpy(destination, &value, 4);
+}
 }  // namespace
 
 int main(int argc, char** argv) {
   using namespace soundfork::capture;
-  if (argc != 3 && !(argc == 4 && std::string(argv[3]) == "--recovery")) return 2;
-  const bool recovery_test = argc == 4;
+  if (argc < 3 || argc > 4) return 2;
+  const std::string option = argc == 4 ? argv[3] : "";
+  const bool recovery_test = option == "--recovery" || option == "--float-recovery";
+  const auto format = option == "--int16" ? SampleFormat::s16le : option == "--int24" ? SampleFormat::s24le :
+      (option == "--float32" || option == "--float-recovery") ? SampleFormat::f32le : SampleFormat::s32le;
+  if (!option.empty() && !recovery_test && option != "--int16" && option != "--int24" && option != "--float32") return 2;
   const auto scope = L"obs-test-" + std::to_wstring(GetCurrentProcessId());
   SetEnvironmentVariableW(L"SOUNDFORK_CAPTURE_SCOPE", scope.c_str());
   const HubNames names(scope);
   bool started = false;
   obs_source_t* source = nullptr;
   Observed seen;
+  if (format == SampleFormat::s16le) seen.stereo_tolerance = 0.00005F;
   try {
     require(obs_startup("en-US", nullptr, nullptr), "OBS startup failed");
     started = true;
@@ -114,12 +132,13 @@ int main(int argc, char** argv) {
     // Source starts before the game and without WASAPI or a virtual device.
     Sleep(100);
     SharedRingPublisher publisher;
-    require(publisher.open(48000, 64, names.input.c_str()), "test publisher failed");
+    require(publisher.open(48000, 64, names.input.c_str(), format), "test publisher failed");
     HubClient relay_client(HubRole::relay, scope);
     SharedRingReader relay;
     std::array<std::int32_t, 64> left{};
     std::array<std::int32_t, 64> right{};
     std::array<std::int32_t, 128> output{};
+    std::array<std::byte, 256> left_bytes{}, right_bytes{};
     HANDLE timer = create_periodic_timer(4);
     if (timer == nullptr) throw std::runtime_error("test timer failed");
     struct TimerCloser { HANDLE value; ~TimerCloser() { CloseHandle(value); } } closer{timer};
@@ -184,7 +203,12 @@ int main(int argc, char** argv) {
           left[frame] = static_cast<std::int32_t>(std::llround(std::sin(phase) * 536870912.0));
           right[frame] = -left[frame] / 2;
         }
-        publisher.publish_int32_stereo(left.data(), right.data());
+        const auto width = sample_bytes(format);
+        for (std::uint32_t frame = 0; frame < 64; ++frame) {
+          encode_sample(left_bytes.data() + frame * width, format, left[frame]);
+          encode_sample(right_bytes.data() + frame * width, format, right[frame]);
+        }
+        publisher.publish_planar(left_bytes.data(), right_bytes.data());
         produced_frames += 64;
       }
       if (!relay.is_open()) relay.open(relay_client.mapping_name());

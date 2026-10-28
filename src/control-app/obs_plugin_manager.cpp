@@ -266,6 +266,8 @@ Status inspect(const Paths& paths) {
   if (status.safe) status.installed_version = file_version(paths.installed / files[0]);
   if (status.bundled) status.bundled_version = file_version(paths.bundle / files[0]);
   status.bundled = status.bundled && !status.bundled_version.empty();
+  status.update_required = status.present && status.bundled &&
+      (!status.complete || status.installed_version != status.bundled_version);
   return status;
 }
 
@@ -279,9 +281,14 @@ bool obs_is_running() noexcept {
     if (_wcsicmp(entry.szExeFile, L"obs64.exe") == 0 || _wcsicmp(entry.szExeFile, L"obs32.exe") == 0) return true;
   } while (Process32NextW(snapshot.value, &entry));
   if (GetLastError() != ERROR_NO_MORE_FILES) return true;
-  HANDLE lease = OpenEventW(SYNCHRONIZE, FALSE, L"Local\\SoundFork.CaptureHub.v1.OBSClient");
-  if (lease != nullptr) { CloseHandle(lease); return true; }
-  return GetLastError() == ERROR_ACCESS_DENIED;
+  // Keep the legacy lease check: an old libobs host must not have its DLL
+  // replaced either, even when its executable is not named obs64.exe.
+  for (const auto* name : {L"Local\\SoundFork.CaptureHub.v1.OBSClient", L"Local\\SoundFork.CaptureHub.v2.OBSClient"}) {
+    HANDLE lease = OpenEventW(SYNCHRONIZE, FALSE, name);
+    if (lease != nullptr) { CloseHandle(lease); return true; }
+    if (GetLastError() == ERROR_ACCESS_DENIED) return true;
+  }
+  return false;
 }
 
 Result transact_files(bool install, const Paths& paths) {

@@ -42,6 +42,14 @@ int wmain(int argc, wchar_t**) {
     require_ui(RegisterClassExW(&definition) != 0, "diagnostic class failed");
     AppState state;
     state.language = UiLanguage::korean;
+    state.obs_status.present = state.obs_status.complete = true;
+    state.obs_status.installed_version = L"1.0.1";
+    state.obs_status.update_required = true;
+    require_ui(obs_installed_text(&state).find(L"업데이트 필요") != std::wstring::npos, "old plugin Korean warning missing");
+    state.language = UiLanguage::english;
+    require_ui(obs_installed_text(&state).find(L"Update required") != std::wstring::npos, "old plugin English warning missing");
+    state.language = UiLanguage::korean;
+    state.obs_status = {};
     state.force_exit = true;  // Closing this test host never touches the installed relay.
     HWND window = CreateWindowExW(0, L"SoundForkReadOnlyControlTest", L"SoundFork UI preview (read-only)",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 450, nullptr, nullptr,

@@ -27,6 +27,7 @@ struct Status {
   bool complete = false;
   bool bundled = false;
   bool safe = false;
+  bool update_required = false;
   std::wstring installed_version;
   std::wstring bundled_version;
 };

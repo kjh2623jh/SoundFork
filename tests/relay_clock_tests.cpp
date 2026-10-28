@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -103,6 +104,52 @@ void test_reconnect_error_policy() {
       "programming error was incorrectly recoverable");
 }
 
+void test_all_consumer_formats() {
+  using namespace soundfork::capture;
+  const auto name = L"Local\\SoundFork.ConsumerFormats." + std::to_wstring(GetCurrentProcessId());
+  for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le}) {
+    SharedRingPublisher publisher;
+    require(publisher.open(48000, 64, name.c_str(), format), "consumer format publisher");
+    SharedRingReader reader;
+    require(reader.open(name.c_str(), false), "consumer format reader");
+    std::array<std::byte, 256> left{}, right{};
+    const auto width = sample_bytes(format);
+    for (std::size_t i = 0; i < 64; ++i) {
+      if (format == SampleFormat::f32le) {
+        const float l = 0.25F, r = -0.125F;
+        std::memcpy(left.data() + i * width, &l, 4); std::memcpy(right.data() + i * width, &r, 4);
+      } else {
+        // LE representations of +1/4 and -1/8 full scale at each width.
+        const auto l = 1U << (width * 8 - 3), r = 15U << (width * 8 - 4);
+        for (std::uint32_t byte = 0; byte < width; ++byte) {
+          left[i * width + byte] = static_cast<std::byte>((l >> (8 * byte)) & 255);
+          right[i * width + byte] = static_cast<std::byte>((r >> (8 * byte)) & 255);
+        }
+      }
+    }
+    for (int block = 0; block < 8; ++block) require(publisher.publish_planar(left.data(), right.data()), "consumer format publish");
+    auto integer = std::make_unique<RelayAudioSource>(reader.format());
+    std::array<std::int32_t, 128> integer_output{};
+    require(integer->render(reader, integer_output.data(), 64, 1.0001), "integer renderer missing audio");
+    for (std::size_t i = 0; i < 64; ++i)
+      require(integer_output[i * 2] == 536870912 && integer_output[i * 2 + 1] == -268435456, "consumer normalization changed");
+    require(integer->metrics().silent_frames == 0, "integer underrun");
+    auto floating = std::make_unique<RelayFloatAudioSource>(reader.format());
+    std::array<float, 128> float_output{};
+    require(floating->render(reader, float_output.data(), 64, 0.9999), "float renderer missing audio");
+    for (std::size_t i = 0; i < 64; ++i)
+      require(float_output[i * 2] == 0.25F && float_output[i * 2 + 1] == -0.125F, "float renderer normalization changed");
+  }
+  SharedRingPublisher publisher;
+  require(publisher.open(48000, 64, name.c_str(), SampleFormat::f32le), "tiny float publisher");
+  SharedRingReader reader; require(reader.open(name.c_str(), false), "tiny float reader");
+  std::array<float, 64> tiny{}, large{}; tiny.fill(0x1p-40F); large.fill(2.0F);
+  require(publisher.publish_planar(tiny.data(), large.data()) && publisher.publish_planar(tiny.data(), large.data()), "tiny float publish");
+  auto floating = std::make_unique<RelayFloatAudioSource>(reader.format());
+  std::array<float, 64> output{};
+  require(floating->render(reader, output.data(), 32, 1.0), "tiny float render");
+  require(output[0] == 0x1p-40F && output[1] == 2.0F, "Float32 went through an integer conversion or clipping");
+}
 }  // namespace
 
 int main() {
@@ -110,6 +157,7 @@ int main() {
     test_four_hour_drift(1500.0);
     test_four_hour_drift(-1500.0);
     test_linear_relay_source();
+    test_all_consumer_formats();
     test_reconnect_error_policy();
     std::cout << "SoundFork relay clock tests passed\n";
     return 0;

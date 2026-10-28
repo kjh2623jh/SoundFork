@@ -744,7 +744,7 @@ bool capture_consumer_is_active() {
   // The capture hub owns the input ring when OBS is already capturing. Relay
   // joins a separate hub output and is allowed to start in that case.
   HANDLE ready = OpenEventW(SYNCHRONIZE, FALSE,
-      L"Local\\SoundFork.CaptureHub.v1.Ready");
+      L"Local\\SoundFork.CaptureHub.v2.Ready");
   if (ready == nullptr) return true;
   const bool hub_ready = WaitForSingleObject(ready, 0) == WAIT_OBJECT_0;
   CloseHandle(ready);
@@ -990,7 +990,10 @@ std::wstring obs_installed_text(const AppState* state) {
   const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
   if (!state->obs_status.present) return text.absent;
   if (!state->obs_status.complete) return text.incomplete;
-  return state->obs_status.installed_version.empty() ? text.unknown : state->obs_status.installed_version;
+  std::wstring result = state->obs_status.installed_version.empty() ? text.unknown : state->obs_status.installed_version;
+  if (state->obs_status.update_required) result += state->language == UiLanguage::korean
+      ? L" — 업데이트 필요 (같은 SoundFork 빌드 사용)" : L" — Update required (use the same SoundFork build)";
+  return result;
 }
 
 void update_obs_menu(AppState* state) {
@@ -1365,13 +1368,17 @@ void update_status(AppState* state) {
 
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus stream;
-  if (observer.open() && observer.snapshot(&stream) && stream.producer_active) {
+  const bool stream_observed = observer.open() && observer.snapshot(&stream);
+  if (stream_observed && stream.capture_error != soundfork::capture::CaptureError::none) {
+    text << strings.format << L": " << soundfork::capture::capture_error_text(
+        stream.capture_error, state->language == UiLanguage::korean) << L"\r\n";
+  } else if (stream_observed && stream.producer_active) {
     text << strings.asio_stream << L": " << strings.active << L" (PID "
          << stream.producer_pid << L")\r\n";
     text << strings.format << L": " << stream.format.sample_rate << L" Hz, "
          << stream.format.channel_count << L" " << strings.channels << L", "
          << stream.format.frames_per_block << L" " << strings.frames_per_block
-         << L"\r\n";
+         << L", " << soundfork::capture::sample_format_name(stream.format.sample_format) << L" (planar)\r\n";
     text << strings.published_consumed << L": " << stream.stats.published_blocks
          << L" / " << stream.stats.consumed_blocks << L"\r\n";
     text << strings.dropped_blocks << L": " << stream.stats.dropped_blocks
@@ -1384,6 +1391,13 @@ void update_status(AppState* state) {
          << L"\r\n";
   } else {
     text << strings.asio_stream << L": " << strings.inactive << L"\r\n";
+    HANDLE legacy = OpenFileMappingW(FILE_MAP_READ, FALSE, L"Local\\SoundFork.Audio.v2");
+    if (legacy != nullptr) {
+      CloseHandle(legacy);
+      text << (state->language == UiLanguage::korean
+          ? L"구버전 복제 스트림: 드라이버·허브·전달·OBS 플러그인을 같은 빌드로 업데이트하세요.\r\n"
+          : L"Legacy capture stream: update driver, hub, relay and OBS plugin to the same build.\r\n");
+    }
   }
 
   const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);

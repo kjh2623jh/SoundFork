@@ -336,7 +336,7 @@ void test_raw_formats() {
     // Unsupported and mismatched types still prepare ASIO, but expose no PCM.
     for (bool mismatch : {false, true}) {
       fake->set_channel_type(0, mismatch ? ASIOSTInt16LSB : ASIOSTFloat64LSB);
-      fake->set_channel_type(1, ASIOSTInt32LSB);
+      fake->set_channel_type(1, mismatch ? ASIOSTInt32LSB : ASIOSTFloat64LSB);
       require(proxy->createBuffers(buffers, 2, 64, &host) == ASE_OK, "unsupported playback rejected");
       require(!reader.open(name.c_str()), "unsupported capture attached");
       require(observer.open(name.c_str()) && observer.snapshot(&status) &&
