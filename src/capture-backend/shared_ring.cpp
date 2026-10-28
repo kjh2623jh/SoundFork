@@ -468,7 +468,8 @@ std::uint64_t SharedRingReader::queued_blocks() const noexcept {
     return 0;
   }
   const SharedHeader* shared = header(view_);
-  if (load32(&shared->ready) == 0 || !header_matches_format(shared, format_)) {
+  if (load32(&shared->ready) == 0 || load64(&shared->generation) != generation_ ||
+      !header_matches_format(shared, format_)) {
     return 0;
   }
   const LONG64 read = load64(&shared->read_sequence);
@@ -487,7 +488,8 @@ std::uint64_t SharedRingReader::discard_oldest(
     return 0;
   }
   SharedHeader* shared = header(view_);
-  if (load32(&shared->ready) == 0 || !header_matches_format(shared, format_)) {
+  if (load32(&shared->ready) == 0 || load64(&shared->generation) != generation_ ||
+      !header_matches_format(shared, format_)) {
     return 0;
   }
   keep_blocks = (std::min)(

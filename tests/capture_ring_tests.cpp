@@ -187,6 +187,9 @@ void test_raw_layout_and_validation() {
     InterlockedExchange64(&header->write_sequence, write);
     publisher.close();
     require(publisher.open(48000, 64, name.c_str(), format), "raw generation restart");
+    require(publisher.publish_planar(left.data(), right.data()), "new generation publish");
+    require(reader.queued_blocks() == 0 && reader.discard_oldest(0) == 0 &&
+            publisher.stats().consumed_blocks == 0, "old reader modified a new generation queue");
     require(!reader.stream_active() && !reader.read_planar(raw.data(), raw.size(), &frames), "stale generation readable");
     reader.close(); publisher.close();
   }
