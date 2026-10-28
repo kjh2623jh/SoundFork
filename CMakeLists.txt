@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(SoundFork VERSION 1.0.1 LANGUAGES CXX)
+project(SoundFork VERSION 1.1.0 LANGUAGES CXX)
 
 set(
   SOUNDFORK_VERSION
@@ -294,6 +294,10 @@ endif()
 
 if(BUILD_TESTING)
   add_test(NAME soundfork_proxy_tests COMMAND soundfork_tests)
+  add_executable(soundfork_sample_format_tests tests/sample_format_tests.cpp)
+  target_include_directories(soundfork_sample_format_tests PRIVATE src)
+  target_link_libraries(soundfork_sample_format_tests PRIVATE soundfork_warnings)
+  add_test(NAME soundfork_sample_format_tests COMMAND soundfork_sample_format_tests)
   add_test(
     NAME soundfork_com_server_tests
     COMMAND soundfork_com_tests $<TARGET_FILE:soundfork_driver>
