@@ -53,7 +53,8 @@ int wmain(int argc, wchar_t** argv) {
   const soundfork::capture::StreamFormat format = reader.format();
   std::wcout << L"Attached: " << format.sample_rate << L" Hz, "
              << format.channel_count << L" channels, "
-             << format.frames_per_block << L" frames/block, Int32LSB\n";
+             << format.frames_per_block << L" frames/block, "
+             << soundfork::capture::sample_format_name(format.sample_format) << L" (peak normalized to Int32)\n";
 
   using SampleBuffer = std::array<
       std::int32_t,

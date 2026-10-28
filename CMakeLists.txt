@@ -305,6 +305,8 @@ if(BUILD_TESTING)
   add_test(NAME soundfork_host_list COMMAND soundfork_host --list)
   add_test(NAME soundfork_capture_ring_tests COMMAND soundfork_capture_tests)
   add_test(NAME soundfork_capture_hub_tests COMMAND soundfork_hub_tests)
+  add_test(NAME soundfork_capture_hub_format_tests COMMAND soundfork_hub_tests --formats)
+  set_tests_properties(soundfork_capture_hub_format_tests PROPERTIES TIMEOUT 30)
   set_tests_properties(soundfork_capture_hub_tests PROPERTIES TIMEOUT 30)
   add_test(NAME soundfork_relay_clock_tests COMMAND soundfork_relay_tests)
   add_test(

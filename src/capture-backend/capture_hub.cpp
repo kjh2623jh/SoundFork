@@ -17,9 +17,7 @@ struct Handle {
 };
 
 struct Buffers {
-  std::array<std::int32_t, soundfork::capture::kMaxFramesPerBlock * 2> input{};
-  std::array<std::int32_t, soundfork::capture::kMaxFramesPerBlock> left{};
-  std::array<std::int32_t, soundfork::capture::kMaxFramesPerBlock> right{};
+  std::array<std::byte, soundfork::capture::kMaxPayloadBytes> input{};
 };
 }  // namespace
 
@@ -86,9 +84,9 @@ int hub_main(int argc, wchar_t** argv) {
       if (!input.open(names.input.c_str())) continue;
       const auto format = input.format();
       if (!relay.open(format.sample_rate, format.frames_per_block,
-                      names.relay.c_str()) ||
+                      names.relay.c_str(), format.sample_format) ||
           !obs.open(format.sample_rate, format.frames_per_block,
-                    names.obs.c_str())) {
+                    names.obs.c_str(), format.sample_format)) {
         input.close();
         relay.close();
         obs.close();
@@ -101,14 +99,12 @@ int hub_main(int argc, wchar_t** argv) {
     // Bound work per wake. A stalled consumer only fills its own output ring.
     for (std::uint32_t block = 0; block < kCapacityBlocks; ++block) {
       std::uint32_t frames = 0;
-      if (!input.read_int32_stereo(buffers->input.data(),
+      if (!input.read_planar(buffers->input.data(),
                                    buffers->input.size(), &frames)) break;
-      for (std::uint32_t frame = 0; frame < frames; ++frame) {
-        buffers->left[frame] = buffers->input[frame * 2];
-        buffers->right[frame] = buffers->input[frame * 2 + 1];
-      }
-      if (relay.consumer_active()) relay.publish_int32_stereo(buffers->left.data(), buffers->right.data());
-      if (obs.consumer_active()) obs.publish_int32_stereo(buffers->left.data(), buffers->right.data());
+      const auto* left = buffers->input.data();
+      const auto* right = left + input.format().payload_bytes / 2;
+      if (relay.consumer_active()) relay.publish_planar(left, right);
+      if (obs.consumer_active()) obs.publish_planar(left, right);
     }
     if (now >= next_metrics_at) {
       next_metrics_at = now + 30000;

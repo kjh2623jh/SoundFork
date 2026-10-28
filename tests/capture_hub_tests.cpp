@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include <array>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -20,11 +21,46 @@ void await(Predicate predicate, const char* message) {
     Sleep(2);
   }
 }
+
+void test_raw_formats() {
+  using namespace soundfork::capture;
+  for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le}) {
+    const auto scope = L"format-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(static_cast<unsigned>(format));
+    const HubNames names(scope);
+    SharedRingPublisher producer;
+    require(producer.open(48000, 64, names.input.c_str(), format), "raw input failed");
+    {
+      HubClient relay_client(HubRole::relay, scope), obs_client(HubRole::obs, scope);
+      SharedRingReader relay, obs;
+      await([&] { relay_client.ensure_running(); return relay.is_open() || relay.open(relay_client.mapping_name()); }, "raw relay attach");
+      await([&] { return obs.open(obs_client.mapping_name()); }, "raw OBS attach");
+      require(relay.format().sample_format == format && obs.format().sample_format == format, "hub erased sample format");
+      std::array<std::byte, 256> left{}, right{};
+      std::array<std::byte, 512> pcm{};
+      const auto plane = static_cast<std::size_t>(64 * sample_bytes(format));
+      for (std::size_t i = 0; i < plane; ++i) { left[i] = static_cast<std::byte>(i & 255); right[i] = static_cast<std::byte>((255 - i) & 255); }
+      std::uint32_t frames = 0;
+      require(producer.publish_planar(left.data(), right.data()), "raw input publication");
+      for (auto* reader : {&relay, &obs}) {
+        await([&] { return reader->read_planar(pcm.data(), pcm.size(), &frames); }, "raw fanout missing");
+        require(frames == 64 && std::memcmp(pcm.data(), left.data(), plane) == 0 &&
+                std::memcmp(pcm.data() + plane, right.data(), plane) == 0, "hub transformed raw payload");
+      }
+      producer.close();
+      await([&] { return !relay.stream_active() && !obs.stream_active(); }, "raw source stop propagation");
+    }
+    await([&] { HANDLE ready = OpenEventW(SYNCHRONIZE, FALSE, names.ready.c_str());
+      if (!ready) return true; CloseHandle(ready); return false; }, "raw hub exit");
+  }
+}
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   using namespace soundfork::capture;
   try {
+    if (argc == 2 && std::string(argv[1]) == "--formats") {
+      test_raw_formats(); std::cout << "All four PCM formats fan out byte-for-byte\n"; return 0;
+    }
     const auto scope = L"test-" + std::to_wstring(GetCurrentProcessId());
     const HubNames names(scope);
     SharedRingPublisher producer;

@@ -355,7 +355,8 @@ SessionOutcome run_render_session(
   } else {
     std::wcout << L"Associated window: " << matched_title << L'\n';
   }
-  std::wcout << L"Format: 48000 Hz, stereo Int32LSB\n";
+  std::wcout << L"Source: " << soundfork::capture::sample_format_name(reader->format().sample_format)
+             << L"; WASAPI render: 48000 Hz, stereo Int32LSB\n";
   result = audio_client->Start();
   if (FAILED(result)) {
     succeeded_asio_style(result, L"IAudioClient start");
@@ -638,7 +639,7 @@ int relay_main(int argc, wchar_t** argv) {
     const auto format = reader.format();
     diagnostics::log().write(diagnostics::Level::info, "source_connected");
     if (format.sample_rate != 48000 || format.channel_count != 2 ||
-        format.bytes_per_sample != 4) {
+        sample_bytes(format.sample_format) == 0) {
       std::wcerr << L"Unsupported SoundFork capture format\n";
       return 7;
     }

@@ -20,7 +20,7 @@ bool event_exists(const std::wstring& name) noexcept {
 HubNames::HubNames(const std::wstring& scope) {
   const auto suffix = scope.empty() ? L"" : L"." + scope;
   input = std::wstring(kDefaultMappingName) + suffix;
-  const auto root = L"Local\\SoundFork.CaptureHub.v1" + suffix;
+  const auto root = L"Local\\SoundFork.CaptureHub.v2" + suffix;
   relay = root + L".Relay";
   obs = root + L".OBS";
   singleton = root + L".Singleton";
