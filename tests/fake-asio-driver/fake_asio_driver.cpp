@@ -2,8 +2,26 @@
 
 #include <cstring>
 #include <new>
+#include <cmath>
 
 namespace soundfork::test {
+namespace {
+std::size_t sample_width(ASIOSampleType type) noexcept {
+  switch (type) {
+    case ASIOSTInt16LSB: case ASIOSTInt16MSB: return 2;
+    case ASIOSTInt24LSB: case ASIOSTInt24MSB: return 3;
+    case ASIOSTInt32LSB: case ASIOSTInt32MSB:
+    case ASIOSTFloat32LSB: case ASIOSTFloat32MSB:
+    case ASIOSTInt32LSB16: case ASIOSTInt32LSB18: case ASIOSTInt32LSB20: case ASIOSTInt32LSB24:
+    case ASIOSTInt32MSB16: case ASIOSTInt32MSB18: case ASIOSTInt32MSB20: case ASIOSTInt32MSB24: return 4;
+    case ASIOSTFloat64LSB: case ASIOSTFloat64MSB: return 8;
+    default: return 0;
+  }
+}
+}
+
+FakeAsioDriver::FakeAsioDriver(FakeAsioConfig config) noexcept
+    : config_(config), sample_rate_(config.sample_rate), types_(config.channel_types) {}
 
 HRESULT STDMETHODCALLTYPE FakeAsioDriver::QueryInterface(REFIID riid, void** object) {
   if (object == nullptr) {
@@ -32,6 +50,8 @@ ULONG STDMETHODCALLTYPE FakeAsioDriver::Release() {
 }
 
 ASIOBool FakeAsioDriver::init(void*) {
+  if (config_.frames_per_block < 1 || config_.frames_per_block > 8192 ||
+      !std::isfinite(sample_rate_) || sample_rate_ <= 0) return ASIOFalse;
   initialized_ = true;
   return ASIOTrue;
 }
@@ -82,7 +102,7 @@ ASIOError FakeAsioDriver::getLatencies(long* input_latency, long* output_latency
     return ASE_InvalidParameter;
   }
   *input_latency = 0;
-  *output_latency = 128;
+  *output_latency = config_.frames_per_block * 2;
   return ASE_OK;
 }
 
@@ -92,15 +112,15 @@ ASIOError FakeAsioDriver::getBufferSize(
       granularity == nullptr) {
     return ASE_InvalidParameter;
   }
-  *min_size = 64;
-  *max_size = 64;
-  *preferred_size = 64;
+  *min_size = config_.frames_per_block;
+  *max_size = config_.frames_per_block;
+  *preferred_size = config_.frames_per_block;
   *granularity = 0;
   return ASE_OK;
 }
 
 ASIOError FakeAsioDriver::canSampleRate(ASIOSampleRate sample_rate) {
-  return sample_rate == 48000.0 ? ASE_OK : ASE_NoClock;
+  return sample_rate == config_.sample_rate ? ASE_OK : ASE_NoClock;
 }
 
 ASIOError FakeAsioDriver::getSampleRate(ASIOSampleRate* sample_rate) {
@@ -168,7 +188,7 @@ ASIOError FakeAsioDriver::createBuffers(
     return ASE_InvalidMode;
   }
   if (buffer_infos == nullptr || callbacks == nullptr || channel_count <= 0 ||
-      channel_count > 2 || buffer_size != 64) {
+      channel_count > 2 || buffer_size != config_.frames_per_block) {
     return ASE_InvalidParameter;
   }
 
@@ -177,8 +197,21 @@ ASIOError FakeAsioDriver::createBuffers(
     if (buffer_infos[index].isInput == ASIOTrue || channel < 0 || channel >= 2) {
       return ASE_InvalidParameter;
     }
-    buffer_infos[index].buffers[0] = outputs_[channel][0].data();
-    buffer_infos[index].buffers[1] = outputs_[channel][1].data();
+    if (sample_width(types_[channel]) == 0) return ASE_InvalidParameter;
+  }
+  // Allocate and touch the full advertised native sample width before callbacks.
+  // In particular, a Float64 rejection fixture must still own 8 bytes/sample.
+  try {
+    for (long channel = 0; channel < 2; ++channel) {
+      const auto bytes = static_cast<std::size_t>(buffer_size) * sample_width(types_[channel]);
+      output_bytes_[channel] = bytes;
+      for (auto& buffer : outputs_[channel]) buffer = std::make_unique<std::byte[]>(bytes);
+    }
+  } catch (const std::bad_alloc&) { return ASE_NoMemory; }
+  for (long index = 0; index < channel_count; ++index) {
+    const auto channel = buffer_infos[index].channelNum;
+    buffer_infos[index].buffers[0] = outputs_[channel][0].get();
+    buffer_infos[index].buffers[1] = outputs_[channel][1].get();
   }
   callbacks_ = callbacks;
   prepared_ = true;
@@ -194,6 +227,8 @@ ASIOError FakeAsioDriver::disposeBuffers() {
   }
   callbacks_ = nullptr;
   prepared_ = false;
+  for (auto& channel : outputs_) for (auto& buffer : channel) buffer.reset();
+  output_bytes_ = {};
   return ASE_OK;
 }
 
@@ -213,7 +248,7 @@ ASIOError FakeAsioDriver::outputReady() {
 void FakeAsioDriver::fire_buffer_switch(long index, ASIOBool direct_process) noexcept {
   if (callbacks_ != nullptr && callbacks_->bufferSwitch != nullptr) {
     callbacks_->bufferSwitch(index, direct_process);
-    sample_position_ += 64;
+    sample_position_ += static_cast<std::uint64_t>(config_.frames_per_block);
   }
 }
 
@@ -223,15 +258,23 @@ ASIOTime* FakeAsioDriver::fire_time_info(long index, ASIOTime* time_info) noexce
   }
   ASIOTime* result = callbacks_->bufferSwitchTimeInfo(
       time_info, index, ASIOTrue);
-  sample_position_ += 64;
+  sample_position_ += static_cast<std::uint64_t>(config_.frames_per_block);
   return result;
 }
 
 const std::int32_t* FakeAsioDriver::output(long channel, long index) const noexcept {
+  return static_cast<const std::int32_t*>(output_data(channel, index));
+}
+
+const void* FakeAsioDriver::output_data(long channel, long index) const noexcept {
   if (channel < 0 || channel >= 2 || index < 0 || index >= 2) {
     return nullptr;
   }
-  return outputs_[channel][index].data();
+  return outputs_[channel][index].get();
+}
+
+std::size_t FakeAsioDriver::output_bytes(long channel) const noexcept {
+  return channel >= 0 && channel < 2 ? output_bytes_[channel] : 0;
 }
 
 long FakeAsioDriver::output_ready_calls() const noexcept {
@@ -242,7 +285,7 @@ HRESULT FakeBackendFactory::create(IASIO** driver) noexcept {
   if (driver == nullptr) {
     return E_POINTER;
   }
-  *driver = new (std::nothrow) FakeAsioDriver();
+  *driver = new (std::nothrow) FakeAsioDriver(config_);
   last_created_ = static_cast<FakeAsioDriver*>(*driver);
   return *driver == nullptr ? E_OUTOFMEMORY : S_OK;
 }

@@ -24,17 +24,25 @@ void await(Predicate predicate, const char* message) {
 
 void test_raw_formats() {
   using namespace soundfork::capture;
-  for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le}) {
-    const auto scope = L"format-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(static_cast<unsigned>(format));
-    const HubNames names(scope);
-    SharedRingPublisher producer;
-    require(producer.open(48000, 64, names.input.c_str(), format), "raw input failed");
-    {
-      HubClient relay_client(HubRole::relay, scope), obs_client(HubRole::obs, scope);
+  const auto scope = L"format-" + std::to_wstring(GetCurrentProcessId());
+  const HubNames names(scope);
+  std::uint32_t hub_pid = 0;
+  {
+    // Keep one hub alive across format changes. Repeating its two-second idle
+    // exit per format adds cost, not PCM coverage; the lifecycle test remains.
+    HubClient relay_client(HubRole::relay, scope), obs_client(HubRole::obs, scope);
+    for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le}) {
+      std::cout << "Hub raw format: " << sample_format_name(format) << std::endl;
+      SharedRingPublisher producer;
+      require(producer.open(48000, 64, names.input.c_str(), format), "raw input failed");
       SharedRingReader relay, obs;
       await([&] { relay_client.ensure_running(); return relay.is_open() || relay.open(relay_client.mapping_name()); }, "raw relay attach");
       await([&] { return obs.open(obs_client.mapping_name()); }, "raw OBS attach");
       require(relay.format().sample_format == format && obs.format().sample_format == format, "hub erased sample format");
+      SharedRingObserver observer; StreamStatus status;
+      require(observer.open(names.input.c_str()) && observer.snapshot(&status) && status.consumer_active, "hub owner missing");
+      if (hub_pid == 0) hub_pid = status.consumer_pid;
+      require(status.consumer_pid == hub_pid, "format changes unexpectedly replaced the hub process");
       std::array<std::byte, 256> left{}, right{};
       std::array<std::byte, 512> pcm{};
       const auto plane = static_cast<std::size_t>(64 * sample_bytes(format));
@@ -49,9 +57,9 @@ void test_raw_formats() {
       producer.close();
       await([&] { return !relay.stream_active() && !obs.stream_active(); }, "raw source stop propagation");
     }
-    await([&] { HANDLE ready = OpenEventW(SYNCHRONIZE, FALSE, names.ready.c_str());
-      if (!ready) return true; CloseHandle(ready); return false; }, "raw hub exit");
   }
+  await([&] { HANDLE ready = OpenEventW(SYNCHRONIZE, FALSE, names.ready.c_str());
+    if (!ready) return true; CloseHandle(ready); return false; }, "raw hub exit");
 }
 }  // namespace
 

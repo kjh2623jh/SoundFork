@@ -54,6 +54,7 @@ if(BUILD_TESTING)
   target_include_directories(soundfork_obs_timeline_tests PRIVATE src)
   target_link_libraries(soundfork_obs_timeline_tests PRIVATE soundfork_warnings)
   add_test(NAME soundfork_obs_timeline_tests COMMAND soundfork_obs_timeline_tests)
+  set_tests_properties(soundfork_obs_timeline_tests PROPERTIES TIMEOUT 30 LABELS "audio;unit;obs")
   add_executable(soundfork_obs_tests tests/obs_plugin_tests.cpp
     src/capture-backend/shared_ring.cpp src/capture-backend/hub_client.cpp)
   target_include_directories(soundfork_obs_tests PRIVATE src)
@@ -73,4 +74,7 @@ if(BUILD_TESTING)
     soundfork_obs_int16_tests soundfork_obs_int24_tests soundfork_obs_float32_tests soundfork_obs_float_recovery_tests PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${SOUNDFORK_OBS_SDK_ROOT}/runtime"
     TIMEOUT 30)
+  set_tests_properties(soundfork_obs_plugin_tests soundfork_obs_recovery_tests soundfork_obs_int16_tests
+    soundfork_obs_int24_tests soundfork_obs_float32_tests soundfork_obs_float_recovery_tests
+    PROPERTIES LABELS "audio;integration;obs")
 endif()

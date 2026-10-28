@@ -155,7 +155,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest by default: currently 26 tests with OBS, 19 without it. Coverage
+The build script runs CTest by default: currently 27 tests with OBS, 20 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -167,6 +167,39 @@ The test producer also uses MMCSS `Audio` and reports maximum publication and
 observed hub-delivery intervals.
 A deliberately delayed 30 ms PCM batch is still subject to silence, waveform and
 timestamp assertions, with no exclusion window.
+
+### Coverage and execution cost
+
+| Area | Automated evidence | Not established |
+| --- | --- | --- |
+| Proxy/decoder/ring | Buffer identity, callbacks/publication counts, four raw formats, boundaries/header corruption, C++ `new/new[]` interception | Real vendor ASIO behavior, physical latency, exhaustive CRT/Win32 allocation interception |
+| Hub/accelerated soak | Fan-out, stalled-client isolation, restart/crash recovery, repeated PCM/counters/queues/memory observations | Real elapsed hours, hardware clocks, WASAPI device failures, proof of no leaks from memory reports alone |
+| Real libobs/virtual clocks | Four waveforms, stereo, PTS, silence/jitter, integer/float recovery and simulated drift | Actual OBS video/encoder, remote Discord listening, physical DAC sync |
+| Control/settings | Hidden real Win32 UI, private HKCU settings/permissions, singleton and disabled-startup exit | Real sign-in/UAC/clipboard, every DPI/device setup |
+| Security | CodeQL/MSVC analysis, scanner error/path/checksum/publication policy, release ClamAV gate | Guarantee of no vulnerabilities/malware, signing, actual antivirus scanning from ordinary CTest alone |
+| Deployment | CTest selection-policy/process-timeout/DLL checks; isolated release-CI install/upgrade/uninstall | Actual in-use-PC installation/UAC; local policy tests do not prove installation succeeded |
+
+Keep Debug/Release, MSVC analysis and CodeQL: they serve different purposes. CodeQL
+compiles test sources but leaves execution to ordinary CI/releases. Release CTest
+binds testing to the final version's build and is retained. Text-based workflow
+policy tests do not execute GitHub Actions. The Windows CI job has a 30-minute limit.
+
+Keep each roughly eight-second real-libobs test: 1.5-second settling, delayed input
+at four seconds, and over 48,000 continuous checked frames need this window.
+Integer/float recovery tests exercise distinct renderers. Separate settings,
+singleton and disabled-startup cases are cheap and localize failures. Only the raw
+hub matrix reuses one process across four format changes, removing repeated
+two-second idle exits; stalled-client/crash/auto-exit checks remain. The build script
+already builds all default targets, so only the redundant subsequent three-target
+build invocation was removed.
+
+After 128 warm-up callbacks, `proxy_tests` separately measures 10,000 normal copies
+and 10,000 full-ring drops. Normal-copy consumption/PCM validation is outside the
+timed region; publication/consumption counts must advance with zero drops. The drop
+fixture prefills 64 slots and requires no new publications and exactly 10,000 drops.
+Each reports mean/p50/p95/p99/max. Timing includes fake-host PCM writes and the proxy,
+not consumer processing. Functional counters/allocation checks are gates, not noisy
+CI wall-time thresholds. These are not physical input/output latency measurements.
 
 ```powershell
 .\scripts\Test-SoundForkStaticAnalysis.ps1 -WithObsPlugin
@@ -235,11 +268,26 @@ This extracts the production `InitializeSetup` function and compiles it with
 synthetic backend discovery. The probe never proceeds to installation.
 
 ```powershell
-.\scripts\Test-SoundForkSoak.ps1 -Hours 4
+.\scripts\Test-SoundForkSoak.ps1 -Hours 4 -Format all -BufferSize 64 -SkipBuild
 ```
 
-This accelerates 10,800,000 callbacks representing four hours at 48 kHz / 64 samples,
-plus ±1,500 ppm relay drift. Do not report it as four hours of real-time playback.
+The original soak was a manual accelerated tool with a four-hour default and no
+`add_test` registration (introduced in `e6b4838`). No explicit exclusion rationale
+was recorded. Keep the long profile manual; the new `soundfork_soak_ci_tests`
+executes 30 simulated seconds per format, all four formats, with a 60-second timeout
+in ordinary Debug/Release and release CTest. No extra workflow repeats that test.
+Run `soundfork_soak_tests --seconds 30 --format all` directly for the short profile.
+`--hours`/`--seconds` specify simulated duration per format, not real elapsed time.
+Each block verifies raw PCM, callback/publication/consumption counts, drops,
+underflows and queue depth, while reporting private bytes. The Int32 profile retains
+the original consumer read/decoder path; other formats are verified as raw bytes.
+The fake driver uses
+preallocated native-width buffers and configurable blocks. Proxy tests exercise
+four formats × 32/64/256 frames; soak accepts other sizes via `--buffer-size`.
+Without `-SkipBuild`, the script builds and runs full CTest; add `-WithObsPlugin`
+to keep OBS enabled. Relay drift tests are repeated only with `-SkipBuild`, when
+CTest has not already run them. The command above accelerates 10,800,000 callbacks
+per format plus ±1,500 ppm relay drift. Do not report it as real-time playback.
 For hardware testing, the user starts the relay and runs the watcher:
 
 ```powershell

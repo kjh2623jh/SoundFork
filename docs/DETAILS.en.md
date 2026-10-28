@@ -328,6 +328,19 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   Installed files/device settings/startup remain unchanged. Physical FiiO 48k/64,
   simultaneous multi-hour Discord/OBS and real alternate-format drivers remain manual gates.
 
+- 2026-10-29 test-effectiveness cleanup: separated 10,000 normal-copy callbacks
+  from 10,000 full-ring drops, checking PCM and publication/consumption/drop counts.
+  Default CTest now includes 30 simulated seconds per format; Debug/Release each
+  passed 27/27. Reusing one hub across format changes reduced that case from roughly
+  9.4 to 2.9 seconds, retaining all original 26 cases. Four simulated hours per format
+  and an additional original Int32-reader soak had zero drops/underflows, at most one
+  queued block and no observed private-byte growth. Fake-ASIO 1/8192-frame boundaries
+  were checked. `/analyze /WX`, CFG/NX/ASLR/static-runtime and 33 security-tool tests
+  passed; one real-ClamAV case was skipped. Compile-only mode left the CTest log
+  timestamp unchanged. Product ASIO/relay/OBS sources and installed files were not
+  changed. These are not results from remote Actions, final-artifact antivirus scans,
+  physical hardware or real-time multi-hour broadcasting.
+
 The following are not claimed complete:
 
 - Observing nonzero DJMAX song PCM in the monitor and a four-hour simultaneous soak instrumenting callbacks, queues and memory.

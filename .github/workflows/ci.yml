@@ -27,6 +27,7 @@ jobs:
   windows-x64:
     name: Windows x64 / ${{ matrix.configuration }}
     runs-on: windows-2022
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +37,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build and test
+      # Default CTest includes unit/integration and the short accelerated soak.
+      # Do not filter out audio, security-related, or deployment regression gates.
+      - name: Build and test (including short accelerated soak)
         shell: pwsh
         run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}' -WithObsPlugin
 

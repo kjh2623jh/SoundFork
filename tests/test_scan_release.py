@@ -25,6 +25,16 @@ ROOT = f"SoundFork-v{VERSION}-windows-x64"
 
 
 class BuildPolicyTests(unittest.TestCase):
+    def test_default_build_keeps_short_audio_soak_and_avoids_redundant_builds(self):
+        repository = Path(__file__).resolve().parents[1]
+        build = (repository / "scripts/Build-SoundFork.ps1").read_text(encoding="utf-8")
+        self.assertEqual(len(re.findall(r"(?m)^\s*& \$cmake --build", build)), 1)
+        cmake = (repository / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertRegex(cmake, r"add_test\(NAME soundfork_soak_ci_tests COMMAND soundfork_soak_tests --seconds 30 --format all\)")
+        self.assertNotIn("--hours 4", cmake)
+        self.assertIn('TIMEOUT 60 LABELS "audio;accelerated;ci"', cmake)
+        self.assertNotRegex(build, r"& \$ctest[^\r\n]*(?:--exclude|-LE|-E)\b")
+
     def test_only_codeql_skips_execution_not_compilation(self):
         repository = Path(__file__).resolve().parents[1]
         build = (repository / "scripts/Build-SoundFork.ps1").read_text(encoding="utf-8")

@@ -3,6 +3,8 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstddef>
+#include <memory>
 
 #include "audio-bridge/backend_factory.hpp"
 
@@ -15,9 +17,15 @@ inline constexpr CLSID kFakeDriverClsid{
     0x46c2,
     {0x89, 0x4c, 0x6b, 0x8d, 0x1b, 0x5f, 0x56, 0x4c}};
 
+struct FakeAsioConfig {
+  long frames_per_block = 64;
+  ASIOSampleRate sample_rate = 48000.0;
+  std::array<ASIOSampleType, 2> channel_types{ASIOSTInt32LSB, ASIOSTInt32LSB};
+};
+
 class FakeAsioDriver final : public IASIO {
  public:
-  FakeAsioDriver() = default;
+  explicit FakeAsioDriver(FakeAsioConfig config = {}) noexcept;
   ~FakeAsioDriver() = default;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) override;
@@ -57,6 +65,8 @@ class FakeAsioDriver final : public IASIO {
   void fire_buffer_switch(long index, ASIOBool direct_process = ASIOTrue) noexcept;
   ASIOTime* fire_time_info(long index, ASIOTime* time_info) noexcept;
   const std::int32_t* output(long channel, long index) const noexcept;
+  const void* output_data(long channel, long index) const noexcept;
+  std::size_t output_bytes(long channel) const noexcept;
   long output_ready_calls() const noexcept;
   void set_channel_type(long channel, ASIOSampleType type) noexcept { if (channel >= 0 && channel < 2) types_[channel] = type; }
   void notify_sample_rate(ASIOSampleRate rate) noexcept {
@@ -70,7 +80,9 @@ class FakeAsioDriver final : public IASIO {
  private:
   std::atomic<ULONG> reference_count_{1};
   ASIOCallbacks* callbacks_ = nullptr;
-  std::array<std::array<std::array<std::int32_t, 64>, 2>, 2> outputs_{};
+  FakeAsioConfig config_{};
+  std::array<std::array<std::unique_ptr<std::byte[]>, 2>, 2> outputs_{};
+  std::array<std::size_t, 2> output_bytes_{};
   ASIOSampleRate sample_rate_ = 48000.0;
   std::array<ASIOSampleType, 2> types_{ASIOSTInt32LSB, ASIOSTInt32LSB};
   std::uint64_t sample_position_ = 0;
@@ -82,10 +94,12 @@ class FakeAsioDriver final : public IASIO {
 
 class FakeBackendFactory final : public IBackendFactory {
  public:
+  explicit FakeBackendFactory(FakeAsioConfig config = {}) noexcept : config_(config) {}
   HRESULT create(IASIO** driver) noexcept override;
   FakeAsioDriver* last_created() const noexcept;
 
  private:
+  FakeAsioConfig config_{};
   FakeAsioDriver* last_created_ = nullptr;
 };
 

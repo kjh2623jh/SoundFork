@@ -298,6 +298,10 @@ if(BUILD_TESTING)
   target_include_directories(soundfork_sample_format_tests PRIVATE src)
   target_link_libraries(soundfork_sample_format_tests PRIVATE soundfork_warnings)
   add_test(NAME soundfork_sample_format_tests COMMAND soundfork_sample_format_tests)
+  # Always included in normal CI/releases. Four formats, 30 simulated seconds
+  # each; long accelerated and real-time hardware trials remain manual.
+  add_test(NAME soundfork_soak_ci_tests COMMAND soundfork_soak_tests --seconds 30 --format all)
+  set_tests_properties(soundfork_soak_ci_tests PROPERTIES TIMEOUT 60 LABELS "audio;accelerated;ci")
   add_test(
     NAME soundfork_com_server_tests
     COMMAND soundfork_com_tests $<TARGET_FILE:soundfork_driver>
@@ -314,6 +318,17 @@ if(BUILD_TESTING)
     COMMAND soundfork_discord_relay --list-endpoints
   )
   add_test(NAME soundfork_control_smoke COMMAND soundfork_control --self-test)
+  set_tests_properties(soundfork_proxy_tests soundfork_sample_format_tests soundfork_capture_ring_tests
+    soundfork_relay_clock_tests PROPERTIES LABELS "audio;unit")
+  set_tests_properties(soundfork_capture_hub_tests soundfork_capture_hub_format_tests PROPERTIES LABELS "audio;integration")
+  set_tests_properties(soundfork_com_server_tests soundfork_host_list soundfork_discord_relay_list
+    PROPERTIES TIMEOUT 30 LABELS "smoke;interop")
+  set_tests_properties(soundfork_installer_policy_tests soundfork_release_process_tests
+    PROPERTIES LABELS "deployment")
+  set_tests_properties(soundfork_control_ui_tests soundfork_control_status_tests soundfork_control_smoke
+    soundfork_relay_settings_tests soundfork_control_instance_tests soundfork_disabled_startup_tests
+    soundfork_obs_manager_tests PROPERTIES LABELS "control")
+  set_tests_properties(soundfork_diagnostics_tests PROPERTIES LABELS "diagnostics")
 endif()
 
 install(TARGETS
