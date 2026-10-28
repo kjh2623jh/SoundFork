@@ -26,8 +26,10 @@ show a warning.
 - An x64 game or DAW with ASIO support
 - A compatible x64 ASIO driver, installed beforehand; your DAC or audio interface manufacturer's driver is recommended.
 
-Broadcast capture currently supports **48 kHz, stereo, 32-bit integer ASIO output**.
+Stable version `1.0.1` captures **48 kHz, stereo, 32-bit integer ASIO output**.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
+
+The `1.1.0-dev` development branch supports Int16/Int24/Int32/Float32 capture; this is not yet included in the stable download.
 
 ## Installation and playback
 

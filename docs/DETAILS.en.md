@@ -5,6 +5,7 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
+This document describes 1.1.0-dev sources. Stable download 1.0.1 captures Int32LSB only.
 
 ## Compatibility and scope
 
@@ -22,7 +23,7 @@ virtual driver's own buffering latency is not removed.
 Broadcast capture has additional constraints:
 
 - Windows 10/11 x64 and x64 ASIO hosts.
-- 48 kHz, stereo output channels 0 and 1, `ASIOSTInt32LSB` samples.
+- 48 kHz, stereo output channels 0 and 1, Int16LSB/Int24LSB/Int32LSB/Float32LSB samples.
 - Capture blocks of 1–8,192 frames; hardware must support the chosen buffer size.
 - Only one prepared ASIO stream per process.
 - Other formats, rates or channel layouts may play through ASIO without enabling capture.
@@ -192,7 +193,7 @@ No recorded audio or endpoint IDs are saved. Audio never waits for file writes;
 congestion, disk errors or forced exits can lose records, so missing logs do not
 prove an absence of faults. Existing installations are not updated automatically.
 See [development guidance](DEVELOPMENT.en.md#diagnostic-logs)
-for coverage, timing and tests, and the unimplemented format-expansion plan.
+for coverage, timing, tests and the implemented raw PCM transport.
 
 ## Verification records and outstanding checks
 
@@ -311,6 +312,21 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   Existing installations/startup settings were not replaced. Actual GitHub CodeQL,
   ClamAV scans of the final distribution files and the full install/update/uninstall
   lifecycle still need separate verification.
+
+- 2026-10-29 1.1.0-dev format expansion: implemented raw planar Int16/24/32 and
+  Float32 transport with consumer conversion. Debug/Release each passed 26/26 CTest
+  cases, plus `/analyze /WX`, CFG/NX/ASLR/static-runtime and three compiled unattended
+  setup rejection checks. Security-tool tests passed 32 with one real-ClamAV test skipped.
+  Real libobs verified all four waveforms/stereo/timestamps/jitter and Int32/Float32
+  pause recovery. The accelerated four-hour Int32 simulation (10,800,000 callbacks)
+  had zero producer drops/consumer underflows, at most one queued block, and private
+  bytes 561,152→561,152. Sampling every 4,096 callbacks gave average/max wall time
+  0.12537/0.6 us. The separate 10,000-callback harness gave baseline/final means
+  0.118982/0.128433 us and maxima 5.9/5.7 us; most calls in that harness encounter a
+  full capture ring, so this does not compare the entire normal-copy cost or physical
+  latency. None of these are physical FiiO latency or real four-hour broadcast results.
+  Installed files/device settings/startup remain unchanged. Physical FiiO 48k/64,
+  simultaneous multi-hour Discord/OBS and real alternate-format drivers remain manual gates.
 
 The following are not claimed complete:
 

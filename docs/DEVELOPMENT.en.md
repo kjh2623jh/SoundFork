@@ -16,6 +16,9 @@ Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
+The branch defaults to `1.1.0-dev`; omit `-Version` for development builds.
+The alpha version in packaging examples is for explicitly preparing a prerelease,
+not an instruction to publish automatically.
 
 ```powershell
 .\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
@@ -64,8 +67,8 @@ Clock correction and endpoint recovery belong only in broadcast paths.
 
 ### Shared memory and fan-out
 
-- The input is `Local\SoundFork.Audio.v2`; OBS and relay outputs are
-  `Local\SoundFork.CaptureHub.v1.OBS` and `.Relay`. Each ring is single-consumer SPSC.
+- The input is `Local\SoundFork.Audio.v3`; OBS and relay outputs are
+  `Local\SoundFork.CaptureHub.v2.OBS` and `.Relay`. Each ring is single-consumer SPSC.
 - Prepare up to 64 blocks of 8,192 frames and touch roughly 4 MiB of data pages
   before streaming. Validate headers, mapping size, offsets and format checksums;
   cache validated copy sizes internally.
@@ -152,7 +155,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest by default: currently 20 tests with OBS, 17 without it. Coverage
+The build script runs CTest by default: currently 26 tests with OBS, 19 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or
@@ -293,63 +296,68 @@ recovery after file contention. Hardlinked log files are also tested for rejecti
 without modifying their target. Opening the real GUI folder and correlating
 start/stop/device reconnection in a new build remain manual checks.
 
-## v1.1.0 capture-format expansion plan — not implemented
+## 1.1.0-dev raw PCM transport and consumer conversion
 
-### Scope and invariant
+### Formats and playback invariant
 
-Keep 48 kHz, stereo output channels 0/1. Support `ASIOSTInt16LSB`,
-`ASIOSTInt24LSB`, existing `ASIOSTInt32LSB`, and `ASIOSTFloat32LSB`.
-Float64, MSB, Int32LSB16/18/20/24, DSD, multichannel and 44.1/96 kHz are excluded.
-Unsupported formats still pass through to ASIO; disable only duplication and
-explain why in diagnostics. Do not claim all-driver compatibility.
+Capture supports 48 kHz, stereo output channels 0/1, and `ASIOSTInt16LSB`,
+`ASIOSTInt24LSB`, `ASIOSTInt32LSB`, `ASIOSTFloat32LSB`. Float64, MSB,
+Int32LSB16/18/20/24, DSD, multichannel and other rates are excluded.
+Unsupported/mismatched formats disable capture, not playback, with a diagnostic
+reason. This is not a guarantee of compatibility with every ASIO driver.
 
-### Raw transport and consumer conversion
+Validate format and cache lengths during `createBuffers`. Preserve backend buffer
+pointers, callback/`outputReady` ordering and publication points. The ASIO callback
+performs one `memcpy` per channel, without conversion, resampling, a new waiting
+queue or logging. A non-48-kHz rate notification or reset request disables capture
+atomically; only safe buffer recreation reopens it. Silent driver format changes
+without notifications are not detected by querying the driver in callbacks.
 
-1. Validate both channel formats and frame count during `createBuffers`; cache
-   sample widths, lengths and offsets. Reject mismatched capture-channel types.
-   Preserve actual backend buffer pointers, callback/`outputReady` order and the
-   existing publish point. The callback makes two raw channel copies into
-   `[all left samples][all right samples]` planar storage, with no conversion,
-   resampling, new waiting queue or logging.
-2. Shared-memory v3 explicitly describes a private wire format
-   (S16LE/S24LE/S32LE/F32LE), planar layout, sample width, channel count, rate,
-   frames and payload bytes. Derive the right offset from frames times width;
-   validate enum/width/size consistency, overflow and bounds, then cache them.
-   Retain 64 slots, at most 8192 frames, two channels and four bytes per sample:
-   the existing 64 KiB maximum slot size and prefaulting remain. Capacity is not
-   the actual amount of buffered audio. Format is immutable per generation;
-   disable duplication on an in-flight change and reopen only on safe buffer
-   recreation, without altering DAC/game settings.
-3. The hub forwards raw payloads, removing deinterleave/reinterleave work.
-   Relay converts blocks on its worker: S16 times 65536, signed S24 times 256,
-   unchanged S32, and finite/saturated F32 to Int32. Avoid signed negative left
-   shifts. F32 conversion clamps to [-1,1], rounds nearest with ties away from
-   zero, saturates to Int32 bounds, and maps NaN/Inf to zero. Existing WASAPI and
-   drift control remain.
-4. OBS keeps its integer source/interpolation/output path for integer input.
-   F32 uses a float source/interpolation path and OBS float output, avoiding an
-   Int32 round trip. Preserve finite float values and zero NaN/Inf. Do not change
-   timestamp, jitter-buffer, high-water resync, drift or target-frame policies
-   together with format expansion.
+### v3 transport contract
 
-### Migration, commits and acceptance
+- Input: `Local\SoundFork.Audio.v3`; outputs: `Local\SoundFork.CaptureHub.v2.OBS` and
+  `.Relay`. Independent wire IDs S16LE/S24LE/S32LE/F32LE use planar
+  `[all left samples][all right samples]` storage.
+- Headers describe format, layout, sample width, channels, rate, frames and payload
+  bytes. Validate allowed values, bounds, checksum, consistent lengths and generation;
+  copy using cached lengths only. The right plane starts halfway through the payload.
+- Retain 64 slots, at most 8192 frames, two channels and four bytes per sample.
+  Prefault the roughly 4 MiB data region before streaming; each slot is at most
+  64 KiB. Capacity is not actual queued latency.
+- The hub forwards original payloads. Consumer-side ring APIs perform conversion:
+  `read_planar` copies bytes; `read_int32_stereo` and `read_float_stereo` decode on workers.
+- Disabled-capture diagnostics use a mapping with ready cleared. Its format fields
+  are placeholders, not the device format. Readers cannot attach and Control does
+  not display those fields as an active audio format.
+- No dual v2 publication or fallback. Update driver/hub/relay/OBS together.
+  Control warns about a legacy input mapping or an installed plugin version that
+  differs from its included payload.
 
-1. Add decoder tests first: full-scale limits, zero, stereo isolation, signed
-   packed Int24, unaligned input, float boundaries/NaN/Inf and saturation.
-2. Add the v3 ring/raw publisher and fake-ASIO tests for all four formats. Actual
-   backend buffers must remain byte-identical; stalled consumers cannot block
-   playback. Then migrate hub/relay, followed by OBS, in separate tested commits.
-3. Use `SoundFork.Audio.v3` input and `SoundFork.CaptureHub.v2` namespace. No dual
-   v2 publishing or unsafe fallback. Upgrade driver/hub/relay/OBS as one build,
-   flag outdated installed plugin versions, and refuse incompatible reads with
-   diagnostic guidance rather than interpreting old memory as the new format.
-4. Run builds/regressions/static analysis at each step. Test corrupted metadata,
-   bad lengths, stops/reconnection and integer/float OBS waveform/timestamp and
-   jitter/drift recovery. Compare fake-ASIO callback timing distributions/drops
-   with the baseline and resolve regressions before release. Prioritize FiiO's
-   existing Int32 path. Physical FiiO 48k/64, multi-hour Discord/OBS and alternate
-   driver/format tests remain separate manual gates. No extra theoretical buffer
-   period is not a measurement of physical latency.
+### Convert only where required
+
+Relay workers scale S16 by 65536 and sign-extended S24 by 256; S32 values remain
+unchanged. F32→Int32 maps NaN/Inf to zero, clamps to [-1,1], multiplies by 2³¹,
+rounds nearest with ties away from zero, and saturates to Int32 limits.
+No signed-negative left shifts. WASAPI and drift policies remain unchanged.
+
+OBS keeps its Int32 source/interpolation/output path for integer inputs. F32 uses
+float source/interpolation/output, preserving finite values and zeroing NaN/Inf
+without an Int32 round trip. Timestamp, jitter-buffer, high-water resync, drift and
+target-frame policies remain unchanged.
+
+### Automated coverage and manual gates
+
+Tests cover decoder boundaries, signed packed Int24, unaligned/nonfinite inputs,
+saturation, all-format byte identity, allocation-free callbacks, stalled consumers,
+publication count, corrupt headers, generations and raw hub fan-out. Consumer
+interpolation tests include normalized integers and floats below Int32 resolution.
+Real-libobs tests cover all four waveforms/stereo/timestamps/jitter and integer/float
+pause recovery.
+
+Physical FiiO 48k/64, multi-hour Discord/OBS use and real alternate-format drivers
+remain manual checks. Synthetic callback timings and accelerated drift simulation
+are neither physical latency nor real-time soak measurements. Stable downloads stay
+at 1.0.1; building development sources does not replace an installed copy.
 
 ## Development registration and installation
 
@@ -379,15 +387,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1
+.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.0.1 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
