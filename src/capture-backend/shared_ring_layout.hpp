@@ -11,7 +11,7 @@
 namespace soundfork::capture::detail {
 
 inline constexpr std::uint32_t kMagic = 0x4B524653;  // "SFRK"
-inline constexpr std::uint32_t kVersion = 2;
+inline constexpr std::uint32_t kVersion = 3;
 inline constexpr std::size_t kHeaderBytes = 256;
 inline constexpr std::size_t kSamplesPerBlock =
     static_cast<std::size_t>(kMaxFramesPerBlock) * kChannelCount;
@@ -40,14 +40,20 @@ struct SharedHeader {
   alignas(8) volatile LONG64 write_sequence;
   alignas(8) volatile LONG64 read_sequence;
   alignas(8) volatile LONG64 dropped_blocks;
+  std::uint32_t sample_format;
+  std::uint32_t channel_layout;
+  std::uint32_t payload_bytes;
+  volatile LONG capture_error;
 };
 
 constexpr std::uint32_t format_checksum(
-    std::uint32_t sample_rate, std::uint32_t frames_per_block) noexcept {
+    std::uint32_t sample_rate, std::uint32_t frames_per_block,
+    SampleFormat format = SampleFormat::s32le) noexcept {
   return kMagic ^ kVersion ^ static_cast<std::uint32_t>(kHeaderBytes) ^
          static_cast<std::uint32_t>(kMappingBytes) ^ sample_rate ^
-         kChannelCount ^ frames_per_block ^ sizeof(std::int32_t) ^
-         kCapacityBlocks ^ kMaxFramesPerBlock;
+         kChannelCount ^ frames_per_block ^ sample_bytes(format) ^
+         kCapacityBlocks ^ kMaxFramesPerBlock ^ static_cast<std::uint32_t>(format) ^
+         static_cast<std::uint32_t>(ChannelLayout::planar) ^ (frames_per_block * 2 * sample_bytes(format));
 }
 
 constexpr std::size_t block_offset(std::size_t slot) noexcept {

@@ -258,6 +258,97 @@ void test_query_interface() {
   proxy->Release();
 }
 
+struct RawCallbackState {
+  ASIOBufferInfo* buffers = nullptr;
+  soundfork::ProxyDriver* proxy = nullptr;
+  std::array<std::byte, 256> left{}, right{};
+  std::size_t plane_bytes = 0;
+  bool early_ready = false;
+  std::uint64_t switches = 0;
+};
+RawCallbackState* raw_state = nullptr;
+void raw_switch(long index, ASIOBool) {
+  std::memcpy(raw_state->buffers[0].buffers[index], raw_state->left.data(), raw_state->plane_bytes);
+  std::memcpy(raw_state->buffers[1].buffers[index], raw_state->right.data(), raw_state->plane_bytes);
+  ++raw_state->switches;
+  if (raw_state->early_ready) raw_state->proxy->outputReady();
+}
+void raw_rate(ASIOSampleRate) {}
+ASIOTime* raw_time(ASIOTime* time, long index, ASIOBool direct) { raw_switch(index, direct); return time; }
+
+void test_raw_formats() {
+  using namespace soundfork::capture;
+  const std::array<long, 4> types{ASIOSTInt16LSB, ASIOSTInt24LSB, ASIOSTInt32LSB, ASIOSTFloat32LSB};
+  const std::array<SampleFormat, 4> formats{SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le};
+  for (std::size_t type = 0; type < types.size(); ++type) {
+    soundfork::test::FakeBackendFactory factory;
+    const auto name = L"Local\\SoundFork.RawProxyTest." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(type);
+    auto* proxy = new soundfork::ProxyDriver(factory, name.c_str());
+    require(proxy->init(nullptr) == ASIOTrue, "raw init");
+    auto* fake = factory.last_created();
+    fake->set_channel_type(0, types[type]); fake->set_channel_type(1, types[type]);
+    ASIOBufferInfo buffers[2]{}; buffers[1].channelNum = 1;
+    ASIOCallbacks host{raw_switch, raw_rate, asio_message, raw_time};
+    RawCallbackState state; state.buffers = buffers; state.proxy = proxy;
+    state.plane_bytes = 64 * sample_bytes(formats[type]); raw_state = &state;
+    for (std::size_t i = 0; i < state.plane_bytes; ++i) {
+      state.left[i] = static_cast<std::byte>(i & 255); state.right[i] = static_cast<std::byte>((255 - i) & 255);
+    }
+    require(proxy->createBuffers(buffers, 2, 64, &host) == ASE_OK, "raw create");
+    SharedRingReader reader;
+    require(reader.open(name.c_str()) && reader.format().sample_format == formats[type], "raw format attach");
+    std::array<std::byte, 512> captured{};
+    std::uint32_t frames = 0;
+    for (int i = 0; i < 4; ++i) {
+      state.early_ready = (i & 1) != 0;
+      g_track_allocations.store(true);
+      ASIOTime time{};
+      if (i & 1) require(fake->fire_time_info(i & 1, &time) == &time, "raw time forwarding");
+      else fake->fire_buffer_switch(i & 1);
+      g_track_allocations.store(false);
+      require(buffers[0].buffers[i & 1] == fake->output(0, i & 1), "raw playback not zero-copy");
+      require(std::memcmp(fake->output(0, i & 1), state.left.data(), state.plane_bytes) == 0, "DAC bytes changed");
+      require(reader.read_planar(captured.data(), captured.size(), &frames) && frames == 64, "raw capture missing");
+      require(std::memcmp(captured.data(), state.left.data(), state.plane_bytes) == 0 &&
+              std::memcmp(captured.data() + state.plane_bytes, state.right.data(), state.plane_bytes) == 0, "capture changed original PCM");
+      require(!reader.read_planar(captured.data(), captured.size(), &frames), "double publication around outputReady");
+    }
+    // Stop consuming: callback must keep forwarding both buffers without allocation.
+    g_track_allocations.store(true);
+    for (int i = 0; i < 100; ++i) fake->fire_buffer_switch(i & 1);
+    g_track_allocations.store(false);
+    require(reader.stats().dropped_blocks > 0 && state.switches == 104, "slow consumer blocked playback");
+    require(g_callback_allocations.load() == 0, "raw callback allocated");
+    fake->notify_sample_rate(96000);
+    require(!reader.stream_active(), "rate change left capture enabled");
+    SharedRingObserver observer; StreamStatus status;
+    require(observer.open(name.c_str()) && observer.snapshot(&status) &&
+            status.capture_error == CaptureError::format_changed, "rate-change diagnostics missing");
+    fake->fire_buffer_switch(0);
+    require(state.switches == 105, "disabled capture stopped game callback");
+    require(proxy->disposeBuffers() == ASE_OK, "raw dispose");
+    reader.close(); observer.close();
+    fake->notify_sample_rate(48000);
+    require(proxy->createBuffers(buffers, 2, 64, &host) == ASE_OK && reader.open(name.c_str()), "recreate failed");
+    fake->request_reset(); require(!reader.stream_active(), "reset did not disable capture");
+    require(proxy->disposeBuffers() == ASE_OK, "reset dispose");
+    reader.close();
+    // Unsupported and mismatched types still prepare ASIO, but expose no PCM.
+    for (bool mismatch : {false, true}) {
+      fake->set_channel_type(0, mismatch ? ASIOSTInt16LSB : ASIOSTFloat64LSB);
+      fake->set_channel_type(1, ASIOSTInt32LSB);
+      require(proxy->createBuffers(buffers, 2, 64, &host) == ASE_OK, "unsupported playback rejected");
+      require(!reader.open(name.c_str()), "unsupported capture attached");
+      require(observer.open(name.c_str()) && observer.snapshot(&status) &&
+              status.capture_error == CaptureError::sample_format, "unsupported reason missing");
+      fake->fire_buffer_switch(1);
+      observer.close();
+      require(proxy->disposeBuffers() == ASE_OK, "unsupported dispose");
+    }
+    proxy->Release(); raw_state = nullptr;
+  }
+}
+
 }  // namespace
 
 _NODISCARD _Ret_notnull_ _Post_writable_byte_size_(size) _VCRT_ALLOCATOR
@@ -296,6 +387,7 @@ int main() {
   try {
     test_query_interface();
     test_zero_copy_and_callbacks();
+    test_raw_formats();
     test_single_active_stream_guard();
     require(
         soundfork::ProxyDriver::live_instances() == 0,

@@ -58,12 +58,21 @@ class FakeAsioDriver final : public IASIO {
   ASIOTime* fire_time_info(long index, ASIOTime* time_info) noexcept;
   const std::int32_t* output(long channel, long index) const noexcept;
   long output_ready_calls() const noexcept;
+  void set_channel_type(long channel, ASIOSampleType type) noexcept { if (channel >= 0 && channel < 2) types_[channel] = type; }
+  void notify_sample_rate(ASIOSampleRate rate) noexcept {
+    sample_rate_ = rate;
+    if (callbacks_ && callbacks_->sampleRateDidChange) callbacks_->sampleRateDidChange(rate);
+  }
+  void request_reset() noexcept {
+    if (callbacks_ && callbacks_->asioMessage) callbacks_->asioMessage(kAsioResetRequest, 0, nullptr, nullptr);
+  }
 
  private:
   std::atomic<ULONG> reference_count_{1};
   ASIOCallbacks* callbacks_ = nullptr;
   std::array<std::array<std::array<std::int32_t, 64>, 2>, 2> outputs_{};
   ASIOSampleRate sample_rate_ = 48000.0;
+  std::array<ASIOSampleType, 2> types_{ASIOSTInt32LSB, ASIOSTInt32LSB};
   std::uint64_t sample_position_ = 0;
   bool initialized_ = false;
   bool prepared_ = false;

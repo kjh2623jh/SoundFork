@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -134,11 +135,75 @@ void test_shared_ring() {
   require(!publisher.is_open(), "publisher close failed");
 }
 
+void test_raw_layout_and_validation() {
+  using namespace soundfork::capture;
+  const auto name = L"Local\\SoundFork.RawRingTest." + std::to_wstring(GetCurrentProcessId());
+  SharedRingPublisher publisher;
+  SharedRingReader reader;
+  for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le}) {
+    require(publisher.open(48000, 64, name.c_str(), format), "raw publisher");
+    require(reader.open(name.c_str(), false), "raw reader");
+    const auto description = reader.format();
+    require(description.sample_format == format && description.layout == ChannelLayout::planar &&
+            description.payload_bytes == 128 * sample_bytes(format), "wire format mismatch");
+    std::array<std::byte, 256> left{}, right{};
+    std::array<std::byte, 512> raw{};
+    const auto plane = description.payload_bytes / 2;
+    for (std::size_t i = 0; i < plane; ++i) { left[i] = static_cast<std::byte>(i & 255); right[i] = static_cast<std::byte>((i + 1) & 255); }
+    require(publisher.publish_planar(left.data(), right.data()), "raw publish");
+    std::uint32_t frames = 99;
+    require(!reader.read_planar(raw.data(), description.payload_bytes - 1, &frames) && frames == 0, "short raw destination");
+    require(reader.read_planar(raw.data(), raw.size(), &frames) && frames == 64, "raw read");
+    require(std::memcmp(raw.data(), left.data(), plane) == 0 &&
+            std::memcmp(raw.data() + plane, right.data(), plane) == 0, "planar byte identity");
+    struct Mapping {
+      HANDLE handle = nullptr; void* view = nullptr;
+      ~Mapping() { if (view) UnmapViewOfFile(view); if (handle) CloseHandle(handle); }
+    } mapping;
+    mapping.handle = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, name.c_str());
+    require(mapping.handle != nullptr, "raw map handle");
+    mapping.view = MapViewOfFile(mapping.handle, FILE_MAP_ALL_ACCESS, 0, 0, detail::kMappingBytes);
+    require(mapping.view != nullptr, "raw map view");
+    auto* header = static_cast<detail::SharedHeader*>(mapping.view);
+    const auto corrupt = [&](std::uint32_t* field, std::uint32_t invalid) {
+      const auto saved = *field; *field = invalid;
+      require(!publisher.publish_planar(left.data(), right.data()), "modified header accepted by publisher");
+      SharedRingReader other;
+      require(!other.open(name.c_str()), "modified header accepted by new reader");
+      require(!reader.read_planar(raw.data(), raw.size(), &frames), "modified header accepted by reader");
+      *field = saved;
+    };
+    corrupt(&header->version, 2);
+    corrupt(&header->sample_format, 999);
+    corrupt(&header->channel_layout, 2);
+    corrupt(&header->bytes_per_sample, UINT32_MAX);
+    corrupt(&header->frames_per_block, UINT32_MAX);
+    corrupt(&header->payload_bytes, UINT32_MAX);
+    const auto write = header->write_sequence;
+    InterlockedExchange64(&header->write_sequence, (std::numeric_limits<LONG64>::max)());
+    require(!publisher.publish_planar(left.data(), right.data()) &&
+            !reader.read_planar(raw.data(), raw.size(), &frames) && reader.discard_oldest(0) == 0,
+            "corrupt sequences accepted");
+    InterlockedExchange64(&header->write_sequence, write);
+    publisher.close();
+    require(publisher.open(48000, 64, name.c_str(), format), "raw generation restart");
+    require(!reader.stream_active() && !reader.read_planar(raw.data(), raw.size(), &frames), "stale generation readable");
+    reader.close(); publisher.close();
+  }
+  require(!publisher.open(48000, UINT32_MAX, name.c_str()) &&
+          !publisher.open(48000, 64, name.c_str(), SampleFormat::invalid), "invalid publisher format accepted");
+  require(publisher.open_disabled(CaptureError::sample_format, name.c_str()), "disabled diagnostic mapping");
+  SharedRingObserver observer; StreamStatus status;
+  require(observer.open(name.c_str()) && observer.snapshot(&status) && !status.producer_active &&
+          status.capture_error == CaptureError::sample_format && !reader.open(name.c_str()), "disabled mapping consumable");
+}
+
 }  // namespace
 
 int main() {
   try {
     test_shared_ring();
+    test_raw_layout_and_validation();
     std::cout << "SoundFork shared capture ring tests passed\n";
     return 0;
   } catch (const std::exception& error) {

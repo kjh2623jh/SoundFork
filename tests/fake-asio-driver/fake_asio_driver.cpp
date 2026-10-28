@@ -154,7 +154,7 @@ ASIOError FakeAsioDriver::getChannelInfo(ASIOChannelInfo* info) {
   }
   info->isActive = prepared_ ? ASIOTrue : ASIOFalse;
   info->channelGroup = 0;
-  info->type = ASIOSTInt32LSB;
+  info->type = types_[info->channel];
   strcpy_s(info->name, info->channel == 0 ? "Left" : "Right");
   return ASE_OK;
 }

@@ -308,6 +308,8 @@ void ProxyDriver::on_buffer_switch(long index, ASIOBool direct_process) noexcept
 
 void ProxyDriver::on_sample_rate_changed(ASIOSampleRate sample_rate) noexcept {
   ProxyDriver* driver = active_driver_.load(std::memory_order_acquire);
+  if (driver != nullptr && sample_rate != 48000.0)
+    driver->capture_publisher_.disable(capture::CaptureError::format_changed);
   if (driver != nullptr && driver->host_callbacks_.sampleRateDidChange != nullptr) {
     driver->host_callbacks_.sampleRateDidChange(sample_rate);
   }
@@ -316,6 +318,8 @@ void ProxyDriver::on_sample_rate_changed(ASIOSampleRate sample_rate) noexcept {
 long ProxyDriver::on_asio_message(
     long selector, long value, void* message, double* option) noexcept {
   ProxyDriver* driver = active_driver_.load(std::memory_order_acquire);
+  if (driver != nullptr && selector == kAsioResetRequest)
+    driver->capture_publisher_.disable(capture::CaptureError::format_changed);
   if (driver == nullptr || driver->host_callbacks_.asioMessage == nullptr) {
     return 0;
   }
@@ -365,8 +369,13 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
   capture_publisher_.close();
   capture_left_index_ = -1;
   capture_right_index_ = -1;
+  const auto unsupported = [&](capture::CaptureError reason) {
+    capture_left_index_ = capture_right_index_ = -1;
+    capture_publisher_.open_disabled(reason, capture_mapping_name_.data());
+  };
   if (buffer_size <= 0 ||
       buffer_size > static_cast<long>(capture::kMaxFramesPerBlock)) {
+    unsupported(capture::CaptureError::buffer_size);
     return;
   }
 
@@ -382,6 +391,7 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
     }
   }
   if (capture_left_index_ < 0 || capture_right_index_ < 0) {
+    unsupported(capture::CaptureError::channels);
     return;
   }
 
@@ -394,16 +404,26 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
   ASIOSampleRate sample_rate = 0.0;
   if (backend_->getChannelInfo(&left) != ASE_OK ||
       backend_->getChannelInfo(&right) != ASE_OK ||
-      backend_->getSampleRate(&sample_rate) != ASE_OK ||
-      left.type != ASIOSTInt32LSB || right.type != ASIOSTInt32LSB ||
-      sample_rate != 48000.0 ||
-      !capture_publisher_.open(
-          48000,
-          static_cast<std::uint32_t>(buffer_size),
-          capture_mapping_name_.data())) {
-    capture_left_index_ = -1;
-    capture_right_index_ = -1;
+      backend_->getSampleRate(&sample_rate) != ASE_OK) {
+    unsupported(capture::CaptureError::backend_query); return;
   }
+  capture::SampleFormat format = capture::SampleFormat::invalid;
+  if (left.type == right.type) {
+    switch (left.type) {
+      case ASIOSTInt16LSB: format = capture::SampleFormat::s16le; break;
+      case ASIOSTInt24LSB: format = capture::SampleFormat::s24le; break;
+      case ASIOSTInt32LSB: format = capture::SampleFormat::s32le; break;
+      case ASIOSTFloat32LSB: format = capture::SampleFormat::f32le; break;
+      default: break;
+    }
+  }
+  if (format == capture::SampleFormat::invalid) {
+    unsupported(capture::CaptureError::sample_format); return;
+  }
+  if (sample_rate != 48000.0) { unsupported(capture::CaptureError::sample_rate); return; }
+  if (!capture_publisher_.open(48000, static_cast<std::uint32_t>(buffer_size),
+                              capture_mapping_name_.data(), format))
+    capture_left_index_ = capture_right_index_ = -1;
 }
 
 void ProxyDriver::begin_callback(long buffer_index) noexcept {
@@ -419,11 +439,9 @@ void ProxyDriver::publish_capture() noexcept {
       capture_right_index_ < 0) {
     return;
   }
-  const auto* left = static_cast<const std::int32_t*>(
-      downstream_buffers_[capture_left_index_].buffers[callback_buffer_index_]);
-  const auto* right = static_cast<const std::int32_t*>(
-      downstream_buffers_[capture_right_index_].buffers[callback_buffer_index_]);
-  capture_publisher_.publish_int32_stereo(left, right);
+  const auto* left = downstream_buffers_[capture_left_index_].buffers[callback_buffer_index_];
+  const auto* right = downstream_buffers_[capture_right_index_].buffers[callback_buffer_index_];
+  capture_publisher_.publish_planar(left, right);
 }
 
 void ProxyDriver::finish_callback() noexcept {
