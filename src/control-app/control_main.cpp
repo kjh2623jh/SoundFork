@@ -70,6 +70,8 @@ constexpr int kOpenProject = 2102;
 constexpr int kShowAbout = 2103;
 constexpr int kShowDiagnostics = 2104;
 constexpr int kOpenLogs = 2105;
+constexpr int kReportBug = 2106;
+constexpr int kCopyReport = 2107;
 constexpr int kCopyDiagnostics = 2401;
 constexpr int kCloseDiagnostics = 2402;
 constexpr int kTrayOpen = 2201;
@@ -1473,7 +1475,17 @@ void update_status(AppState* state) {
 }
 
 bool copy_diagnostics(AppState* state) {
-  const auto& text = state->diagnostic_snapshot;
+  auto text = state->diagnostic_snapshot;
+  // Preserve the on-screen diagnostic detail, but never copy local file paths.
+  for (const auto& path : {query_registration().driver_dll,
+                           diagnostics::log_directory().native()}) {
+    if (path.empty()) continue;
+    std::size_t position = 0;
+    while ((position = text.find(path, position)) != std::wstring::npos) {
+      text.replace(position, path.size(), L"[local path omitted]");
+      position += 20;
+    }
+  }
   const auto bytes = (text.size() + 1) * sizeof(wchar_t);
   HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
   if (memory == nullptr) return false;
@@ -1482,7 +1494,7 @@ bool copy_diagnostics(AppState* state) {
   std::copy_n(text.c_str(), text.size() + 1, destination);
   GlobalUnlock(memory);
   bool copied = false;
-  if (OpenClipboard(state->diagnostic_window)) {
+  if (OpenClipboard(state->diagnostic_window != nullptr ? state->diagnostic_window : state->window)) {
     if (EmptyClipboard()) copied = SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
     CloseClipboard();
   }
@@ -1811,6 +1823,10 @@ void rebuild_menu(AppState* state) {
       kCheckForUpdates,
       ui_strings(state->language).check_for_updates);
   AppendMenuW(help, MF_STRING, kOpenProject, ui_strings(state->language).open_project);
+  AppendMenuW(help, MF_STRING, kReportBug,
+      state->language == UiLanguage::korean ? L"버그 제보..." : L"Report a bug...");
+  AppendMenuW(help, MF_STRING, kCopyReport,
+      state->language == UiLanguage::korean ? L"진단 정보 복사" : L"Copy diagnostic information");
   AppendMenuW(help, MF_STRING, kShowDiagnostics,
       soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).title);
   AppendMenuW(help, MF_STRING, kOpenLogs,
@@ -2181,6 +2197,26 @@ LRESULT CALLBACK window_proc(
               L"SoundFork",
               MB_ICONERROR);
         }
+        return 0;
+      }
+      if (control == kReportBug) {
+        const auto opened = ShellExecuteW(window, L"open",
+            L"https://github.com/kjh2623jh/SoundFork/issues/new?template=bug_report.yml",
+            nullptr, nullptr, SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(opened) <= 32)
+          MessageBoxW(window, strings.open_project_failed, L"SoundFork", MB_ICONERROR);
+        return 0;
+      }
+      if (control == kCopyReport) {
+        update_status(state);
+        const bool copied = copy_diagnostics(state);
+        MessageBoxW(window,
+            copied ? (state->language == UiLanguage::korean
+                ? L"진단 정보를 복사했습니다. 내용을 확인한 뒤 버그 제보 양식에 붙여 넣으세요."
+                : L"Diagnostics copied. Review the contents before pasting into the bug report.")
+                : (state->language == UiLanguage::korean ? L"복사하지 못했습니다. 다시 시도하세요."
+                                                       : L"Copy failed. Please try again."),
+            L"SoundFork", MB_OK | (copied ? MB_ICONINFORMATION : MB_ICONERROR));
         return 0;
       }
       if (control == kShowAbout) {

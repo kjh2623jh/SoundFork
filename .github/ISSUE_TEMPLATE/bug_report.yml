@@ -1,0 +1,41 @@
+name: Bug report / 버그 제보
+description: Report an audio or application problem / 오디오 또는 프로그램 문제 제보
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the problem in Korean or English. GitHub sign-in is required.
+        한국어 또는 영어로 작성해 주세요. GitHub 로그인이 필요합니다.
+        Help → Copy diagnostic information에서 복사한 내용을 아래에 붙여 넣을 수 있습니다.
+        Review diagnostics before submitting. Do not include personal paths or recordings containing private conversations.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 발생한 문제
+      description: What happened, and what did you expect? / 실제 동작과 기대한 동작을 알려 주세요.
+    validations:
+      required: true
+  - type: checkboxes
+    id: affected
+    attributes:
+      label: Affected audio / 문제가 발생하는 곳
+      options:
+        - label: Game playback / 직접 듣는 게임 소리
+        - label: Discord screen share / Discord 화면 공유
+        - label: OBS plugin / OBS 플러그인
+        - label: Virtual audio relay / 가상 장치 오디오 전달
+        - label: Control panel or installer / 제어판 또는 설치
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps / 재현 방법
+      description: Include how often it happens. / 발생 빈도도 알려 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic information / 진단 정보
+      description: Help → Copy diagnostic information. If unavailable, include SoundFork version, ASIO driver, sample rate and buffer size manually.
+      render: text
