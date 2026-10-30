@@ -31,8 +31,6 @@ body:
     attributes:
       label: Steps / 재현 방법
       description: Include how often it happens. / 발생 빈도도 알려 주세요.
-    validations:
-      required: true
   - type: textarea
     id: diagnostics
     attributes:
