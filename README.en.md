@@ -14,10 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.0.1/SoundFork-Setup-v1.0.1.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.1.0/SoundFork-Setup-v1.1.0.exe) ·
 [View all releases](../../releases)
 
-The current version is `v1.0.1`. Executables are not code-signed, so Windows SmartScreen may
+The current version is `v1.1.0`. Executables are not code-signed, so Windows SmartScreen may
 show a warning.
 
 ## Requirements
@@ -26,10 +26,10 @@ show a warning.
 - An x64 game or DAW with ASIO support
 - A compatible x64 ASIO driver, installed beforehand; your DAC or audio interface manufacturer's driver is recommended.
 
-Stable version `1.0.1` captures **48 kHz, stereo, 32-bit integer ASIO output**.
+Capture supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 
-The `1.1.0-dev` development branch supports Int16/Int24/Int32/Float32 capture; this is not yet included in the stable download.
+All four PCM formats have automated coverage. Real ASIO driver compatibility beyond the tested FiiO environment needs further verification.
 
 ## Installation and playback
 

@@ -5,7 +5,7 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.1.0-dev sources. Stable download 1.0.1 captures Int32LSB only.
+This document describes 1.1.0 with raw Int16/Int24/Int32/Float32 PCM capture.
 
 ## Compatibility and scope
 

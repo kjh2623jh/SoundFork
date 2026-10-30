@@ -4,7 +4,7 @@ project(SoundFork VERSION 1.1.0 LANGUAGES CXX)
 
 set(
   SOUNDFORK_VERSION
-  "${PROJECT_VERSION}-dev"
+  "${PROJECT_VERSION}"
   CACHE STRING
   "User-visible SoundFork version"
 )

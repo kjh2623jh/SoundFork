@@ -13,10 +13,10 @@ SoundFork는 게임이나 DAW의 ASIO 오디오를 기존 DAC로 저지연 재�
 
 ## 다운로드
 
-[**Windows x64 설치 파일 다운로드**](../../releases/download/v1.0.1/SoundFork-Setup-v1.0.1.exe) ·
+[**Windows x64 설치 파일 다운로드**](../../releases/download/v1.1.0/SoundFork-Setup-v1.1.0.exe) ·
 [모든 릴리스 보기](../../releases)
 
-현재 버전은 `v1.0.1`입니다. 실행 파일은 코드 서명되지 않았으므로 Windows SmartScreen 경고가 표시될 수 있습니다.
+현재 버전은 `v1.1.0`입니다. 실행 파일은 코드 서명되지 않았으므로 Windows SmartScreen 경고가 표시될 수 있습니다.
 
 ## 필요 조건
 
@@ -24,10 +24,10 @@ SoundFork는 게임이나 DAW의 ASIO 오디오를 기존 DAC로 저지연 재�
 - ASIO를 지원하는 64비트 게임 또는 DAW
 - 호환되는 64비트 ASIO 드라이버 사전 설치 — DAC·오디오 인터페이스 제조사 드라이버를 권장합니다.
 
-정식 버전 `1.0.1`의 방송용 오디오 복제는 **48 kHz·스테레오·32비트 정수 ASIO 출력**을 지원합니다.
+방송용 오디오 복제는 **48 kHz·스테레오의 Int16·Int24·Int32·Float32 ASIO 출력(LSB)**을 지원합니다.
 실사용 확인 환경은 DJMAX RESPECT V + FiiO K11 R2R입니다.
 
-`1.1.0-dev` 개발 브랜치는 Int16·Int24·Int32·Float32 복제를 지원하며, 아직 정식 다운로드에는 포함되지 않습니다.
+네 가지 PCM 형식은 자동화 테스트로 검증했습니다. 다른 제조사 ASIO 드라이버의 실제 호환성은 추가 확인이 필요합니다.
 
 ## 설치 및 재생
 

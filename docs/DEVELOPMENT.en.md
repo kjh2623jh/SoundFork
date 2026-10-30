@@ -16,7 +16,7 @@ Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
-The branch defaults to `1.1.0-dev`; omit `-Version` for development builds.
+The default build version is `1.1.0`; specify `-Version` for development versions.
 The alpha version in packaging examples is for explicitly preparing a prerelease,
 not an instruction to publish automatically.
 
@@ -344,7 +344,7 @@ recovery after file contention. Hardlinked log files are also tested for rejecti
 without modifying their target. Opening the real GUI folder and correlating
 start/stop/device reconnection in a new build remain manual checks.
 
-## 1.1.0-dev raw PCM transport and consumer conversion
+## 1.1.0 raw PCM transport and consumer conversion
 
 ### Formats and playback invariant
 
@@ -404,8 +404,7 @@ pause recovery.
 
 Physical FiiO 48k/64, multi-hour Discord/OBS use and real alternate-format drivers
 remain manual checks. Synthetic callback timings and accelerated drift simulation
-are neither physical latency nor real-time soak measurements. Stable downloads stay
-at 1.0.1; building development sources does not replace an installed copy.
+are neither physical latency nor real-time soak measurements. Building sources does not replace an installed copy.
 
 ## Development registration and installation
 
