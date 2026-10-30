@@ -1,6 +1,7 @@
 name: Bug report / 버그 제보
 description: Report an audio or application problem / 오디오 또는 프로그램 문제 제보
 title: "[Bug] "
+labels: [bug]
 body:
   - type: markdown
     attributes:
@@ -29,8 +30,8 @@ body:
   - type: textarea
     id: reproduce
     attributes:
-      label: Steps / 재현 방법
-      description: Include how often it happens. / 발생 빈도도 알려 주세요.
+      label: Circumstances (optional) / 문제가 발생했을 때 상황 (선택)
+      description: Describe what you were doing, if known. Exact reproduction steps are not required. / 당시 무엇을 하고 있었는지 알려 주세요. 정확한 재현 방법을 몰라도 괜찮습니다.
   - type: textarea
     id: diagnostics
     attributes:

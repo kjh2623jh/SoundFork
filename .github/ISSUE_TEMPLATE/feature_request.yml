@@ -1,0 +1,27 @@
+name: Improvement suggestion / 개선 제안
+description: Suggest a feature or improvement / 새로운 기능이나 개선할 점을 제안해 주세요
+title: "[Enhancement] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggestions in Korean or English are welcome. You do not need to know how to implement them.
+        한국어 또는 영어로 자유롭게 제안해 주세요. 구현 방법을 몰라도 괜찮습니다.
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggestion / 제안 내용
+      description: What would you like to add or improve? / 어떤 기능이 있으면 좋을지, 어떤 점이 바뀌면 좋을지 알려 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Use case (optional) / 사용 상황 (선택)
+      description: When would this help you? / 어떤 상황에서 도움이 되는지 알려 주세요.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional information (optional) / 추가 정보 (선택)
+      description: Examples or screenshots are welcome. / 참고 사례나 스크린샷이 있다면 첨부해 주세요.
