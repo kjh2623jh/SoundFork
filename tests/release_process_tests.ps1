@@ -35,6 +35,12 @@ Start-Sleep -Seconds 60
         $remaining = Get-Process -Id ([int]$ownedId) -ErrorAction SilentlyContinue
         if ($null -ne $remaining) { throw "Timed-out fixture process $ownedId is still running." }
     }
+    $workflow = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\.github\workflows\release.yml') -Raw
+    if ($workflow -notmatch [regex]::Escape('$releaseBranch = if ($tagSuffix) { "v$tagBase-dev" } else { ''main'' }') -or
+        $workflow -notmatch 'refs/heads/\$releaseBranch' -or
+        $workflow -notmatch 'origin/\$releaseBranch') {
+        throw 'Release workflow must require stable tags on main and prerelease tags on the matching development branch.'
+    }
     Write-Output 'Release process exit-code and parent/child timeout tests passed; no installer or registry changes.'
 } finally {
     # Only fixture PIDs recorded in this newly created private directory.
