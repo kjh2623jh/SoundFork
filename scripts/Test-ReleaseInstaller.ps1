@@ -125,7 +125,7 @@ try {
     }
 
     foreach ($file in @(
-        'soundfork_driver.dll', 'soundfork_control.exe',
+        'soundfork_driver.dll', 'soundfork_app_relay.dll', 'soundfork_control.exe',
         'soundfork_discord_relay.exe', 'soundfork_capture_hub.exe', 'unins000.exe',
         'README.md', 'README.en.md', 'LICENSE',
         'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.en.md',

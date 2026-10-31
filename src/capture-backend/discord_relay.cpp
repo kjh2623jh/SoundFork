@@ -27,6 +27,7 @@
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/endpoint_selection.hpp"
+#include "capture-backend/relay_entry.hpp"
 #include "diagnostics/async_log.hpp"
 #include "soundfork_version.hpp"
 
@@ -502,7 +503,7 @@ SessionOutcome run_render_session(
 
 }  // namespace
 
-int relay_main(int argc, wchar_t** argv) {
+int soundfork_relay_main(int argc, wchar_t** argv) {
   bool list_endpoints = false;
   bool system_share = false;
   bool persistent = false;
@@ -729,10 +730,12 @@ int relay_main(int argc, wchar_t** argv) {
   return exit_code;
 }
 
+#ifndef SOUNDFORK_RELAY_NO_ENTRYPOINT
 int wmain(int argc, wchar_t** argv) {
-  const int result = relay_main(argc, argv);
+  const int result = soundfork_relay_main(argc, argv);
   diagnostics::log().write(result == 0 ? diagnostics::Level::info : diagnostics::Level::error,
       "relay_exit", "exit_code=" + std::to_string(result));
   diagnostics::log().stop();
   return result;
 }
+#endif

@@ -65,6 +65,7 @@ constexpr int kGetVbCable = 1007;
 constexpr int kLanguageEnglish = 2001;
 constexpr int kLanguageKorean = 2002;
 constexpr int kStartupRelay = 2003;
+constexpr int kRelayModeCombo = 2004;
 constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
 constexpr int kShowAbout = 2103;
@@ -348,6 +349,8 @@ struct AppState {
   HWND vb_cable_button = nullptr;
   HWND status = nullptr;
   HWND startup_checkbox = nullptr;
+  HWND relay_mode_label = nullptr;
+  HWND relay_mode_combo = nullptr;
   HWND diagnostic_window = nullptr;
   HWND diagnostic_text = nullptr;
   HWND diagnostic_copy = nullptr;
@@ -393,6 +396,33 @@ struct StartupStrings {
   const wchar_t* enabled;
   const wchar_t* disabled;
 };
+
+struct RelayModeStrings {
+  const wchar_t* label;
+  const wchar_t* entire_screen;
+  const wchar_t* application;
+  const wchar_t* starts_with_game;
+  const wchar_t* restart_game;
+  const wchar_t* application_note;
+};
+
+const RelayModeStrings& relay_mode_strings(UiLanguage language) {
+  static constexpr RelayModeStrings en{
+      L"Discord sharing mode",
+      L"Entire screen (external forwarding)",
+      L"Application window (starts inside the game)",
+      L"Starts with game",
+      L"Application-window forwarding will start the next time the game initializes SoundFork ASIO.",
+      L"Discord: share the game application window. OBS plugin capture remains independent."};
+  static constexpr RelayModeStrings ko{
+      L"Discord 공유 방식",
+      L"전체 화면 공유 (외부 전달)",
+      L"애플리케이션 창 공유 (게임 내부에서 시작)",
+      L"게임과 함께 시작",
+      L"애플리케이션 창 전달은 게임이 다음에 SoundFork ASIO를 초기화할 때 시작됩니다.",
+      L"Discord에서는 게임 애플리케이션 창을 공유합니다. OBS 플러그인은 독립적으로 사용할 수 있습니다."};
+  return language == UiLanguage::korean ? ko : en;
+}
 const StartupStrings& startup_strings(UiLanguage language) {
   static constexpr StartupStrings en{
     L"Start audio forwarding at Windows sign-in", L"Could not save the audio forwarding setting. Windows error: ",
@@ -1183,6 +1213,8 @@ void notify_startup_error(AppState* state) {
 }
 
 void start_saved_relay(AppState* state) {
+  if (soundfork::control::RelaySettings{}.mode() !=
+      soundfork::control::RelayMode::entire_screen) return;
   if (!soundfork::control::RelaySettings{}.startup_enabled(executable_path())) return;
   if (relay_is_running()) return;
   const auto& text = startup_strings(state->language);
@@ -1406,6 +1438,7 @@ void update_status(AppState* state) {
   text << obs_text.menu << L": " << obs_installed_text(state) << L"\r\n";
 
   const bool relay_running = relay_is_running();
+  const auto relay_mode = soundfork::control::RelaySettings{}.mode();
   const LRESULT selected =
       SendMessageW(state->endpoint_combo, CB_GETCURSEL, 0, 0);
   const Endpoint* broadcast_endpoint =
@@ -1423,6 +1456,11 @@ void update_status(AppState* state) {
   }
   text << strings.discord_relay << L": "
        << (relay_running ? strings.running : strings.stopped) << L"\r\n";
+  text << relay_mode_strings(state->language).label << L": "
+       << (relay_mode == soundfork::control::RelayMode::application
+               ? relay_mode_strings(state->language).application
+               : relay_mode_strings(state->language).entire_screen)
+       << L"\r\n";
   const auto& startup = startup_strings(state->language);
   text << (soundfork::control::RelaySettings{}.startup_enabled(executable_path())
                ? startup.enabled : startup.disabled) << L"\r\n";
@@ -1469,7 +1507,18 @@ void update_status(AppState* state) {
       soundfork::control::RelaySettings{}.startup_enabled(executable_path()) ? BST_CHECKED : BST_UNCHECKED, 0);
   SetWindowTextW(
       state->relay_button,
-      relay_running ? strings.stop_relay : strings.start_relay);
+      relay_running ? strings.stop_relay
+                    : (relay_mode == soundfork::control::RelayMode::application
+                           ? relay_mode_strings(state->language).starts_with_game
+                           : strings.start_relay));
+  EnableWindow(state->relay_button,
+      relay_mode == soundfork::control::RelayMode::entire_screen || relay_running);
+  EnableWindow(state->startup_checkbox,
+      relay_mode == soundfork::control::RelayMode::entire_screen);
+  SetWindowTextW(state->note,
+      relay_mode == soundfork::control::RelayMode::application
+          ? relay_mode_strings(state->language).application_note
+          : strings.note);
   EnableWindow(state->endpoint_combo, relay_running ? FALSE : TRUE);
   update_tray_icon(state);
 }
@@ -1589,9 +1638,13 @@ void layout_controls(AppState* state, int width) {
   MoveWindow(state->endpoint_label, margin, 75, content, 22, TRUE);
   MoveWindow(state->endpoint_combo, margin, 98, combo_width, 240, TRUE);
   MoveWindow(state->relay_button, margin + combo_width + 12, 97, button_width, 28, TRUE);
-  MoveWindow(state->startup_checkbox, margin, 177, content, 26, TRUE);
-  MoveWindow(state->status, margin, 216, content, 90, TRUE);
-  MoveWindow(state->note, margin, 312, content, 44, TRUE);
+  MoveWindow(state->relay_mode_label, margin, 139, content, 22, TRUE);
+  MoveWindow(state->relay_mode_combo, margin, 162, content, 160, TRUE);
+  MoveWindow(state->refresh_button, margin, 204, 130, 28, TRUE);
+  MoveWindow(state->vb_cable_button, margin + 142, 204, 145, 28, TRUE);
+  MoveWindow(state->startup_checkbox, margin, 242, content, 26, TRUE);
+  MoveWindow(state->status, margin, 279, content, 90, TRUE);
+  MoveWindow(state->note, margin, 375, content, 44, TRUE);
 }
 
 void create_controls(AppState* state) {
@@ -1689,6 +1742,16 @@ void create_controls(AppState* state) {
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kToggleRelay)),
       nullptr,
       nullptr);
+  state->relay_mode_label = CreateWindowExW(
+      0, L"STATIC", relay_mode_strings(state->language).label,
+      WS_CHILD | WS_VISIBLE, 18, 139, 652, 22, state->window,
+      nullptr, nullptr, nullptr);
+  state->relay_mode_combo = CreateWindowExW(
+      0, L"COMBOBOX", nullptr,
+      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
+      18, 162, 652, 160, state->window,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRelayModeCombo)),
+      nullptr, nullptr);
   state->refresh_button = CreateWindowExW(
       0,
       L"BUTTON",
@@ -1751,6 +1814,8 @@ void create_controls(AppState* state) {
                        state->endpoint_label,
                        state->endpoint_combo,
                        state->relay_button,
+                       state->relay_mode_label,
+                       state->relay_mode_combo,
                        state->refresh_button,
                        state->vb_cable_button,
                        state->note,
@@ -1761,6 +1826,18 @@ void create_controls(AppState* state) {
   RECT client{};
   GetClientRect(state->window, &client);
   layout_controls(state, client.right);
+}
+
+void populate_relay_mode_combo(AppState* state) {
+  const auto& strings = relay_mode_strings(state->language);
+  SendMessageW(state->relay_mode_combo, CB_RESETCONTENT, 0, 0);
+  SendMessageW(state->relay_mode_combo, CB_ADDSTRING, 0,
+      reinterpret_cast<LPARAM>(strings.entire_screen));
+  SendMessageW(state->relay_mode_combo, CB_ADDSTRING, 0,
+      reinterpret_cast<LPARAM>(strings.application));
+  const auto mode = soundfork::control::RelaySettings{}.mode();
+  SendMessageW(state->relay_mode_combo, CB_SETCURSEL,
+      mode == soundfork::control::RelayMode::application ? 1 : 0, 0);
 }
 
 void rebuild_menu(AppState* state) {
@@ -1863,6 +1940,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   SetWindowTextW(state->backend_label, strings.backend_label);
   SetWindowTextW(state->apply_button, strings.apply);
   SetWindowTextW(state->endpoint_label, strings.endpoint_label);
+  SetWindowTextW(state->relay_mode_label, relay_mode_strings(language).label);
   SetWindowTextW(state->refresh_button, strings.refresh_devices);
   SetWindowTextW(state->note, strings.note);
   SetWindowTextW(state->startup_checkbox, startup_strings(language).menu);
@@ -1875,6 +1953,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   }
   rebuild_menu(state);
   populate_endpoint_combo(state);
+  populate_relay_mode_combo(state);
   if (!selected_endpoint_id.empty()) {
     const auto endpoint = std::find_if(
         state->endpoints.begin(),
@@ -1926,6 +2005,7 @@ LRESULT CALLBACK window_proc(
       rebuild_menu(state);
       populate_backend_combo(state);
       populate_endpoint_combo(state);
+      populate_relay_mode_combo(state);
       (void)add_tray_icon(state);
       update_status(state);
       SetTimer(window, kRefreshTimer, 1000, nullptr);
@@ -1935,7 +2015,7 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_GETMINMAXINFO: {
       auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
-      size->ptMinTrackSize = {720, 430};
+      size->ptMinTrackSize = {720, 500};
       return 0;
     }
     case WM_SIZE: {
@@ -2080,6 +2160,63 @@ LRESULT CALLBACK window_proc(
             is_broadcast_endpoint(state->endpoints[static_cast<std::size_t>(selected)])) {
           if (!save_endpoint(state, state->endpoints[static_cast<std::size_t>(selected)].id))
             populate_endpoint_combo(state);
+        }
+        update_status(state);
+        return 0;
+      }
+      if (control == kRelayModeCombo && HIWORD(wparam) == CBN_SELCHANGE) {
+        const auto selected = SendMessageW(
+            state->relay_mode_combo, CB_GETCURSEL, 0, 0);
+        const auto mode = selected == 1
+            ? soundfork::control::RelayMode::application
+            : soundfork::control::RelayMode::entire_screen;
+        soundfork::control::RelaySettings settings;
+        if (mode == soundfork::control::RelayMode::application) {
+          const auto endpoint = SendMessageW(
+              state->endpoint_combo, CB_GETCURSEL, 0, 0);
+          if (endpoint < 0 ||
+              static_cast<std::size_t>(endpoint) >= state->endpoints.size() ||
+              !is_broadcast_endpoint(
+                  state->endpoints[static_cast<std::size_t>(endpoint)])) {
+            MessageBoxW(window, ui_strings(state->language).select_endpoint,
+                L"SoundFork", MB_ICONWARNING);
+            populate_relay_mode_combo(state);
+            return 0;
+          }
+          if (!save_endpoint(
+                  state, state->endpoints[static_cast<std::size_t>(endpoint)].id)) {
+            populate_relay_mode_combo(state);
+            return 0;
+          }
+          (void)settings.set_startup(executable_path(), false);
+        }
+        // Changing ownership modes stops whichever relay currently owns the
+        // shared singleton. The newly selected application mode starts only
+        // on the next ASIO initialization; entire-screen mode remains manual.
+        std::wstring stop_error;
+        if (relay_is_running() &&
+            !stop_relay(state->language, &stop_error)) {
+          MessageBoxW(window, stop_error.c_str(), L"SoundFork", MB_ICONERROR);
+          populate_relay_mode_combo(state);
+          return 0;
+        }
+        const auto result = settings.save_mode(mode);
+        if (result != ERROR_SUCCESS) {
+          MessageBoxW(window,
+              state->language == UiLanguage::korean
+                  ? L"공유 방식을 저장하지 못했습니다."
+                  : L"Could not save the sharing mode.",
+              L"SoundFork", MB_ICONERROR);
+          populate_relay_mode_combo(state);
+          return 0;
+        }
+        diagnostics::log().write(diagnostics::Level::info,
+            "relay_mode_changed",
+            mode == soundfork::control::RelayMode::application
+                ? "mode=application" : "mode=entire-screen");
+        if (mode == soundfork::control::RelayMode::application) {
+          MessageBoxW(window, relay_mode_strings(state->language).restart_game,
+              L"SoundFork", MB_ICONINFORMATION);
         }
         update_status(state);
         return 0;
@@ -2267,6 +2404,10 @@ LRESULT CALLBACK window_proc(
           if (!stop_relay(state->language, &error)) {
             MessageBoxW(window, error.c_str(), L"SoundFork", MB_ICONERROR);
           }
+        } else if (soundfork::control::RelaySettings{}.mode() ==
+                   soundfork::control::RelayMode::application) {
+          MessageBoxW(window, relay_mode_strings(state->language).restart_game,
+              L"SoundFork", MB_ICONINFORMATION);
         } else {
           if (capture_consumer_is_active()) {
             MessageBoxW(
@@ -2306,6 +2447,7 @@ LRESULT CALLBACK window_proc(
         refresh_obs_status(state);
         populate_backend_combo(state);
         populate_endpoint_combo(state);
+        populate_relay_mode_combo(state);
         update_status(state);
         return 0;
       }
@@ -2402,7 +2544,7 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
       CW_USEDEFAULT,
       CW_USEDEFAULT,
       760,
-      450,
+      540,
       nullptr,
       nullptr,
       instance,

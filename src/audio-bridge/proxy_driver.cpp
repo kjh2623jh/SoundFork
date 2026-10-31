@@ -20,8 +20,10 @@ constexpr long kDriverVersion = 0x00010000L;
 
 ProxyDriver::ProxyDriver(
     IBackendFactory& backend_factory,
-    const wchar_t* capture_mapping_name) noexcept
-    : backend_factory_(backend_factory) {
+    const wchar_t* capture_mapping_name,
+    bool allow_application_relay) noexcept
+    : backend_factory_(backend_factory),
+      allow_application_relay_(allow_application_relay) {
   wcsncpy_s(
       capture_mapping_name_.data(),
       capture_mapping_name_.size(),
@@ -37,6 +39,7 @@ ProxyDriver::~ProxyDriver() {
     state_ = State::prepared;
   }
   if (state_ == State::prepared) {
+    application_relay_.stop();
     capture_publisher_.close();
     backend_->disposeBuffers();
     ProxyDriver* expected = this;
@@ -252,6 +255,9 @@ ASIOError ProxyDriver::createBuffers(
     buffer_infos[index].buffers[1] = downstream_buffers_[index].buffers[1];
   }
   prepare_capture(buffer_size);
+  if (allow_application_relay_ && capture_publisher_.is_open()) {
+    application_relay_.start_if_enabled();
+  }
   state_ = State::prepared;
   return result;
 }
@@ -262,6 +268,7 @@ ASIOError ProxyDriver::disposeBuffers() {
   }
 
   capture_publisher_.close();
+  application_relay_.stop();
   capture_left_index_ = -1;
   capture_right_index_ = -1;
   const ASIOError result = backend_->disposeBuffers();

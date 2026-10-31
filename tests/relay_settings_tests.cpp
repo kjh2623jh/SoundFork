@@ -12,6 +12,7 @@
 
 namespace {
 using soundfork::control::RelaySettings;
+using soundfork::control::RelayMode;
 using soundfork::control::ControlInstance;
 void require(bool ok, const char* reason) { if (!ok) throw std::runtime_error(reason); }
 struct Phase {
@@ -123,11 +124,16 @@ void test_settings() {
   RelaySettings settings(fixture.root, L"Settings", L"Run");
   const std::wstring exe = L"C:\\Program Files\\사운드 포크\\soundfork_control.exe";
   require(settings.endpoint().empty(), "new endpoint is not empty");
+  require(settings.mode() == RelayMode::entire_screen, "new mode is not entire-screen");
   require(!settings.startup_enabled(exe), "startup enabled by default");
   require(settings.set_startup(exe, true) == ERROR_NOT_FOUND, "startup accepted missing endpoint");
   require(settings.save_endpoint(L"{0.0.0.00000000}.{fixture}") == ERROR_SUCCESS, "save failed");
   RelaySettings reopened(fixture.root, L"Settings", L"Run");
   require(reopened.endpoint() == L"{0.0.0.00000000}.{fixture}", "endpoint did not persist");
+  require(settings.save_mode(RelayMode::application) == ERROR_SUCCESS, "application mode save failed");
+  require(reopened.mode() == RelayMode::application, "application mode did not persist");
+  require(settings.save_mode(RelayMode::entire_screen) == ERROR_SUCCESS, "screen mode save failed");
+  require(reopened.mode() == RelayMode::entire_screen, "screen mode did not persist");
   std::wstring command;
   require(RelaySettings::make_startup_command(exe, command) == ERROR_SUCCESS &&
           command == L"\"" + exe + L"\" --startup", "path not quoted");

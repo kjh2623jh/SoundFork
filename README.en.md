@@ -17,7 +17,8 @@ recordings** on Windows.
 [**Download Windows x64 Setup**](../../releases/download/v1.1.0/SoundFork-Setup-v1.1.0.exe) ·
 [View all releases](../../releases)
 
-The current version is `v1.1.0`. Executables are not code-signed, so Windows SmartScreen may
+The latest stable version is `v1.1.0`. The default branch is developing experimental
+application-window sharing for `v1.2.0-dev`. Executables are not code-signed, so Windows SmartScreen may
 show a warning.
 
 ## Requirements
@@ -39,14 +40,18 @@ All four PCM formats have automated coverage. Real ASIO driver compatibility bey
 Open the control panel from **SoundFork Control** in the Start menu. For game
 playback alone, neither the control panel nor audio forwarding needs to stay open.
 
-## Discord entire-screen sharing
+## Discord sharing
 
 Install a virtual audio device separately; [VB-CABLE](https://vb-audio.com/Cable/) is recommended.
 With VB-CABLE:
 
 1. Select `CABLE Input` as the **Broadcast audio device** in the control panel.
-2. Press **Start forwarding** and play audio in the game or DAW.
-3. Share the **entire monitor** in Discord. **Application-window sharing is not supported.**
+2. Select a sharing mode in SoundFork Control.
+
+   - `Entire screen`: uses the existing external relay; press **Start forwarding**, then share the entire monitor in Discord.
+   - `Application window`: experimental in `v1.2.0-dev`; do not start external forwarding. Restart the game, then share the game window.
+
+Application-window mode runs the relay inside the game process. Automated tests pass, but an actual remote Discord listening test is still required.
 
 When using another virtual audio device, select its virtual playback device instead of `CABLE Input`.
 

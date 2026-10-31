@@ -76,6 +76,18 @@ DWORD RelaySettings::save_endpoint(std::wstring_view id) const {
   if (!plain(id) || id.size() > 1024) return ERROR_INVALID_PARAMETER;
   return write(root_, settings_path_, L"RelayEndpointId", id);
 }
+RelayMode RelaySettings::mode() const {
+  std::wstring value;
+  if (read(root_, settings_path_, L"RelayMode", value) == ERROR_SUCCESS &&
+      same(value, L"application")) {
+    return RelayMode::application;
+  }
+  return RelayMode::entire_screen;
+}
+DWORD RelaySettings::save_mode(RelayMode mode) const {
+  return write(root_, settings_path_, L"RelayMode",
+      mode == RelayMode::application ? L"application" : L"entire-screen");
+}
 DWORD RelaySettings::make_startup_command(std::wstring_view executable, std::wstring& command) {
   command.clear();
   const bool absolute = (executable.size() >= 3 && std::iswalpha(executable[0]) &&

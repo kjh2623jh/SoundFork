@@ -16,7 +16,7 @@ Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
-The default build version is `1.1.0`; specify `-Version` for development versions.
+The default build version is `1.2.0-dev`; specify `-Version` for release builds.
 The alpha version in packaging examples is for explicitly preparing a prerelease,
 not an instruction to publish automatically.
 
@@ -32,7 +32,8 @@ for tests. Official headers and DLL exports generate the import library; OBS
 runtime DLLs themselves must not enter SoundFork release packages.
 
 Outputs are in `build/windows-msvc-x64/Debug` or `Release`: `soundfork_driver.dll`,
-`soundfork_control.exe`, `soundfork_capture_hub.exe`, `soundfork_discord_relay.exe`,
+optional in-game relay `soundfork_app_relay.dll`, `soundfork_control.exe`,
+`soundfork_capture_hub.exe`, `soundfork_discord_relay.exe`,
 optional `soundfork-obs.dll` and the `obs-plugin` payload. Do not move only the
 Control EXE when testing plugin management.
 
@@ -49,6 +50,23 @@ Control EXE when testing plugin management.
 The base version comes from `project(VERSION ...)` in `CMakeLists.txt`; the
 user-visible version is generated from `SOUNDFORK_VERSION`. Language preferences
 are stored per user in `HKCU\Software\SoundFork\Language`.
+
+## 1.2.0 application-window relay
+
+Control stores `entire-screen` or `application` in
+`HKCU\Software\SoundFork\RelayMode`. Only the real COM-created `ProxyDriver` permits
+the optional loader; fake-backend unit tests leave it disabled. Application mode reads
+settings and explicitly loads adjacent `soundfork_app_relay.dll` from the non-real-time
+`createBuffers` lifecycle path.
+
+The DLL runs the existing `soundfork_relay_main` on a worker and consumes the hub's relay
+output. It adds no second copy, branch, lock, wait or WASAPI call to the ASIO callback.
+`disposeBuffers` and driver destruction stop the worker before unloading the DLL. Internal
+and external relays share `SoundFork.DiscordRelay.Singleton.v1` and the same stop event.
+
+Automated coverage checks setting defaults/persistence, DLL exports and its disabled
+lifecycle plus existing relay, hub and ASIO regressions. Discord attribution of a game-owned
+WASAPI stream is not a public contract, so DJMAX restart and remote listening remain manual.
 
 ## Contracts to preserve when changing code
 
@@ -155,7 +173,7 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ### Automated regression and analysis
 
-The build script runs CTest by default: currently 27 tests with OBS, 20 without it. Coverage
+The build script runs CTest by default: currently 28 tests with OBS, 21 without it. Coverage
 includes proxy/COM, rings/hub, relay clock, enumeration, Control, plugin management
 and optional real-libobs integration. Libobs tests verify DLL loading, source
 creation, continuous stereo waveforms, timestamp cadence, unexpected silence or

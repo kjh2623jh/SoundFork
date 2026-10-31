@@ -90,6 +90,7 @@ if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundF
 
     $knownFiles = @(
         'soundfork_driver.dll',
+        'soundfork_app_relay.dll',
         'soundfork_host.exe',
         'soundfork_capture_monitor.exe',
         'soundfork_discord_relay.exe',

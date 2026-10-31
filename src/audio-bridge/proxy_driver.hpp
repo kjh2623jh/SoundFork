@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "audio-bridge/backend_factory.hpp"
+#include "audio-bridge/application_relay.hpp"
 #include "capture-backend/shared_ring.hpp"
 
 namespace soundfork {
@@ -13,7 +14,8 @@ class ProxyDriver final : public IASIO {
  public:
   explicit ProxyDriver(
       IBackendFactory& backend_factory,
-      const wchar_t* capture_mapping_name = capture::kDefaultMappingName) noexcept;
+      const wchar_t* capture_mapping_name = capture::kDefaultMappingName,
+      bool allow_application_relay = false) noexcept;
   ~ProxyDriver();
 
   ProxyDriver(const ProxyDriver&) = delete;
@@ -91,6 +93,8 @@ class ProxyDriver final : public IASIO {
   ASIOCallbacks downstream_callbacks_{};
   std::vector<ASIOBufferInfo> downstream_buffers_;
   capture::SharedRingPublisher capture_publisher_;
+  ApplicationRelay application_relay_;
+  bool allow_application_relay_ = false;
   std::array<wchar_t, 128> capture_mapping_name_{};
   long capture_left_index_ = -1;
   long capture_right_index_ = -1;

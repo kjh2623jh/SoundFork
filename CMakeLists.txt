@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(SoundFork VERSION 1.1.0 LANGUAGES CXX)
+project(SoundFork VERSION 1.2.0 LANGUAGES CXX)
 
 set(
   SOUNDFORK_VERSION
-  "${PROJECT_VERSION}"
+  "${PROJECT_VERSION}-dev"
   CACHE STRING
   "User-visible SoundFork version"
 )
@@ -70,6 +70,7 @@ endif()
 set(SOUNDFORK_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk/common")
 
 add_library(soundfork_bridge STATIC
+  src/audio-bridge/application_relay.cpp
   src/audio-bridge/backend_factory.cpp
   src/audio-bridge/proxy_driver.cpp
   src/capture-backend/shared_ring.cpp
@@ -147,12 +148,13 @@ target_include_directories(soundfork_diagnostics PUBLIC src)
 target_link_libraries(soundfork_diagnostics PUBLIC soundfork_warnings shell32 ole32)
 target_include_directories(soundfork_diagnostics PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
-add_executable(soundfork_discord_relay
+set(SOUNDFORK_RELAY_SOURCES
   src/capture-backend/discord_relay.cpp
   src/capture-backend/relay_clock.cpp
   src/capture-backend/shared_ring.cpp
   src/capture-backend/hub_client.cpp
 )
+add_executable(soundfork_discord_relay ${SOUNDFORK_RELAY_SOURCES})
 target_include_directories(soundfork_discord_relay PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
@@ -163,6 +165,19 @@ target_link_libraries(soundfork_discord_relay PRIVATE
   uuid
 )
 
+add_library(soundfork_app_relay SHARED
+  src/capture-backend/app_relay.cpp
+  ${SOUNDFORK_RELAY_SOURCES}
+)
+target_compile_definitions(soundfork_app_relay PRIVATE SOUNDFORK_RELAY_NO_ENTRYPOINT)
+target_include_directories(soundfork_app_relay PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(soundfork_app_relay PRIVATE
+  soundfork_warnings soundfork_diagnostics ole32 uuid)
+set_target_properties(soundfork_app_relay PROPERTIES
+  OUTPUT_NAME "soundfork_app_relay"
+  PREFIX ""
+)
+
 add_executable(soundfork_capture_hub
   src/capture-backend/capture_hub.cpp
   src/capture-backend/hub_client.cpp
@@ -171,6 +186,7 @@ add_executable(soundfork_capture_hub
 target_include_directories(soundfork_capture_hub PRIVATE src)
 target_link_libraries(soundfork_capture_hub PRIVATE soundfork_warnings soundfork_diagnostics)
 add_dependencies(soundfork_discord_relay soundfork_capture_hub)
+add_dependencies(soundfork_app_relay soundfork_capture_hub)
 
 add_executable(soundfork_hub_tests
   tests/capture_hub_tests.cpp
@@ -290,6 +306,11 @@ if(BUILD_TESTING)
   target_link_libraries(soundfork_obs_manager_tests PRIVATE soundfork_obs_manager)
   add_dependencies(soundfork_obs_manager_tests soundfork_control)
   add_test(NAME soundfork_obs_manager_tests COMMAND soundfork_obs_manager_tests "$<TARGET_FILE:soundfork_control>")
+  add_executable(soundfork_app_relay_tests tests/app_relay_tests.cpp)
+  target_link_libraries(soundfork_app_relay_tests PRIVATE soundfork_warnings)
+  add_dependencies(soundfork_app_relay_tests soundfork_app_relay)
+  add_test(NAME soundfork_app_relay_tests
+    COMMAND soundfork_app_relay_tests "$<TARGET_FILE:soundfork_app_relay>")
 endif()
 
 if(BUILD_TESTING)
@@ -328,6 +349,7 @@ if(BUILD_TESTING)
   set_tests_properties(soundfork_control_ui_tests soundfork_control_status_tests soundfork_control_smoke
     soundfork_relay_settings_tests soundfork_control_instance_tests soundfork_disabled_startup_tests
     soundfork_obs_manager_tests PROPERTIES LABELS "control")
+  set_tests_properties(soundfork_app_relay_tests PROPERTIES TIMEOUT 20 LABELS "audio;smoke;interop")
   set_tests_properties(soundfork_diagnostics_tests PROPERTIES LABELS "diagnostics")
 endif()
 
@@ -336,6 +358,7 @@ install(TARGETS
   soundfork_host
   soundfork_capture_monitor
   soundfork_discord_relay
+  soundfork_app_relay
   soundfork_capture_hub
   soundfork_control
   RUNTIME DESTINATION bin
