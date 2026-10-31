@@ -71,15 +71,22 @@ jobs:
             }
           }
 
-          git fetch origin main --no-tags
           $releaseSha = (git rev-parse HEAD).Trim()
           $tagSha = (git rev-parse "$tag^{commit}").Trim()
           if ($releaseSha -ne $tagSha) {
             throw "Checked out commit '$releaseSha' does not match tag '$tag' ($tagSha)."
           }
-          git merge-base --is-ancestor $releaseSha origin/main
+
+          # Stable releases must come from main. Prereleases may come only
+          # from the matching development line (for example, v1.2.0-dev).
+          $releaseBranch = if ($tagSuffix) { "v$tagBase-dev" } else { 'main' }
+          git fetch origin "+refs/heads/$releaseBranch`:refs/remotes/origin/$releaseBranch" --no-tags
           if ($LASTEXITCODE -ne 0) {
-            throw 'Release tag commit is not contained in origin/main.'
+            throw "Required release branch '$releaseBranch' was not found."
+          }
+          git merge-base --is-ancestor $releaseSha "origin/$releaseBranch"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag commit is not contained in origin/$releaseBranch."
           }
 
           "tag=$tag" >> $env:GITHUB_OUTPUT
