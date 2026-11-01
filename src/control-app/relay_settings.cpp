@@ -53,6 +53,30 @@ DWORD write(HKEY root, const std::wstring& path, const wchar_t* name, std::wstri
       reinterpret_cast<const BYTE*>(terminated.c_str()),
       static_cast<DWORD>((terminated.size() + 1) * sizeof(wchar_t)));
 }
+DWORD read_dword(
+    HKEY root, const std::wstring& path, const wchar_t* name, DWORD* value) {
+  if (value == nullptr) return ERROR_INVALID_PARAMETER;
+  Key key;
+  auto code = RegOpenKeyExW(root, path.c_str(), 0, KEY_QUERY_VALUE, &key.value);
+  if (code != ERROR_SUCCESS) return code;
+  DWORD type = 0;
+  DWORD bytes = sizeof(*value);
+  code = RegQueryValueExW(key.value, name, nullptr, &type,
+      reinterpret_cast<BYTE*>(value), &bytes);
+  if (code != ERROR_SUCCESS) return code;
+  return type == REG_DWORD && bytes == sizeof(*value)
+      ? ERROR_SUCCESS : ERROR_INVALID_DATA;
+}
+DWORD write_dword(
+    HKEY root, const std::wstring& path, const wchar_t* name, DWORD value) {
+  if (root == nullptr) return ERROR_INVALID_HANDLE;
+  Key key;
+  auto code = RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE,
+                              nullptr, &key.value, nullptr);
+  if (code != ERROR_SUCCESS) return code;
+  return RegSetValueExW(key.value, name, 0, REG_DWORD,
+      reinterpret_cast<const BYTE*>(&value), sizeof(value));
+}
 bool owned_command(std::wstring_view command) {
   constexpr std::wstring_view suffix = L"\" --startup";
   if (!command.starts_with(L'\"') || !command.ends_with(suffix) || command.size() <= suffix.size() + 1)
@@ -87,6 +111,45 @@ RelayMode RelaySettings::mode() const {
 DWORD RelaySettings::save_mode(RelayMode mode) const {
   return write(root_, settings_path_, L"RelayMode",
       mode == RelayMode::application ? L"application" : L"entire-screen");
+}
+bool RelaySettings::startup_preferred(std::wstring_view executable) const {
+  DWORD value = 0;
+  if (read_dword(root_, settings_path_, L"StartupPreference", &value) ==
+      ERROR_SUCCESS && value <= 1) {
+    return value != 0;
+  }
+  // Migration for existing installations: preserve the current Run entry.
+  return startup_enabled(executable);
+}
+DWORD RelaySettings::set_startup_preference(
+    std::wstring_view executable, bool enabled) const {
+  std::wstring ignored;
+  auto code = make_startup_command(executable, ignored);
+  if (code != ERROR_SUCCESS) return code;
+  const bool previous = startup_preferred(executable);
+  code = write_dword(
+      root_, settings_path_, L"StartupPreference", enabled ? 1U : 0U);
+  if (code != ERROR_SUCCESS) return code;
+  code = set_startup(
+      executable, enabled && mode() == RelayMode::entire_screen);
+  if (code != ERROR_SUCCESS) {
+    (void)write_dword(
+        root_, settings_path_, L"StartupPreference", previous ? 1U : 0U);
+    (void)set_startup(
+        executable, previous && mode() == RelayMode::entire_screen);
+  }
+  return code;
+}
+DWORD RelaySettings::apply_startup_preference(
+    std::wstring_view executable) const {
+  const bool preferred = startup_preferred(executable);
+  // Persist the migrated value before temporarily removing the effective Run
+  // entry in application-sharing mode.
+  const auto saved = write_dword(
+      root_, settings_path_, L"StartupPreference", preferred ? 1U : 0U);
+  if (saved != ERROR_SUCCESS) return saved;
+  return set_startup(
+      executable, preferred && mode() == RelayMode::entire_screen);
 }
 DWORD RelaySettings::make_startup_command(std::wstring_view executable, std::wstring& command) {
   command.clear();

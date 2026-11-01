@@ -395,6 +395,7 @@ struct StartupStrings {
   const wchar_t* waiting;
   const wchar_t* enabled;
   const wchar_t* disabled;
+  const wchar_t* preserved;
 };
 
 struct RelayModeStrings {
@@ -428,12 +429,12 @@ const StartupStrings& startup_strings(UiLanguage language) {
     L"Start audio forwarding at Windows sign-in", L"Could not save the audio forwarding setting. Windows error: ",
     L"Automatic audio forwarding failed. ", L"Saved virtual device is unavailable; no other device was selected.",
     L"Waiting for the saved virtual device or ASIO audio", L"Windows sign-in startup: On",
-    L"Windows sign-in startup: Off"};
+    L"Windows sign-in startup: Off", L"Windows sign-in startup: On (used for entire-screen sharing)"};
   static constexpr StartupStrings ko{
     L"Windows 로그인 시 오디오 전달 시작", L"오디오 전달 설정을 저장하지 못했습니다. Windows 오류: ",
     L"자동 오디오 전달에 실패했습니다. ", L"저장한 가상 장치를 찾을 수 없습니다. 다른 장치로 전환하지 않습니다.",
     L"저장한 가상 장치 또는 ASIO 오디오 대기 중", L"Windows 로그인 자동 시작: 켜짐",
-    L"Windows 로그인 자동 시작: 꺼짐"};
+    L"Windows 로그인 자동 시작: 꺼짐", L"Windows 로그인 자동 시작: 켜짐 (전체 화면 공유에서 적용)"};
   return language == UiLanguage::korean ? ko : en;
 }
 
@@ -1462,8 +1463,13 @@ void update_status(AppState* state) {
                : relay_mode_strings(state->language).entire_screen)
        << L"\r\n";
   const auto& startup = startup_strings(state->language);
-  text << (soundfork::control::RelaySettings{}.startup_enabled(executable_path())
-               ? startup.enabled : startup.disabled) << L"\r\n";
+  const bool startup_preferred =
+      soundfork::control::RelaySettings{}.startup_preferred(executable_path());
+  text << (startup_preferred
+               ? (relay_mode == soundfork::control::RelayMode::application
+                      ? startup.preserved : startup.enabled)
+               : startup.disabled)
+       << L"\r\n";
   if (!state->startup_error.empty()) text << startup.failed << state->startup_error << L"\r\n";
   const auto saved = read_saved_endpoint();
   if (!saved.empty() && std::none_of(state->endpoints.begin(), state->endpoints.end(),
@@ -1504,7 +1510,7 @@ void update_status(AppState* state) {
   SetWindowTextW(state->status, soundfork::control::control_status_text(
       summary, state->language == UiLanguage::korean).c_str());
   SendMessageW(state->startup_checkbox, BM_SETCHECK,
-      soundfork::control::RelaySettings{}.startup_enabled(executable_path()) ? BST_CHECKED : BST_UNCHECKED, 0);
+      startup_preferred ? BST_CHECKED : BST_UNCHECKED, 0);
   SetWindowTextW(
       state->relay_button,
       relay_running ? strings.stop_relay
@@ -2171,6 +2177,7 @@ LRESULT CALLBACK window_proc(
             ? soundfork::control::RelayMode::application
             : soundfork::control::RelayMode::entire_screen;
         soundfork::control::RelaySettings settings;
+        const auto previous_mode = settings.mode();
         if (mode == soundfork::control::RelayMode::application) {
           const auto endpoint = SendMessageW(
               state->endpoint_combo, CB_GETCURSEL, 0, 0);
@@ -2188,7 +2195,6 @@ LRESULT CALLBACK window_proc(
             populate_relay_mode_combo(state);
             return 0;
           }
-          (void)settings.set_startup(executable_path(), false);
         }
         // Changing ownership modes stops whichever relay currently owns the
         // shared singleton. The newly selected application mode starts only
@@ -2200,8 +2206,13 @@ LRESULT CALLBACK window_proc(
           populate_relay_mode_combo(state);
           return 0;
         }
-        const auto result = settings.save_mode(mode);
+        auto result = settings.save_mode(mode);
+        if (result == ERROR_SUCCESS) {
+          result = settings.apply_startup_preference(executable_path());
+        }
         if (result != ERROR_SUCCESS) {
+          (void)settings.save_mode(previous_mode);
+          (void)settings.apply_startup_preference(executable_path());
           MessageBoxW(window,
               state->language == UiLanguage::korean
                   ? L"공유 방식을 저장하지 못했습니다."
@@ -2238,7 +2249,7 @@ LRESULT CALLBACK window_proc(
             return 0;
           }
         }
-        const auto result = settings.set_startup(exe, enable);
+        const auto result = settings.set_startup_preference(exe, enable);
         diagnostics::log().write(result == ERROR_SUCCESS ? diagnostics::Level::info : diagnostics::Level::error,
             "startup_preference", "enabled=" + std::to_string(enable) + " win32=" + std::to_string(result));
         if (result != ERROR_SUCCESS) {

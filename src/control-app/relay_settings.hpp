@@ -22,6 +22,12 @@ class RelaySettings final {
   DWORD save_endpoint(std::wstring_view id) const;
   RelayMode mode() const;
   DWORD save_mode(RelayMode mode) const;
+  // The preference is independent from the effective Windows Run entry so
+  // application-sharing mode can suspend it without forgetting the choice.
+  bool startup_preferred(std::wstring_view executable) const;
+  DWORD set_startup_preference(
+      std::wstring_view executable, bool enabled) const;
+  DWORD apply_startup_preference(std::wstring_view executable) const;
   bool startup_enabled(std::wstring_view executable) const;
   DWORD set_startup(std::wstring_view executable, bool enabled) const;
   // Uninstall only removes an exact registration for this installed executable.

@@ -59,6 +59,12 @@ the optional loader; fake-backend unit tests leave it disabled. Application mode
 settings and explicitly loads adjacent `soundfork_app_relay.dll` from the non-real-time
 `createBuffers` lifecycle path.
 
+The user's sign-in choice is stored separately as the `StartupPreference` DWORD. If it
+is absent on an existing installation, the current SoundFork Run registration is migrated
+as the initial preference. Application-sharing mode preserves the checked state while
+removing only the effective Run entry; returning to entire-screen mode restores that entry.
+This avoids launching Control unnecessarily at sign-in for the in-game relay.
+
 The DLL runs the existing `soundfork_relay_main` on a worker and consumes the hub's relay
 output. It adds no second copy, branch, lock, wait or WASAPI call to the ASIO callback.
 `disposeBuffers` and driver destruction stop the worker before unloading the DLL. Internal

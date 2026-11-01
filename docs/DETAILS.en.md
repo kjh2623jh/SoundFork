@@ -159,6 +159,10 @@ nor hooking. When disabled, the DLL, worker, WASAPI session and hub lease do not
 Internal and external relays share one singleton and cannot render simultaneously.
 An actual remote Discord listening test remains a manual gate and is not claimed complete.
 
+The `Start audio forwarding at Windows sign-in` choice remains checked but disabled in
+application-sharing mode. Its effective Windows Run entry is suspended and restored when
+the user returns to entire-screen sharing.
+
 The dedicated OBS source receives audio directly from the hub, without a virtual
 device or relay. For simultaneous Discord use, run the relay and keep the dedicated
 source in OBS. For device capture, select the same virtual playback device in
