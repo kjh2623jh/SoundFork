@@ -1532,16 +1532,16 @@ void update_status(AppState* state) {
        relay_mode == soundfork::control::RelayMode::entire_screen) || relay_running);
   SendMessageW(state->relay_enabled, BM_SETCHECK,
       soundfork::capture::relay_enabled() ? BST_CHECKED : BST_UNCHECKED, 0);
-  if (stream.format.frames_per_block != 0 &&
+  if (stream.format.frames_per_block != 0 && stream.format.sample_rate != 0 &&
       !SendMessageW(state->relay_buffer, CB_GETDROPPEDSTATE, 0, 0)) {
     const auto buffer_selected = SendMessageW(state->relay_buffer, CB_GETCURSEL, 0, 0);
     for (int index = 0; index < static_cast<int>(std::size(kRelayBuffers)); ++index) {
       const auto frames = soundfork::capture::relay_target_frames(
           stream.format.frames_per_block, kRelayBuffers[index]);
       std::wostringstream label;
+      if (index == 0) label << (state->language == UiLanguage::korean ? L"자동 — " : L"Auto — ");
       label << frames << L" frames (" << std::fixed << std::setprecision(2)
-            << frames / 48.0 << L" ms)";
-      if (index == 0) label << (state->language == UiLanguage::korean ? L" 자동" : L" Auto");
+            << static_cast<double>(frames) * 1000.0 / stream.format.sample_rate << L" ms)";
       SendMessageW(state->relay_buffer, CB_DELETESTRING, index, 0);
       SendMessageW(state->relay_buffer, CB_INSERTSTRING, index,
           reinterpret_cast<LPARAM>(label.str().c_str()));
@@ -1674,8 +1674,8 @@ void layout_controls(AppState* state, int width) {
   MoveWindow(state->endpoint_combo, margin, 98, combo_width, 240, TRUE);
   MoveWindow(state->relay_button, margin + combo_width + 12, 97, button_width, 28, TRUE);
   MoveWindow(state->relay_mode_label, margin, 139, content, 22, TRUE);
-  MoveWindow(state->relay_mode_combo, margin, 162, content - 240, 160, TRUE);
-  MoveWindow(state->relay_buffer, margin + content - 228, 162, 228, 260, TRUE);
+  MoveWindow(state->relay_mode_combo, margin, 162, content - 312, 160, TRUE);
+  MoveWindow(state->relay_buffer, margin + content - 300, 162, 300, 260, TRUE);
   MoveWindow(state->relay_enabled, margin + 300, 204, content - 300, 28, TRUE);
   MoveWindow(state->refresh_button, margin, 204, 130, 28, TRUE);
   MoveWindow(state->vb_cable_button, margin + 142, 204, 145, 28, TRUE);
@@ -1803,9 +1803,8 @@ void create_controls(AppState* state) {
   for (int index = 0; index < static_cast<int>(std::size(kRelayBuffers)); ++index) {
     const auto frames = kRelayBuffers[index];
     const auto text = frames == 0
-        ? (state->language == UiLanguage::korean ? std::wstring(L"자동 (ASIO 4블록)") : std::wstring(L"Auto (4 ASIO blocks)"))
-        : std::to_wstring(frames) + L" frames (" +
-          std::to_wstring(frames / 48.0).substr(0, std::to_wstring(frames / 48.0).find(L'.') + 3) + L" ms)";
+        ? (state->language == UiLanguage::korean ? std::wstring(L"자동 — 게임 실행 후 표시") : std::wstring(L"Auto — shown when the game starts"))
+        : std::to_wstring(frames) + L" frames";
     SendMessageW(state->relay_buffer, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
     if (saved_buffer == frames) buffer_selection = index;
   }
