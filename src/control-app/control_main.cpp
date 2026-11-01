@@ -1803,7 +1803,7 @@ void create_controls(AppState* state) {
   for (int index = 0; index < static_cast<int>(std::size(kRelayBuffers)); ++index) {
     const auto frames = kRelayBuffers[index];
     const auto text = frames == 0
-        ? (state->language == UiLanguage::korean ? std::wstring(L"자동 — 게임 실행 후 표시") : std::wstring(L"Auto — shown when the game starts"))
+        ? (state->language == UiLanguage::korean ? std::wstring(L"자동 — ASIO 연결 대기") : std::wstring(L"Auto — waiting for ASIO"))
         : std::to_wstring(frames) + L" frames";
     SendMessageW(state->relay_buffer, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
     if (saved_buffer == frames) buffer_selection = index;

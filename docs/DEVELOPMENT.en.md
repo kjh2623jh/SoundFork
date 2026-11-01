@@ -58,7 +58,7 @@ relay launch. Disabling stops forwarding and preserves mode/startup preferences;
 OBS remains independent. `RelayBufferFrames` (DWORD, default 0) sets the shared
 relay queue target. Zero preserves four ASIO blocks. The UI displays frames and
 their duration using the actual stream sample rate. Before stream metadata is
-available, Auto waits for game startup and manual choices show frames only.
+available, Auto displays "waiting for ASIO" and manual choices show frames only.
 Choices span 128–9600 frames; the effective target is
 bounded to 1–32 ASIO blocks to preserve ring headroom. These are queue targets,
 not measured end-to-end latency. Changes stop forwarding; restart external
