@@ -357,6 +357,9 @@ struct AppState {
   HWND relay_mode_combo = nullptr;
   HWND relay_enabled = nullptr;
   HWND relay_buffer = nullptr;
+  HWND output_group = nullptr;
+  HWND forwarding_group = nullptr;
+  HWND buffer_label = nullptr;
   HWND diagnostic_window = nullptr;
   HWND diagnostic_text = nullptr;
   HWND diagnostic_copy = nullptr;
@@ -1664,24 +1667,30 @@ void show_diagnostics(AppState* state) {
 }
 
 void layout_controls(AppState* state, int width) {
-  constexpr int margin = 18, button_width = 160;
+  constexpr int margin = 30, button_width = 140;
   const int content = (std::max)(400, width - 2 * margin);
   const int combo_width = content - button_width - 12;
-  MoveWindow(state->backend_label, margin, 14, content, 22, TRUE);
-  MoveWindow(state->backend_combo, margin, 37, combo_width, 220, TRUE);
-  MoveWindow(state->apply_button, margin + combo_width + 12, 36, button_width, 28, TRUE);
-  MoveWindow(state->endpoint_label, margin, 75, content, 22, TRUE);
-  MoveWindow(state->endpoint_combo, margin, 98, combo_width, 240, TRUE);
-  MoveWindow(state->relay_button, margin + combo_width + 12, 97, button_width, 28, TRUE);
-  MoveWindow(state->relay_mode_label, margin, 139, content, 22, TRUE);
-  MoveWindow(state->relay_mode_combo, margin, 162, content - 312, 160, TRUE);
-  MoveWindow(state->relay_buffer, margin + content - 300, 162, 300, 260, TRUE);
-  MoveWindow(state->relay_enabled, margin + 300, 204, content - 300, 28, TRUE);
-  MoveWindow(state->refresh_button, margin, 204, 130, 28, TRUE);
-  MoveWindow(state->vb_cable_button, margin + 142, 204, 145, 28, TRUE);
-  MoveWindow(state->startup_checkbox, margin, 242, content, 26, TRUE);
-  MoveWindow(state->status, margin, 279, content, 90, TRUE);
-  MoveWindow(state->note, margin, 375, content, 44, TRUE);
+  MoveWindow(state->output_group, 14, 10, width - 28, 88, TRUE);
+  ShowWindow(state->backend_label, SW_HIDE); // The group title names this selector.
+  MoveWindow(state->backend_combo, margin, 45, combo_width, 220, TRUE);
+  MoveWindow(state->apply_button, margin + combo_width + 12, 44, button_width, 28, TRUE);
+  MoveWindow(state->forwarding_group, 14, 110, width - 28, 284, TRUE);
+  MoveWindow(state->relay_enabled, margin, 138, content - button_width - 12, 26, TRUE);
+  MoveWindow(state->relay_button, margin + content - button_width, 136, button_width, 28, TRUE);
+  constexpr int label_width = 160;
+  const int field_x = margin + label_width;
+  const int field_width = content - label_width;
+  MoveWindow(state->relay_mode_label, margin, 184, label_width - 8, 22, TRUE);
+  MoveWindow(state->relay_mode_combo, field_x, 180, field_width, 160, TRUE);
+  MoveWindow(state->endpoint_label, margin, 226, label_width - 8, 22, TRUE);
+  MoveWindow(state->endpoint_combo, field_x, 222, field_width, 240, TRUE);
+  MoveWindow(state->buffer_label, margin, 268, label_width - 8, 22, TRUE);
+  MoveWindow(state->relay_buffer, field_x, 264, field_width, 260, TRUE);
+  MoveWindow(state->startup_checkbox, margin, 307, content, 26, TRUE);
+  MoveWindow(state->refresh_button, margin, 349, 140, 28, TRUE);
+  MoveWindow(state->vb_cable_button, margin + 152, 349, 170, 28, TRUE);
+  MoveWindow(state->status, margin, 410, content, 62, TRUE);
+  MoveWindow(state->note, margin, 484, content, 44, TRUE);
 }
 
 void create_controls(AppState* state) {
@@ -1701,6 +1710,15 @@ void create_controls(AppState* state) {
       CLEARTYPE_QUALITY,
       DEFAULT_PITCH,
       L"Segoe UI");
+  const bool korean = state->language == UiLanguage::korean;
+  state->output_group = CreateWindowExW(0, L"BUTTON", korean ? L"ASIO 출력" : L"ASIO output",
+      WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
+  state->forwarding_group = CreateWindowExW(0, L"BUTTON", korean ? L"방송 오디오 전달" : L"Broadcast audio forwarding",
+      WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
+  state->buffer_label = CreateWindowExW(0, L"STATIC", korean ? L"전달 버퍼" : L"Forwarding buffer",
+      WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
+  for (const auto control : {state->output_group, state->forwarding_group, state->buffer_label})
+    set_control_font(control, state->font);
   state->backend_label = CreateWindowExW(
       0,
       L"STATIC",
@@ -1884,6 +1902,8 @@ void create_controls(AppState* state) {
   }
   RECT client{};
   GetClientRect(state->window, &client);
+  SetWindowTextW(state->endpoint_label, korean ? L"전달 장치" : L"Forwarding device");
+  SetWindowTextW(state->relay_mode_label, korean ? L"공유 방식" : L"Sharing mode");
   layout_controls(state, client.right);
 }
 
@@ -1998,8 +2018,11 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   SetWindowTextW(state->window, strings.window_title);
   SetWindowTextW(state->backend_label, strings.backend_label);
   SetWindowTextW(state->apply_button, strings.apply);
-  SetWindowTextW(state->endpoint_label, strings.endpoint_label);
-  SetWindowTextW(state->relay_mode_label, relay_mode_strings(language).label);
+  SetWindowTextW(state->endpoint_label, language == UiLanguage::korean ? L"전달 장치" : L"Forwarding device");
+  SetWindowTextW(state->relay_mode_label, language == UiLanguage::korean ? L"공유 방식" : L"Sharing mode");
+  SetWindowTextW(state->output_group, language == UiLanguage::korean ? L"ASIO 출력" : L"ASIO output");
+  SetWindowTextW(state->forwarding_group, language == UiLanguage::korean ? L"방송 오디오 전달" : L"Broadcast audio forwarding");
+  SetWindowTextW(state->buffer_label, language == UiLanguage::korean ? L"전달 버퍼" : L"Forwarding buffer");
   SetWindowTextW(state->refresh_button, strings.refresh_devices);
   SetWindowTextW(state->note, strings.note);
   SetWindowTextW(state->startup_checkbox, startup_strings(language).menu);
@@ -2076,7 +2099,7 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_GETMINMAXINFO: {
       auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
-      size->ptMinTrackSize = {720, 500};
+      size->ptMinTrackSize = {720, 600};
       return 0;
     }
     case WM_SIZE: {
@@ -2642,7 +2665,7 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
       CW_USEDEFAULT,
       CW_USEDEFAULT,
       760,
-      540,
+      620,
       nullptr,
       nullptr,
       instance,
