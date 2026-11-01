@@ -1,4 +1,5 @@
 #include "audio-bridge/application_relay.hpp"
+#include "capture-backend/relay_preferences.hpp"
 
 #include <string>
 #include <vector>
@@ -69,6 +70,7 @@ ApplicationRelay::~ApplicationRelay() {
 }
 
 void ApplicationRelay::start_if_enabled() noexcept {
+  if (!capture::relay_enabled()) return;
   if (module_ != nullptr) return;
   std::wstring mode;
   std::wstring endpoint;

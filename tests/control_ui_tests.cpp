@@ -78,11 +78,14 @@ int wmain(int argc, wchar_t**) {
       if (state.startup_checkbox == nullptr) throw std::runtime_error("startup checkbox missing");
       const HWND startup_checkbox = state.startup_checkbox;
       require_ui(GetDlgItem(window, kStartupRelay) == startup_checkbox, "startup checkbox is not on main window");
-      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
-          "startup is not off for an unregistered test executable");
-      SendMessageW(state.startup_checkbox, BM_SETCHECK, BST_CHECKED, 0);
+      const auto expected_startup = soundfork::control::RelaySettings{}.startup_preferred(executable_path())
+          ? BST_CHECKED : BST_UNCHECKED;
+      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == expected_startup,
+          "startup does not reflect the saved preference");
+      SendMessageW(state.startup_checkbox, BM_SETCHECK,
+          expected_startup == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED, 0);
       update_status(&state);
-      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
+      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == expected_startup,
           "checkbox did not synchronize with saved preference");
       require_ui(GetMenuState(GetSubMenu(GetMenu(window), 0), kStartupRelay, MF_BYCOMMAND) == static_cast<UINT>(-1),
           "startup option still duplicated in menu");

@@ -53,6 +53,15 @@ are stored per user in `HKCU\Software\SoundFork\Language`.
 
 ## 1.2.0 application-window relay
 
+`RelayEnabled` (DWORD, default 1) gates optional DLL loading and Control's external
+relay launch. Disabling stops forwarding and preserves mode/startup preferences;
+OBS remains independent. `RelayBufferFrames` (DWORD, default 0) sets the shared
+relay queue target. Zero preserves four ASIO blocks. The UI displays frames and
+their duration at 48 kHz. Choices span 128–9600 frames; the effective target is
+bounded to 1–32 ASIO blocks to preserve ring headroom. These are queue targets,
+not measured end-to-end latency. Changes stop forwarding; restart external
+forwarding or restart the game for application mode.
+
 Control stores `entire-screen` or `application` in
 `HKCU\Software\SoundFork\RelayMode`. Only the real COM-created `ProxyDriver` permits
 the optional loader; fake-backend unit tests leave it disabled. Application mode reads

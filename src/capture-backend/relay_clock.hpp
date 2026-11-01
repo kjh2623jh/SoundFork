@@ -13,7 +13,8 @@ class RelayClockController final {
   RelayClockController(
       std::uint32_t sample_rate,
       std::uint32_t frames_per_block,
-      std::uint32_t target_blocks = 4) noexcept;
+      std::uint32_t target_blocks = 4,
+      std::uint32_t target_frames = 0) noexcept;
 
   void reset() noexcept;
   double update(

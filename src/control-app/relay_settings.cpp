@@ -131,7 +131,8 @@ DWORD RelaySettings::set_startup_preference(
       root_, settings_path_, L"StartupPreference", enabled ? 1U : 0U);
   if (code != ERROR_SUCCESS) return code;
   code = set_startup(
-      executable, enabled && mode() == RelayMode::entire_screen);
+      executable, enabled && mode() == RelayMode::entire_screen &&
+          [&] { DWORD value = 1; (void)read_dword(root_, settings_path_, L"RelayEnabled", &value); return value != 0; }());
   if (code != ERROR_SUCCESS) {
     (void)write_dword(
         root_, settings_path_, L"StartupPreference", previous ? 1U : 0U);
@@ -149,7 +150,8 @@ DWORD RelaySettings::apply_startup_preference(
       root_, settings_path_, L"StartupPreference", preferred ? 1U : 0U);
   if (saved != ERROR_SUCCESS) return saved;
   return set_startup(
-      executable, preferred && mode() == RelayMode::entire_screen);
+      executable, preferred && mode() == RelayMode::entire_screen &&
+          [&] { DWORD value = 1; (void)read_dword(root_, settings_path_, L"RelayEnabled", &value); return value != 0; }());
 }
 DWORD RelaySettings::make_startup_command(std::wstring_view executable, std::wstring& command) {
   command.clear();
