@@ -243,14 +243,14 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"Forwarding to virtual device",
       L"Running",
       L"Stopped",
-      L"Discord mode: Entire-screen share only",
-      L"Application-window share excludes the separate forwarding process.",
+      L"External relay: Entire-screen share only",
+      L"Audio is forwarded by a separate process. In Discord, share the entire screen.",
       L"soundfork_discord_relay.exe was not found next to the control app.",
       L"Could not start audio forwarding (Windows error ",
       L"The audio forwarding stop channel was not found.",
       L"Could not signal audio forwarding to stop.",
       L"Select an ASIO driver first.",
-      L"ASIO driver updated. Restart the game or DAW if it is already open.",
+      L"ASIO driver updated. Restart the application if it is already open.",
       L"ASIO driver change was cancelled or failed.",
       L"Another capture consumer is active. Stop soundfork_capture_monitor or the other consumer first.",
       L"Select a virtual broadcast audio device first.",
@@ -312,14 +312,14 @@ const UiStrings& ui_strings(UiLanguage language) {
       L"가상 장치로 오디오 전달",
       L"실행 중",
       L"중지됨",
-      L"Discord 모드: 전체 화면 공유 전용",
-      L"애플리케이션 창 공유에는 별도 오디오 전달 프로세스의 소리가 포함되지 않습니다.",
+      L"외부 릴레이: 전체 화면 공유 전용",
+      L"별도 프로세스에서 오디오를 전달합니다. Discord에서 전체 화면을 공유하세요.",
       L"제어판과 같은 폴더에서 soundfork_discord_relay.exe를 찾을 수 없습니다.",
       L"오디오 전달을 시작할 수 없습니다 (Windows 오류 ",
       L"오디오 전달 종료 채널을 찾을 수 없습니다.",
       L"오디오 전달에 종료 신호를 보낼 수 없습니다.",
       L"먼저 ASIO 드라이버를 선택하세요.",
-      L"ASIO 드라이버를 변경했습니다. 게임이나 DAW가 열려 있다면 다시 시작하세요.",
+      L"ASIO 드라이버를 변경했습니다. 애플리케이션이 실행 중이라면 다시 시작하세요.",
       L"ASIO 드라이버 변경이 취소됐거나 실패했습니다.",
       L"다른 캡처 소비자가 실행 중입니다. soundfork_capture_monitor 또는 다른 소비자를 먼저 종료하세요.",
       L"먼저 방송용 가상 오디오 장치를 선택하세요.",
@@ -418,19 +418,19 @@ struct RelayModeStrings {
 
 const RelayModeStrings& relay_mode_strings(UiLanguage language) {
   static constexpr RelayModeStrings en{
-      L"Discord sharing mode",
-      L"Entire screen (external forwarding)",
-      L"Application window (starts inside the game)",
-      L"Starts with game",
-      L"Application-window forwarding will start the next time the game initializes SoundFork ASIO.",
-      L"Discord: share the game application window. OBS plugin capture remains independent."};
+      L"Audio forwarding mode",
+      L"External relay — entire-screen sharing",
+      L"Internal relay — application-window sharing supported",
+      L"Starts on ASIO connection",
+      L"The internal relay will start the next time the application initializes SoundFork ASIO.",
+      L"In Discord, share the application window or the entire screen. The OBS plugin can be used simultaneously."};
   static constexpr RelayModeStrings ko{
-      L"Discord 공유 방식",
-      L"전체 화면 공유 (외부 전달)",
-      L"애플리케이션 창 공유 (게임 내부에서 시작)",
-      L"게임과 함께 시작",
-      L"애플리케이션 창 전달은 게임이 다음에 SoundFork ASIO를 초기화할 때 시작됩니다.",
-      L"Discord에서는 게임 애플리케이션 창을 공유합니다. OBS 플러그인은 독립적으로 사용할 수 있습니다."};
+      L"오디오 전달 방식",
+      L"외부 릴레이 — 전체 화면 공유",
+      L"내부 릴레이 — 애플리케이션 창 공유 지원",
+      L"ASIO 연결 시 시작",
+      L"내부 릴레이는 애플리케이션이 다음에 SoundFork ASIO를 초기화할 때 시작됩니다.",
+      L"Discord에서 애플리케이션 창 또는 전체 화면을 공유하세요. OBS 플러그인도 함께 사용할 수 있습니다."};
   return language == UiLanguage::korean ? ko : en;
 }
 const StartupStrings& startup_strings(UiLanguage language) {
@@ -1675,9 +1675,9 @@ void layout_controls(AppState* state, int width) {
   MoveWindow(state->backend_combo, margin, 45, combo_width, 220, TRUE);
   MoveWindow(state->apply_button, margin + combo_width + 12, 44, button_width, 28, TRUE);
   MoveWindow(state->forwarding_group, 14, 110, width - 28, 284, TRUE);
-  MoveWindow(state->relay_enabled, margin, 138, content - button_width - 12, 26, TRUE);
-  MoveWindow(state->relay_button, margin + content - button_width, 136, button_width, 28, TRUE);
-  constexpr int label_width = 160;
+  MoveWindow(state->relay_enabled, margin, 138, content - 222, 26, TRUE);
+  MoveWindow(state->relay_button, margin + content - 210, 136, 210, 28, TRUE);
+  constexpr int label_width = 180;
   const int field_x = margin + label_width;
   const int field_width = content - label_width;
   MoveWindow(state->relay_mode_label, margin, 184, label_width - 8, 22, TRUE);
@@ -1903,7 +1903,7 @@ void create_controls(AppState* state) {
   RECT client{};
   GetClientRect(state->window, &client);
   SetWindowTextW(state->endpoint_label, korean ? L"전달 장치" : L"Forwarding device");
-  SetWindowTextW(state->relay_mode_label, korean ? L"공유 방식" : L"Sharing mode");
+  SetWindowTextW(state->relay_mode_label, relay_mode_strings(state->language).label);
   layout_controls(state, client.right);
 }
 
@@ -2019,7 +2019,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   SetWindowTextW(state->backend_label, strings.backend_label);
   SetWindowTextW(state->apply_button, strings.apply);
   SetWindowTextW(state->endpoint_label, language == UiLanguage::korean ? L"전달 장치" : L"Forwarding device");
-  SetWindowTextW(state->relay_mode_label, language == UiLanguage::korean ? L"공유 방식" : L"Sharing mode");
+  SetWindowTextW(state->relay_mode_label, relay_mode_strings(language).label);
   SetWindowTextW(state->output_group, language == UiLanguage::korean ? L"ASIO 출력" : L"ASIO output");
   SetWindowTextW(state->forwarding_group, language == UiLanguage::korean ? L"방송 오디오 전달" : L"Broadcast audio forwarding");
   SetWindowTextW(state->buffer_label, language == UiLanguage::korean ? L"전달 버퍼" : L"Forwarding buffer");
