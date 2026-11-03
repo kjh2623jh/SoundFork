@@ -16,7 +16,7 @@ Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
-The default build version is `1.2.0-dev`; specify `-Version` for release builds.
+The default build version is `1.2.0`; `-Version` may override it for release builds.
 The alpha version in packaging examples is for explicitly preparing a prerelease,
 not an instruction to publish automatically.
 
@@ -82,8 +82,9 @@ output. It adds no second copy, branch, lock, wait or WASAPI call to the ASIO ca
 and external relays share `SoundFork.DiscordRelay.Singleton.v1` and the same stop event.
 
 Automated coverage checks setting defaults/persistence, DLL exports and its disabled
-lifecycle plus existing relay, hub and ASIO regressions. Discord attribution of a game-owned
-WASAPI stream is not a public contract, so DJMAX restart and remote listening remain manual.
+lifecycle plus existing relay, hub and ASIO regressions. Discord attribution of an
+application-owned WASAPI stream is not a public contract, so each release still needs a
+real application restart and remote-listening check.
 
 ## Contracts to preserve when changing code
 

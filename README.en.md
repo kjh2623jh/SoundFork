@@ -14,12 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.1.0/SoundFork-Setup-v1.1.0.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.2.0/SoundFork-Setup-v1.2.0.exe) ·
 [View all releases](../../releases)
 
-The latest stable version is `v1.1.0`. The default branch is developing experimental
-application-window sharing for `v1.2.0-dev`. Executables are not code-signed, so Windows SmartScreen may
-show a warning.
+The current version is `v1.2.0`. Executables are not code-signed, so Windows SmartScreen may show a warning.
 
 ## Requirements
 
@@ -45,13 +43,13 @@ playback alone, neither the control panel nor audio forwarding needs to stay ope
 Install a virtual audio device separately; [VB-CABLE](https://vb-audio.com/Cable/) is recommended.
 With VB-CABLE:
 
-1. Select `CABLE Input` as the **Broadcast audio device** in the control panel.
-2. Select a sharing mode in SoundFork Control.
+1. Select `CABLE Input` as the **Forwarding device** in the control panel.
+2. Enable **audio forwarding** and select a forwarding mode.
 
-   - `Entire screen`: uses the existing external relay; press **Start forwarding**, then share the entire monitor in Discord.
-   - `Application window`: experimental in `v1.2.0-dev`; do not start external forwarding. Restart the game, then share the game window.
+   - `External relay — entire-screen sharing`: press **Start forwarding**, then share the entire monitor in Discord.
+   - `Internal relay — application-window sharing supported`: restart the application, then share its window in Discord.
 
-Application-window mode runs the relay inside the game process. Automated tests pass, but an actual remote Discord listening test is still required.
+The internal relay runs inside the process using SoundFork ASIO. The forwarding buffer can use its automatic value or a frame count; the displayed duration is the amount of broadcast audio retained.
 
 When using another virtual audio device, select its virtual playback device instead of `CABLE Input`.
 

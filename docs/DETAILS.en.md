@@ -5,8 +5,8 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.2.0-dev raw Int16/Int24/Int32/Float32 PCM capture and
-the optional in-game Discord relay.
+This document describes 1.2.0 raw Int16/Int24/Int32/Float32 PCM capture and
+the optional in-application Discord relay.
 
 ## Compatibility and scope
 
@@ -152,12 +152,12 @@ Previous remote-listener tests found:
 The validated 1.1.0 path therefore uses **entire-screen sharing**. A public Windows 11
 stream/window association API was also tried, but Discord excluded the external relay.
 
-In 1.2.0-dev, explicitly selecting application-sharing mode loads
+In 1.2.0, explicitly selecting application-sharing mode loads
 `soundfork_app_relay.dll` through the normal ASIO lifecycle. Its worker reads the existing
-hub output and creates the WASAPI stream inside the game process. This is neither injection
+hub output and creates the WASAPI stream inside the application process. This is neither injection
 nor hooking. When disabled, the DLL, worker, WASAPI session and hub lease do not exist.
 Internal and external relays share one singleton and cannot render simultaneously.
-An actual remote Discord listening test remains a manual gate and is not claimed complete.
+Remote listening through DJMAX application-window sharing was confirmed during 1.2.0 release preparation.
 
 The `Start audio forwarding at Windows sign-in` choice remains checked but disabled in
 application-sharing mode. Its effective Windows Run entry is suspended and restored when
@@ -358,13 +358,19 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
 - 2026-11-01 1.2.0-dev in-game relay: added the optional DLL loader, sharing-mode
   setting and DLL-export/disabled-lifecycle test. The OBS-enabled Release build and
   CTest passed 28/28. This is not an installed-game or remote Discord application-share result.
+- 2026-11-03 1.2.0 real use: the user confirmed that DJMAX application-window sharing
+  delivered game audio to a remote listener through the internal relay and a virtual
+  audio device. This result applies to that PC, Discord version and device configuration;
+  Discord does not publish it as a compatibility contract.
+- 2026-11-03 1.2.0 release build: the explicitly versioned OBS-enabled Release build
+  passed CTest 28/28. Final install/upgrade/uninstall and ClamAV scans of distribution
+  files run in the tag-triggered release workflow.
 
 The following are not claimed complete:
 
 - Observing nonzero DJMAX song PCM in the monitor and a four-hour simultaneous soak instrumenting callbacks, queues and memory.
 - Physical virtual-WASAPI driver removal/reconnection.
 - Simultaneous remote verification of a real microphone and Discord screen-share audio.
-- Remote Discord application-window verification of the 1.2.0-dev in-game relay.
 - FiiO/Discord/dedicated OBS plugin recording sync and long-duration stability.
 - Physical loopback measurement of end-to-end or proxy-added latency.
 - Real UAC approval/cancellation, full installer lifecycle for the new plugin manager,

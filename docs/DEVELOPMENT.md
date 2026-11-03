@@ -15,7 +15,7 @@
 저장소 루트의 PowerShell에서 실행한다. 빌드 스크립트는 Visual Studio에 포함된
 CMake도 찾으며, 구성·빌드 후 기본적으로 CTest까지 실행한다. `-SkipTests`는 컴파일은 유지하고
 CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서는 사용하지 않는다.
-기본 빌드는 `1.2.0-dev`다. 릴리스 버전은 `-Version`으로 명시한다.
+기본 빌드는 `1.2.0`이다. 릴리스 버전은 `-Version`으로 명시할 수 있다.
 아래 패키징 예시의 alpha 번호는 명시적인 시험판 준비 시에만 사용하며 자동 배포하지 않는다.
 
 ```powershell
@@ -75,8 +75,8 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 DLL은 `SoundFork.DiscordRelay.Singleton.v1` 및 같은 stop event를 공유한다.
 
 자동 시험은 설정 기본값·저장, DLL export와 비활성 수명주기, 기존 릴레이·허브·ASIO 회귀를
-검사한다. Discord가 게임 소유 WASAPI 세션을 실제 창 공유에 포함하는지는 공개 계약이
-아니므로 DJMAX 재시작 후 원격 청취로 별도 확인한다.
+검사한다. Discord가 애플리케이션 소유 WASAPI 세션을 창 공유에 포함하는 동작은 공개 계약이
+아니므로 릴리스별 실사용 시험에서도 확인한다.
 
 ## 수정할 때 지켜야 할 계약
 
