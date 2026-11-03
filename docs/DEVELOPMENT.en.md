@@ -9,14 +9,14 @@ compatibility, latency figures and verification records belong in [program detai
 
 - Windows 10/11 x64, Git and CMake 3.25 or newer.
 - Visual Studio 2022 with **Desktop development with C++** and a Windows SDK.
-- C++20 / MSVC x64 only; automated tests require neither a game nor a hardware ASIO driver.
+- C++20 / MSVC x64, plus x86 ASIO components; automated tests need neither a game nor a hardware ASIO driver.
 - Inno Setup 6 for Setup.exe; Python 3.10+ for security-tool tests.
 
 Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
-The default build version is `1.2.0`; `-Version` may override it for release builds.
+The default build version is `1.3.0-dev`; `-Version` may override it for release builds.
 The alpha version in packaging examples is for explicitly preparing a prerelease,
 not an instruction to publish automatically.
 
@@ -39,7 +39,7 @@ Control EXE when testing plugin management.
 
 ## Finding the implementation
 
-- `src/asio-proxy`: x64 ASIO COM server and registration entrypoints.
+- `src/asio-proxy`: x64/x86 ASIO COM servers and registration entrypoints.
 - `src/audio-bridge`: hardware loading/lifecycle, buffer and callback forwarding.
 - `src/capture-backend`: shared rings, hub, WASAPI relay/clock correction and monitor.
 - `src/obs-plugin`: official libobs source API integration and localization.
@@ -50,6 +50,34 @@ Control EXE when testing plugin management.
 The base version comes from `project(VERSION ...)` in `CMakeLists.txt`; the
 user-visible version is generated from `SOUNDFORK_VERSION`. Language preferences
 are stored per user in `HKCU\Software\SoundFork\Language`.
+
+## 1.3.0 32-bit ASIO hosts
+
+The OS remains Windows x64. The proxy, internal relay DLL, registration helper and
+test host also build as x86 into `bin/x86` (`{app}/x86` after installation). Control,
+the hub, external relay and OBS plugin remain x64. The internal x86 relay launches
+the x64 hub from the parent installation directory. Control matches the selected
+x64 vendor's CLSID or ASIO registry name in the x86 registry view. With no match,
+the x86 proxy is registered without a backend; x64 playback still works. Install
+the matching vendor's x86 driver. No unrelated driver is selected or cross-loaded.
+
+```powershell
+.\scripts\Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+.\scripts\Build-SoundFork.ps1 -Configuration Release -Architecture x86
+.\scripts\Test-SoundForkCrossBitness.ps1 -Configuration Release
+.\scripts\Test-SoundForkStaticAnalysis.ps1 -Architecture x86
+```
+
+Use `-Configuration Debug` for Debug coverage. Per-architecture CTest runs independently;
+the cross-bitness script needs both builds and runs as a required CI/package step.
+It checks a real x86 fake-host proxy -> x64 hub -> two consumers, and the reverse
+producer/consumer bitness, across four formats and 64/256 frames. Acknowledgment waits
+are outside callbacks in the fake host. Wire v3 and its sizes/offsets are unchanged
+and asserted at compilation. Counters use aligned Interlocked64 operations; read-only
+diagnostic snapshots use SSE2 MOVQ. Registration tests redirect HKLM only in the test
+process to a temporary HKCU key. Full dual-view install/update/uninstall runs in isolated
+release CI. Real x86 games/vendor drivers, Discord sharing and physical latency remain
+manual checks.
 
 ## 1.2.0 application-window relay
 

@@ -5,13 +5,13 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.2.0 raw Int16/Int24/Int32/Float32 PCM capture and
+This document describes 1.3.0-dev raw Int16/Int24/Int32/Float32 PCM capture and
 the optional in-application Discord relay.
 
 ## Compatibility and scope
 
 SoundFork is not a DJMAX- or FiiO-specific hooking tool. It opens the selected driver
-through the standard x64 ASIO COM interface and exposes SoundFork to the game or
+through the standard ASIO COM interface matching the host's bitness and exposes SoundFork to the game or
 DAW. Playback channels, sample rates and buffer sizes are queried from that driver.
 The architecture can wrap other vendors' drivers, but compatibility with every
 driver has not been tested. Real-use verification has been with DJMAX RESPECT V
@@ -23,7 +23,7 @@ virtual driver's own buffering latency is not removed.
 
 Broadcast capture has additional constraints:
 
-- Windows 10/11 x64 and x64 ASIO hosts.
+- Windows 10/11 x64 with x64 or x86 ASIO hosts. The vendor driver must match the host's bitness.
 - 48 kHz, stereo output channels 0 and 1, Int16LSB/Int24LSB/Int32LSB/Float32LSB samples.
 - Capture blocks of 1–8,192 frames; hardware must support the chosen buffer size.
 - Only one prepared ASIO stream per process.
@@ -366,7 +366,18 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   passed CTest 28/28. Final install/upgrade/uninstall and ClamAV scans of distribution
   files run in the tag-triggered release workflow.
 
+- 2026-11-03 1.3.0-dev automated verification: OBS-enabled x64 Debug/Release each
+  passed CTest 28/28; x86 Debug/Release each passed 8/8. Each configuration passed
+  16 cross-bitness combinations (two directions, four formats, 64/256-frame buffers),
+  checking fake-host DAC buffer identity and both x64 hub output payloads. Both
+  architectures passed `/analyze /WX`; release files passed CFG/NX/ASLR/static-runtime
+  checks. Combined CMake staging succeeded. Inno Setup is absent locally, so Setup.exe
+  compilation and full installation were not run. These results do not verify remote
+  GitHub CI, real x86 games/vendor drivers, Discord reception or physical latency.
+
 The following are not claimed complete:
+
+- Real x86 games/vendor ASIO playback, Discord application sharing and the full installed lifecycle.
 
 - Observing nonzero DJMAX song PCM in the monitor and a four-hour simultaneous soak instrumenting callbacks, queues and memory.
 - Physical virtual-WASAPI driver removal/reconnection.

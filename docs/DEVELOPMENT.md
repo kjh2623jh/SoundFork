@@ -9,13 +9,13 @@
 
 - Windows 10/11 x64, Git, CMake 3.25 이상
 - Visual Studio 2022의 **C++를 사용한 데스크톱 개발** 워크로드와 Windows SDK
-- C++20 / MSVC x64 빌드만 지원하며 게임이나 외부 ASIO 드라이버는 자동 테스트에 필요하지 않다.
+- C++20 / MSVC x64 및 ASIO 구성 요소용 x86 빌드를 지원하며 게임이나 외부 ASIO 드라이버는 자동 테스트에 필요하지 않다.
 - Setup.exe 제작에는 Inno Setup 6, 보안 도구 테스트에는 Python 3.10 이상이 추가로 필요하다.
 
 저장소 루트의 PowerShell에서 실행한다. 빌드 스크립트는 Visual Studio에 포함된
 CMake도 찾으며, 구성·빌드 후 기본적으로 CTest까지 실행한다. `-SkipTests`는 컴파일은 유지하고
 CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서는 사용하지 않는다.
-기본 빌드는 `1.2.0`이다. 릴리스 버전은 `-Version`으로 명시할 수 있다.
+기본 빌드는 `1.3.0-dev`다. 릴리스 버전은 `-Version`으로 명시할 수 있다.
 아래 패키징 예시의 alpha 번호는 명시적인 시험판 준비 시에만 사용하며 자동 배포하지 않는다.
 
 ```powershell
@@ -36,7 +36,7 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 
 ## 소스에서 찾을 위치
 
-- `src/asio-proxy`: x64 ASIO COM 서버와 등록 진입점
+- `src/asio-proxy`: x64·x86 ASIO COM 서버와 등록 진입점
 - `src/audio-bridge`: 하드웨어 드라이버 로드·생명주기, 버퍼·콜백 중계
 - `src/capture-backend`: 공유 링, 캡처 허브, WASAPI 릴레이·클럭 보정, 진단 모니터
 - `src/obs-plugin`: 공식 libobs API로 출력하는 오디오 소스와 번역 리소스
@@ -47,6 +47,33 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 버전의 기본값은 `CMakeLists.txt`의 `project(VERSION ...)`이고 사용자 표시 버전은
 `SOUNDFORK_VERSION`에서 생성한다. 언어 선택은 사용자별
 `HKCU\Software\SoundFork\Language`에 저장한다.
+
+## 1.3.0 32비트 ASIO 호스트
+
+Windows OS는 계속 x64다. 프록시·내부 릴레이·등록 도우미·호스트 도구만 x86으로 함께
+패키징하며 `bin/x86`(설치 후 `{app}/x86`)에 둔다. Hub·외부 릴레이·제어판·OBS는 x64다.
+내부 릴레이 x86 DLL은 상위 설치 폴더의 x64 Hub를 명시적으로 실행한다.
+제어판은 선택한 x64 제조사 드라이버와 CLSID 또는 ASIO 등록 이름이 일치하는 x86 드라이버를
+찾아 별도의 32비트 레지스트리 뷰에 등록한다. 일치하는 드라이버가 없으면 x86 프록시는
+등록하되 백엔드는 비워 두며, x64 재생은 유지된다. 해당 제조사의 x86 ASIO 설치가 필요하다.
+서로 다른 제조사의 드라이버를 임의로 고르거나 x86에서 x64 드라이버를 로드하지 않는다.
+
+```powershell
+.\scripts\Build-SoundFork.ps1 -Configuration Release -WithObsPlugin
+.\scripts\Build-SoundFork.ps1 -Configuration Release -Architecture x86
+.\scripts\Test-SoundForkCrossBitness.ps1 -Configuration Release
+.\scripts\Test-SoundForkStaticAnalysis.ps1 -Architecture x86
+```
+
+Debug도 같은 `-Configuration Debug`로 검증한다. CTest는 각 비트수의 독립 회귀를 실행하고,
+교차 비트수 스크립트는 두 빌드가 필요하므로 CI·패키지 스크립트에서 별도 필수 단계로 실행한다.
+실제 프로세스 간 x86 프록시 → x64 Hub → 두 소비자와 역방향을 네 PCM 형식·64/256프레임으로
+검사한다. 콜백 안의 기다림 없이 가짜 호스트 바깥에서 블록별 확인 신호를 기다린다.
+공유 메모리 wire v3와 크기·오프셋은 유지하고 컴파일 시 양쪽 ABI를 고정한다.
+생산·소비 카운터는 정렬된 Interlocked64, 읽기 전용 진단 카운터는 SSE2 MOVQ로 읽는다.
+x86 등록 테스트는 프로세스 한정 HKLM 리다이렉션과 임시 HKCU 키만 쓰며 실제 설치를 바꾸지 않는다.
+전체 Setup 설치·업데이트·제거의 양쪽 레지스트리 확인은 격리된 릴리스 CI가 담당한다.
+실제 32비트 게임·제조사 드라이버·Discord 창 공유와 물리 지연은 수동 검증으로 남긴다.
 
 ## 1.2.0 애플리케이션 창 공유 릴레이
 
