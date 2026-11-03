@@ -52,7 +52,7 @@ int wmain(int argc, wchar_t**) {
     state.obs_status = {};
     state.force_exit = true;  // Closing this test host never touches the installed relay.
     HWND window = CreateWindowExW(0, L"SoundForkReadOnlyControlTest", L"SoundFork UI preview (read-only)",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 450, nullptr, nullptr,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 620, nullptr, nullptr,
         GetModuleHandleW(nullptr), &state);
     if (window == nullptr) throw std::runtime_error("preview window failed");
     struct WindowEnd { HWND value; ~WindowEnd() { if (IsWindow(value)) DestroyWindow(value); } } window_end{window};
@@ -78,20 +78,34 @@ int wmain(int argc, wchar_t**) {
       if (state.startup_checkbox == nullptr) throw std::runtime_error("startup checkbox missing");
       const HWND startup_checkbox = state.startup_checkbox;
       require_ui(GetDlgItem(window, kStartupRelay) == startup_checkbox, "startup checkbox is not on main window");
-      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
-          "startup is not off for an unregistered test executable");
-      SendMessageW(state.startup_checkbox, BM_SETCHECK, BST_CHECKED, 0);
+      const auto expected_startup = soundfork::control::RelaySettings{}.startup_preferred(executable_path())
+          ? BST_CHECKED : BST_UNCHECKED;
+      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == expected_startup,
+          "startup does not reflect the saved preference");
+      SendMessageW(state.startup_checkbox, BM_SETCHECK,
+          expected_startup == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED, 0);
       update_status(&state);
-      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
+      require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == expected_startup,
           "checkbox did not synchronize with saved preference");
       require_ui(GetMenuState(GetSubMenu(GetMenu(window), 0), kStartupRelay, MF_BYCOMMAND) == static_cast<UINT>(-1),
           "startup option still duplicated in menu");
-      MoveWindow(window, 0, 0, 720, 430, FALSE);
+      MoveWindow(window, 0, 0, 720, 600, FALSE);
       RECT client{}, note{};
       GetClientRect(window, &client);
       GetWindowRect(state.note, &note);
       MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&note), 2);
       require_ui(note.right <= client.right && note.bottom <= client.bottom, "compact layout clipped at minimum size");
+      RECT mode_rect{}, device_rect{}, buffer_rect{}, group_rect{};
+      GetWindowRect(state.relay_mode_combo, &mode_rect);
+      GetWindowRect(state.endpoint_combo, &device_rect);
+      GetWindowRect(state.relay_buffer, &buffer_rect);
+      GetWindowRect(state.forwarding_group, &group_rect);
+      require_ui(mode_rect.left == device_rect.left && device_rect.left == buffer_rect.left,
+          "forwarding fields are not aligned");
+      require_ui(mode_rect.bottom < device_rect.top && device_rect.bottom < buffer_rect.top,
+          "forwarding rows overlap");
+      require_ui(buffer_rect.right < group_rect.right && mode_rect.top > group_rect.top,
+          "forwarding fields escape their group");
       for (const auto language : {UiLanguage::korean, UiLanguage::english}) {
         apply_language(&state, language, false);
         std::vector<wchar_t> checkbox_text(128);

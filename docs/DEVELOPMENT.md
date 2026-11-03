@@ -15,7 +15,7 @@
 저장소 루트의 PowerShell에서 실행한다. 빌드 스크립트는 Visual Studio에 포함된
 CMake도 찾으며, 구성·빌드 후 기본적으로 CTest까지 실행한다. `-SkipTests`는 컴파일은 유지하고
 CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서는 사용하지 않는다.
-기본 빌드는 `1.1.0`이다. 개발 버전은 `-Version`으로 명시한다.
+기본 빌드는 `1.2.0`이다. 릴리스 버전은 `-Version`으로 명시할 수 있다.
 아래 패키징 예시의 alpha 번호는 명시적인 시험판 준비 시에만 사용하며 자동 배포하지 않는다.
 
 ```powershell
@@ -29,8 +29,9 @@ CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서�
 import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 넣지 않는다.
 
 결과물은 `build/windows-msvc-x64/Debug` 또는 `Release`에 생성된다.
-주요 파일은 `soundfork_driver.dll`, `soundfork_control.exe`, `soundfork_capture_hub.exe`,
-`soundfork_discord_relay.exe`, 선택적 `soundfork-obs.dll`과 `obs-plugin` 원본 폴더다.
+주요 파일은 `soundfork_driver.dll`, 선택적 게임 내부 릴레이 `soundfork_app_relay.dll`,
+`soundfork_control.exe`, `soundfork_capture_hub.exe`, `soundfork_discord_relay.exe`,
+선택적 `soundfork-obs.dll`과 `obs-plugin` 원본 폴더다.
 제어판의 플러그인 관리 기능을 시험할 때는 EXE만 따로 옮기지 않는다.
 
 ## 소스에서 찾을 위치
@@ -46,6 +47,36 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 버전의 기본값은 `CMakeLists.txt`의 `project(VERSION ...)`이고 사용자 표시 버전은
 `SOUNDFORK_VERSION`에서 생성한다. 언어 선택은 사용자별
 `HKCU\Software\SoundFork\Language`에 저장한다.
+
+## 1.2.0 애플리케이션 창 공유 릴레이
+
+`RelayEnabled` DWORD(기본 1)은 내부 DLL 로드와 제어판 외부 전달 시작을 제어한다.
+끄면 실행 중 전달을 중지하며 공유 방식·로그인 선호값은 유지한다. OBS는 독립적이다.
+`RelayBufferFrames` DWORD(기본 0)은 두 전달 방식의 목표 큐 프레임 수다.
+0은 기존 ASIO 4블록 정책이며 UI는 실제 스트림의 프레임 수와 샘플레이트로 계산한 시간을 함께 표시한다.
+스트림 정보가 없으면 자동값은 ASIO 연결 대기로 표시하고, 수동 선택값은 프레임 수만 표시한다.
+선택 범위는 128~9600프레임이며 실제 적용값은 ASIO 1~32블록 범위로 제한한다.
+따라서 ASIO 블록 크기에 따라 요청값이 제한될 수 있다. 전체 방송 지연의 측정값은 아니다.
+설정 변경 시 전달은 중지된다. 외부 전달은 다시 시작하고 내부 전달은 게임을 다시 시작한다.
+
+제어판은 `HKCU\Software\SoundFork\RelayMode`에 `entire-screen` 또는 `application`을
+저장한다. COM 서버가 만든 실제 `ProxyDriver`만 선택적 로더를 허용하며 가짜 백엔드 단위
+시험은 기본적으로 비활성화된다. 애플리케이션 모드에서는 `createBuffers`의 비실시간 구간에서
+설정과 엔드포인트를 읽고 드라이버 옆 `soundfork_app_relay.dll`을 명시적으로 로드한다.
+
+로그인 자동 실행의 사용자 선택은 `StartupPreference` DWORD로 별도 저장한다. 기존 설치에
+값이 없으면 현재 SoundFork Run 등록을 최초 선호값으로 이전한다. 애플리케이션 공유에서는
+체크 상태를 유지한 채 실제 Run 등록만 제거하고, 전체 화면 공유로 돌아오면 저장한 선호값에
+따라 등록을 복원한다. 따라서 내부 릴레이를 위해 제어판이 로그인 때 불필요하게 실행되지 않는다.
+
+내부 DLL은 작업자 스레드에서 기존 `soundfork_relay_main`을 실행한다. 캡처 허브의 relay
+출력을 소비하므로 ASIO 콜백에 두 번째 복사·분기·락·대기·WASAPI 호출을 추가하지 않는다.
+`disposeBuffers`와 드라이버 소멸 시 작업자를 중지한 뒤 DLL을 해제한다. 외부 EXE와 내부
+DLL은 `SoundFork.DiscordRelay.Singleton.v1` 및 같은 stop event를 공유한다.
+
+자동 시험은 설정 기본값·저장, DLL export와 비활성 수명주기, 기존 릴레이·허브·ASIO 회귀를
+검사한다. Discord가 애플리케이션 소유 WASAPI 세션을 창 공유에 포함하는 동작은 공개 계약이
+아니므로 릴리스별 실사용 시험에서도 확인한다.
 
 ## 수정할 때 지켜야 할 계약
 
@@ -137,7 +168,7 @@ UI는 릴레이에 `--endpoint-id <opaque-id>`를 전달한다. 정확한 ID가 
 
 ### 자동 회귀와 정적 분석
 
-빌드 스크립트가 기본적으로 CTest를 실행한다. 현재 OBS 포함 시 27개, 제외 시 20개다. 프록시·COM·
+빌드 스크립트가 기본적으로 CTest를 실행한다. 현재 OBS 포함 시 28개, 제외 시 21개다. 프록시·COM·
 공유 링·허브·릴레이 클럭·장치 열거·제어판·플러그인 관리와 선택적 실제 libobs 통합을 다룬다.
 libobs 테스트는 DLL 로드, 소스 생성, 연속 스테레오 파형, 타임스탬프 간격, 예기치 않은
 무음·불연속, 생산자 일시 중단 후 복구와 릴레이 동시 수신을 검증한다. 생산자는 누적

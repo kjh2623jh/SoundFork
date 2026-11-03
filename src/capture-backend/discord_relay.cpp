@@ -27,6 +27,8 @@
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/endpoint_selection.hpp"
+#include "capture-backend/relay_entry.hpp"
+#include "capture-backend/relay_preferences.hpp"
 #include "diagnostics/async_log.hpp"
 #include "soundfork_version.hpp"
 
@@ -371,7 +373,9 @@ SessionOutcome run_render_session(
       " endpoint_buffer_frames=" + std::to_string(endpoint_buffer_frames));
   auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
   soundfork::capture::RelayClockController clock(
-      format.sample_rate, format.frames_per_block);
+      format.sample_rate, format.frames_per_block, 4,
+      soundfork::capture::relay_target_frames(format.frames_per_block,
+          soundfork::capture::relay_preference(L"RelayBufferFrames", 0)));
   bool prebuffered = false;
   std::uint64_t prebuffer_silent_frames = 0;
   const HANDLE wait_handles[] = {audio_event.value, stop_event};
@@ -437,9 +441,10 @@ SessionOutcome run_render_session(
     const auto underflow_before = source->metrics().silent_frames;
     const auto resync_before = metrics->resync_count;
     std::uint64_t queue_frames = source->buffered_frames(*reader);
-    if (queue_frames >
-        static_cast<std::uint64_t>(format.frames_per_block) * 48U) {
-      metrics->discarded_blocks += reader->discard_oldest(4);
+    if (queue_frames > (std::max)(clock.target_frames() * 2,
+        static_cast<std::uint64_t>(format.frames_per_block) * 48U)) {
+      metrics->discarded_blocks += reader->discard_oldest(
+          static_cast<std::uint32_t>(clock.target_frames() / format.frames_per_block));
       source->reset();
       clock.reset();
       ++metrics->resync_count;
@@ -502,7 +507,7 @@ SessionOutcome run_render_session(
 
 }  // namespace
 
-int relay_main(int argc, wchar_t** argv) {
+int soundfork_relay_main(int argc, wchar_t** argv) {
   bool list_endpoints = false;
   bool system_share = false;
   bool persistent = false;
@@ -729,10 +734,12 @@ int relay_main(int argc, wchar_t** argv) {
   return exit_code;
 }
 
+#ifndef SOUNDFORK_RELAY_NO_ENTRYPOINT
 int wmain(int argc, wchar_t** argv) {
-  const int result = relay_main(argc, argv);
+  const int result = soundfork_relay_main(argc, argv);
   diagnostics::log().write(result == 0 ? diagnostics::Level::info : diagnostics::Level::error,
       "relay_exit", "exit_code=" + std::to_string(result));
   diagnostics::log().stop();
   return result;
 }
+#endif

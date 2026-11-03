@@ -10,6 +10,7 @@
 #include <string>
 
 #include "capture-backend/relay_clock.hpp"
+#include "capture-backend/relay_preferences.hpp"
 #include "capture-backend/endpoint_selection.hpp"
 #include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/shared_ring.hpp"
@@ -154,6 +155,15 @@ void test_all_consumer_formats() {
 
 int main() {
   try {
+    require(soundfork::capture::relay_target_frames(64, 0) == 256, "auto target");
+    require(soundfork::capture::relay_target_frames(64, 960) == 960, "frame target");
+    require(soundfork::capture::relay_target_frames(64, 9600) == 2048, "ring headroom");
+    require(soundfork::capture::relay_target_frames(512, 128) == 512, "minimum block");
+    require(soundfork::capture::relay_target_frames(64, 0xffffffffUL) == 256, "invalid target fallback");
+    require(soundfork::capture::RelayClockController(48000, 64).target_frames() == 256,
+        "default relay target changed");
+    require(soundfork::capture::RelayClockController(48000, 64, 4, 960).target_frames() == 960,
+        "explicit frame target ignored");
     test_four_hour_drift(1500.0);
     test_four_hour_drift(-1500.0);
     test_linear_relay_source();

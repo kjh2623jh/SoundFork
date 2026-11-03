@@ -63,7 +63,8 @@ class ClassFactory final : public IClassFactory {
       return CLASS_E_NOAGGREGATION;
     }
 
-    auto* driver = new (std::nothrow) ProxyDriver(g_backend_factory);
+    auto* driver = new (std::nothrow) ProxyDriver(
+        g_backend_factory, capture::kDefaultMappingName, true);
     if (driver == nullptr) {
       return E_OUTOFMEMORY;
     }

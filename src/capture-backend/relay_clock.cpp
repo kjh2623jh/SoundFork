@@ -30,9 +30,11 @@ Sample interpolate(Sample first, Sample second, double phase) noexcept {
 RelayClockController::RelayClockController(
     std::uint32_t sample_rate,
     std::uint32_t frames_per_block,
-    std::uint32_t target_blocks) noexcept
+    std::uint32_t target_blocks,
+    std::uint32_t target_frames) noexcept
     : sample_rate_(sample_rate),
       target_frames_(
+          target_frames != 0 ? target_frames :
           static_cast<std::uint64_t>(frames_per_block) * target_blocks) {}
 
 void RelayClockController::reset() noexcept {

@@ -5,7 +5,8 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.1.0 with raw Int16/Int24/Int32/Float32 PCM capture.
+This document describes 1.2.0 raw Int16/Int24/Int32/Float32 PCM capture and
+the optional in-application Discord relay.
 
 ## Compatibility and scope
 
@@ -38,9 +39,11 @@ Install a compatible ASIO driver first; SoundFork neither supplies nor modifies 
 Game / DAW → SoundFork ASIO proxy → hardware ASIO driver → DAC
                          └→ audio copy → capture hub
                                             ├→ dedicated OBS source
-                                            └→ relay → virtual render device
-                                                           ├→ Discord entire-screen sharing
-                                                           └→ OBS device capture
+                                            ├→ external relay → virtual render device
+                                            │                         ├→ Discord entire-screen sharing
+                                            │                         └→ OBS device capture
+                                            └→ in-game relay → virtual render device
+                                                                      └→ Discord application sharing
 ```
 
 The game writes directly into hardware-driver-owned output buffers. SoundFork adds
@@ -51,6 +54,8 @@ copied separately; a slow consumer loses capture blocks rather than delaying DAC
 - `soundfork_control.exe`: ASIO driver selection, status, audio forwarding and plugin management.
 - `soundfork_capture_hub.exe`: distributes copied audio independently to OBS and the relay.
 - `soundfork_discord_relay.exe`: renders broadcast audio to a virtual playback device.
+- `soundfork_app_relay.dll`: loaded in the game only when application-sharing mode is selected;
+  it runs the same relay engine.
 - `soundfork-obs.dll`: audio source plugin loaded inside OBS.
 
 The plugin or relay starts the hub automatically. It exits roughly two seconds
@@ -135,8 +140,8 @@ hardware ASIO driver or DAC itself disconnects.
 ## Discord and OBS behavior
 
 ASIO bypasses the Windows shared audio engine. Direct FiiO ASIO output does not
-appear in ordinary WASAPI loopback, and the relay's Windows audio stream belongs
-to `soundfork_discord_relay.exe`, not the game.
+appear in ordinary WASAPI loopback. The external stream belongs to
+`soundfork_discord_relay.exe`; the optional internal stream belongs to the game process.
 
 Previous remote-listener tests found:
 
@@ -144,10 +149,19 @@ Previous remote-listener tests found:
 - Entire-screen sharing with direct ASIO: no game audio.
 - Entire-screen sharing with SoundFork relay and VB-CABLE: game audio included.
 
-SoundFork therefore supports **entire-screen sharing** in Discord. A public
-Windows 11 stream/window association API was also tried, but Discord still excluded
-the external relay from application-window sharing. SoundFork uses no game injection
-or private Discord APIs and does not treat routing music to the microphone as screen-share support.
+The validated 1.1.0 path therefore uses **entire-screen sharing**. A public Windows 11
+stream/window association API was also tried, but Discord excluded the external relay.
+
+In 1.2.0, explicitly selecting application-sharing mode loads
+`soundfork_app_relay.dll` through the normal ASIO lifecycle. Its worker reads the existing
+hub output and creates the WASAPI stream inside the application process. This is neither injection
+nor hooking. When disabled, the DLL, worker, WASAPI session and hub lease do not exist.
+Internal and external relays share one singleton and cannot render simultaneously.
+Remote listening through DJMAX application-window sharing was confirmed during 1.2.0 release preparation.
+
+The `Start audio forwarding at Windows sign-in` choice remains checked but disabled in
+application-sharing mode. Its effective Windows Run entry is suspended and restored when
+the user returns to entire-screen sharing.
 
 The dedicated OBS source receives audio directly from the hub, without a virtual
 device or relay. For simultaneous Discord use, run the relay and keep the dedicated
@@ -340,6 +354,17 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   timestamp unchanged. Product ASIO/relay/OBS sources and installed files were not
   changed. These are not results from remote Actions, final-artifact antivirus scans,
   physical hardware or real-time multi-hour broadcasting.
+
+- 2026-11-01 1.2.0-dev in-game relay: added the optional DLL loader, sharing-mode
+  setting and DLL-export/disabled-lifecycle test. The OBS-enabled Release build and
+  CTest passed 28/28. This is not an installed-game or remote Discord application-share result.
+- 2026-11-03 1.2.0 real use: the user confirmed that DJMAX application-window sharing
+  delivered game audio to a remote listener through the internal relay and a virtual
+  audio device. This result applies to that PC, Discord version and device configuration;
+  Discord does not publish it as a compatibility contract.
+- 2026-11-03 1.2.0 release build: the explicitly versioned OBS-enabled Release build
+  passed CTest 28/28. Final install/upgrade/uninstall and ClamAV scans of distribution
+  files run in the tag-triggered release workflow.
 
 The following are not claimed complete:
 

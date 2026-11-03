@@ -91,6 +91,26 @@ $relayProcesses = @(Get-Process -Name 'soundfork_discord_relay' -ErrorAction Sil
 $monitorProcesses = @(Get-Process -Name 'soundfork_capture_monitor' -ErrorAction SilentlyContinue)
 $controlProcesses = @(Get-Process -Name 'soundfork_control' -ErrorAction SilentlyContinue)
 $hubProcesses = @(Get-Process -Name 'soundfork_capture_hub' -ErrorAction SilentlyContinue)
+$relayMode = 'entire-screen'
+$userSettings = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\SoundFork', $false)
+if ($null -ne $userSettings) {
+    try {
+        $savedMode = [string]$userSettings.GetValue('RelayMode', 'entire-screen')
+        if ($savedMode -eq 'application') { $relayMode = 'application' }
+    } finally {
+        $userSettings.Dispose()
+    }
+}
+$relayMutex = $null
+$relayActive = $false
+try {
+    $relayMutex = [Threading.Mutex]::OpenExisting('Local\SoundFork.DiscordRelay.Singleton.v1')
+    $relayActive = $true
+} catch [Threading.WaitHandleCannotBeOpenedException] {
+    $relayActive = $false
+} finally {
+    if ($null -ne $relayMutex) { $relayMutex.Dispose() }
+}
 
 $state = if ($asioRegistered -and $comRegistered -and $driverExists -and $backendName) {
     'Ready'
@@ -107,7 +127,14 @@ $state = if ($asioRegistered -and $comRegistered -and $driverExists -and $backen
     DriverDllExists = [bool]$driverExists
     Backend = if ($backendName) { $backendName } elseif ($backendClsid) { "Unknown ($backendClsid)" } else { '(not configured)' }
     ControlApp = if ($controlProcesses.Count) { "Running (PID $($controlProcesses.Id -join ', '))" } else { 'Stopped' }
-    DiscordRelay = if ($relayProcesses.Count) { "Running (PID $($relayProcesses.Id -join ', '))" } else { 'Stopped' }
+    RelayMode = $relayMode
+    DiscordRelay = if ($relayProcesses.Count) {
+        "Running externally (PID $($relayProcesses.Id -join ', '))"
+    } elseif ($relayActive) {
+        'Running inside the ASIO host process'
+    } else {
+        'Stopped'
+    }
     CaptureHub = if ($hubProcesses.Count) { "Running (PID $($hubProcesses.Id -join ', '))" } else { 'Stopped' }
     CaptureMonitor = if ($monitorProcesses.Count) { "Running (PID $($monitorProcesses.Id -join ', '))" } else { 'Stopped' }
 }

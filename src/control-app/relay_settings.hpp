@@ -6,6 +6,11 @@
 
 namespace soundfork::control {
 
+enum class RelayMode {
+  entire_screen,
+  application,
+};
+
 // UI/startup only. Tests supply a private registry root: no environment override
 // can redirect production startup or installer operations.
 class RelaySettings final {
@@ -15,6 +20,14 @@ class RelaySettings final {
       std::wstring run_path = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run");
   std::wstring endpoint() const;
   DWORD save_endpoint(std::wstring_view id) const;
+  RelayMode mode() const;
+  DWORD save_mode(RelayMode mode) const;
+  // The preference is independent from the effective Windows Run entry so
+  // application-sharing mode can suspend it without forgetting the choice.
+  bool startup_preferred(std::wstring_view executable) const;
+  DWORD set_startup_preference(
+      std::wstring_view executable, bool enabled) const;
+  DWORD apply_startup_preference(std::wstring_view executable) const;
   bool startup_enabled(std::wstring_view executable) const;
   DWORD set_startup(std::wstring_view executable, bool enabled) const;
   // Uninstall only removes an exact registration for this installed executable.

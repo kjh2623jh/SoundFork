@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  #define MyAppVersion "1.2.0"
 #endif
 #ifndef MySourceDir
   #define MySourceDir "..\out"
@@ -71,6 +71,7 @@ Name: "obsplugin"; Description: "{cm:InstallObsPlugin}"; Flags: unchecked
 
 [Files]
 Source: "{#MySourceDir}\bin\soundfork_driver.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MySourceDir}\bin\soundfork_app_relay.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_control.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_discord_relay.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDir}\bin\soundfork_capture_hub.exe"; DestDir: "{app}"; Flags: ignoreversion

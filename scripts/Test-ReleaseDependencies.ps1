@@ -23,6 +23,7 @@ if (-not $dumpbin) {
 
 $binaries = @(
     'soundfork_driver.dll',
+    'soundfork_app_relay.dll',
     'soundfork_control.exe',
     'soundfork_discord_relay.exe',
     'soundfork_capture_hub.exe',

@@ -12,6 +12,7 @@
 
 namespace {
 using soundfork::control::RelaySettings;
+using soundfork::control::RelayMode;
 using soundfork::control::ControlInstance;
 void require(bool ok, const char* reason) { if (!ok) throw std::runtime_error(reason); }
 struct Phase {
@@ -123,16 +124,37 @@ void test_settings() {
   RelaySettings settings(fixture.root, L"Settings", L"Run");
   const std::wstring exe = L"C:\\Program Files\\사운드 포크\\soundfork_control.exe";
   require(settings.endpoint().empty(), "new endpoint is not empty");
+  require(settings.mode() == RelayMode::entire_screen, "new mode is not entire-screen");
   require(!settings.startup_enabled(exe), "startup enabled by default");
+  require(!settings.startup_preferred(exe), "startup preferred by default");
   require(settings.set_startup(exe, true) == ERROR_NOT_FOUND, "startup accepted missing endpoint");
   require(settings.save_endpoint(L"{0.0.0.00000000}.{fixture}") == ERROR_SUCCESS, "save failed");
   RelaySettings reopened(fixture.root, L"Settings", L"Run");
   require(reopened.endpoint() == L"{0.0.0.00000000}.{fixture}", "endpoint did not persist");
+  require(settings.save_mode(RelayMode::application) == ERROR_SUCCESS, "application mode save failed");
+  require(reopened.mode() == RelayMode::application, "application mode did not persist");
+  require(settings.save_mode(RelayMode::entire_screen) == ERROR_SUCCESS, "screen mode save failed");
+  require(reopened.mode() == RelayMode::entire_screen, "screen mode did not persist");
   std::wstring command;
   require(RelaySettings::make_startup_command(exe, command) == ERROR_SUCCESS &&
           command == L"\"" + exe + L"\" --startup", "path not quoted");
   require(settings.set_startup(exe, true) == ERROR_SUCCESS, "enable failed");
   require(reopened.startup_enabled(exe), "enable did not persist");
+  require(reopened.startup_preferred(exe), "existing startup was not migrated as preference");
+  require(settings.save_mode(RelayMode::application) == ERROR_SUCCESS, "application mode re-save failed");
+  require(settings.apply_startup_preference(exe) == ERROR_SUCCESS, "application preference apply failed");
+  require(!settings.startup_enabled(exe) && settings.startup_preferred(exe),
+          "application mode forgot or activated preference");
+  require(settings.save_mode(RelayMode::entire_screen) == ERROR_SUCCESS, "screen mode restore failed");
+  require(settings.apply_startup_preference(exe) == ERROR_SUCCESS, "screen preference restore failed");
+  require(settings.startup_enabled(exe) && settings.startup_preferred(exe),
+          "screen mode did not restore preferred startup");
+  require(settings.set_startup_preference(exe, false) == ERROR_SUCCESS,
+          "preference disable failed");
+  require(!settings.startup_enabled(exe) && !settings.startup_preferred(exe),
+          "disabled preference remained effective");
+  require(settings.set_startup_preference(exe, true) == ERROR_SUCCESS,
+          "preference re-enable failed");
   require(settings.remove_startup(L"D:\\Another\\soundfork_control.exe") == ERROR_SUCCESS,
           "unrelated uninstall failed");
   require(settings.startup_enabled(exe), "uninstall removed another copy's entry");
