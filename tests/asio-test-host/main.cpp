@@ -74,7 +74,7 @@ std::vector<DriverRecord> enumerate_drivers() {
           HKEY_LOCAL_MACHINE,
           L"SOFTWARE\\ASIO",
           0,
-          KEY_READ | KEY_WOW64_64KEY,
+          KEY_READ,
           &asio_key) != ERROR_SUCCESS) {
     return result;
   }
@@ -93,7 +93,7 @@ std::vector<DriverRecord> enumerate_drivers() {
 
     HKEY driver_key = nullptr;
     if (RegOpenKeyExW(
-            asio_key, key_name.data(), 0, KEY_READ | KEY_WOW64_64KEY, &driver_key) !=
+            asio_key, key_name.data(), 0, KEY_READ, &driver_key) !=
         ERROR_SUCCESS) {
       continue;
     }

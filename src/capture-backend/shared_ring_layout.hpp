@@ -61,6 +61,13 @@ constexpr std::size_t block_offset(std::size_t slot) noexcept {
 }
 
 static_assert(sizeof(SharedHeader) <= kHeaderBytes);
+// Wire ABI must match in x86 and x64. No pointers, size_t or native atomics here.
+static_assert(sizeof(SharedHeader) == 112);
+static_assert(offsetof(SharedHeader, generation) == 64);
+static_assert(offsetof(SharedHeader, write_sequence) == 72);
+static_assert(offsetof(SharedHeader, read_sequence) == 80);
+static_assert(offsetof(SharedHeader, dropped_blocks) == 88);
+static_assert(offsetof(SharedHeader, sample_format) == 96);
 static_assert(kHeaderBytes % alignof(std::int32_t) == 0);
 static_assert(kMappingBytes <= std::numeric_limits<DWORD>::max());
 static_assert(block_offset(kCapacityBlocks) == kMappingBytes);

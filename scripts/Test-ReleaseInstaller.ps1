@@ -53,6 +53,11 @@ $soundForkClsid = '{A04A0128-E43C-4D08-B701-87EC1A847A89}'
 $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
     [Microsoft.Win32.RegistryHive]::LocalMachine,
     [Microsoft.Win32.RegistryView]::Registry64)
+$baseKey32 = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    [Microsoft.Win32.RegistryHive]::LocalMachine,
+    [Microsoft.Win32.RegistryView]::Registry32)
+$fake32Created = $false
+$soundFork32MayHaveBeenCreated = $false
 $fakeKeysCreated = $false
 $soundForkMayHaveBeenCreated = $false
 $userRun = $null
@@ -61,6 +66,11 @@ $startupSeeded = $false
 $testDirectoryMayHaveBeenCreated = $false
 
 try {
+    foreach ($path in @("SOFTWARE\ASIO\$fakeName", "SOFTWARE\Classes\CLSID\$fakeClsid",
+            'SOFTWARE\ASIO\SoundFork', "SOFTWARE\Classes\CLSID\$soundForkClsid")) {
+        $existing32 = $baseKey32.OpenSubKey($path)
+        if ($null -ne $existing32) { $existing32.Dispose(); throw "Refusing to overwrite existing x86 key: $path" }
+    }
     $userRun = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
     if ($null -ne $userRun.GetValue('SoundFork', $null)) {
         throw 'The installer test refuses to overwrite an existing user SoundFork startup entry.'
@@ -84,6 +94,11 @@ try {
     $testDirectoryMayHaveBeenCreated = $true
 
     $fakeKeysCreated = $true
+    $fake32Created = $true
+    $fake32 = $baseKey32.CreateSubKey("SOFTWARE\ASIO\$fakeName", $true)
+    try { $fake32.SetValue('CLSID', $fakeClsid) } finally { $fake32.Dispose() }
+    $com32 = $baseKey32.CreateSubKey("SOFTWARE\Classes\CLSID\$fakeClsid\InprocServer32", $true)
+    try { $com32.SetValue('', "$env:SystemRoot\SysWOW64\kernel32.dll") } finally { $com32.Dispose() }
     $fakeAsio = $baseKey.CreateSubKey("SOFTWARE\ASIO\$fakeName", $true)
     try { $fakeAsio.SetValue('CLSID', $fakeClsid, [Microsoft.Win32.RegistryValueKind]::String) } finally { $fakeAsio.Dispose() }
     $fakeCom = $baseKey.CreateSubKey("SOFTWARE\Classes\CLSID\$fakeClsid\InprocServer32", $true)
@@ -94,6 +109,7 @@ try {
     try { $preferredCom.SetValue('', "$env:SystemRoot\System32\kernel32.dll", [Microsoft.Win32.RegistryValueKind]::String) } finally { $preferredCom.Dispose() }
     # A fresh unattended install must never guess a driver, even with FiiO present.
     $soundForkMayHaveBeenCreated = $true
+    $soundFork32MayHaveBeenCreated = $true
     $rejectedLog = Join-Path $LogDirectory '01-rejected-missing-backend.log'
     $unselectedExit = Invoke-ReleaseTestProcess -StepName 'Reject missing ASIO selection' `
         -FilePath $resolvedSetup -LogPath $rejectedLog -ArgumentList @(
@@ -125,6 +141,8 @@ try {
     }
 
     foreach ($file in @(
+        'x86\soundfork_driver.dll', 'x86\soundfork_app_relay.dll',
+        'x86\soundfork_register.exe', 'x86\soundfork_host.exe',
         'soundfork_driver.dll', 'soundfork_app_relay.dll', 'soundfork_control.exe',
         'soundfork_discord_relay.exe', 'soundfork_capture_hub.exe', 'unins000.exe',
         'README.md', 'README.en.md', 'LICENSE',
@@ -167,6 +185,18 @@ try {
     }
 
     $control = Join-Path $fullTestDirectory 'soundfork_control.exe'
+    foreach ($phase in @('install')) {
+        $asio32 = $baseKey32.OpenSubKey('SOFTWARE\ASIO\SoundFork')
+        if ($null -eq $asio32) { throw "x86 ASIO registration missing after $phase" }
+        try { if ([string]$asio32.GetValue('BackendCLSID') -ne $fakeClsid) { throw 'x86 backend selection mismatch' } }
+        finally { $asio32.Dispose() }
+        $registered32 = $baseKey32.OpenSubKey("SOFTWARE\Classes\CLSID\$soundForkClsid\InprocServer32")
+        if ($null -eq $registered32) { throw 'x86 COM registration missing' }
+        try {
+            if ([IO.Path]::GetFullPath([string]$registered32.GetValue('')) -ine
+                (Join-Path $fullTestDirectory 'x86\soundfork_driver.dll')) { throw 'x86 COM DLL path mismatch' }
+        } finally { $registered32.Dispose() }
+    }
     # Payload must be available for later Control-panel installation even when
     # the optional OBS task was not selected. Never touch the runner's OBS path.
     $pluginPayload = Join-Path $fullTestDirectory 'obs-plugin\soundfork-obs\bin\64bit\soundfork-obs.dll'
@@ -235,6 +265,13 @@ try {
         throw 'Uninstall left the removing account startup registration behind.'
     }
     $remainingSoundFork = $baseKey.OpenSubKey('SOFTWARE\ASIO\SoundFork', $false)
+    foreach ($path in @('SOFTWARE\ASIO\SoundFork', "SOFTWARE\Classes\CLSID\$soundForkClsid")) {
+        $remaining32 = $baseKey32.OpenSubKey($path)
+        if ($null -ne $remaining32) { $remaining32.Dispose(); throw "x86 registration remains after uninstall: $path" }
+    }
+    $remainingBackend32 = $baseKey32.OpenSubKey("SOFTWARE\ASIO\$fakeName")
+    if ($null -eq $remainingBackend32) { throw 'Uninstaller removed the x86 vendor driver' }
+    $remainingBackend32.Dispose()
     if ($null -ne $remainingSoundFork) {
         $remainingSoundFork.Dispose()
         throw 'SoundFork ASIO registry key remains after uninstall.'
@@ -251,6 +288,15 @@ try {
     $remainingFake.Dispose()
     Write-Host 'SoundFork installer smoke test passed.'
 } finally {
+    if ($fake32Created) {
+        $baseKey32.DeleteSubKeyTree("SOFTWARE\ASIO\$fakeName", $false)
+        $baseKey32.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$fakeClsid", $false)
+    }
+    if ($soundFork32MayHaveBeenCreated) {
+        $baseKey32.DeleteSubKeyTree('SOFTWARE\ASIO\SoundFork', $false)
+        $baseKey32.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$soundForkClsid", $false)
+    }
+    $baseKey32.Dispose()
     if ($null -ne $userRun) {
         if ($startupSeeded -and [string]$userRun.GetValue('SoundFork', '') -ceq $startupCommand) {
             $userRun.DeleteValue('SoundFork', $false)

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'v*-dev']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -43,6 +43,14 @@ jobs:
         shell: pwsh
         run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}' -WithObsPlugin
 
+      - name: Build and test x86 ASIO components
+        shell: pwsh
+        run: ./scripts/Build-SoundFork.ps1 -Configuration '${{ matrix.configuration }}' -Architecture x86
+
+      - name: Verify x86 and x64 proxy and hub interoperability
+        shell: pwsh
+        run: ./scripts/Test-SoundForkCrossBitness.ps1 -Configuration '${{ matrix.configuration }}'
+
       - name: Preserve CTest logs even on failure
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -53,11 +61,20 @@ jobs:
           path: |
             build/windows-msvc-x64/Testing/Temporary/LastTest.log
             build/windows-msvc-x64/Testing/Temporary/LastTestsFailed.log
+            build/windows-msvc-x86/Testing/Temporary/LastTest.log
+            build/windows-msvc-x86/Testing/Temporary/LastTestsFailed.log
+            build/interop-${{ matrix.configuration }}/*.log
+            build/interop-${{ matrix.configuration }}/*.err
 
       - name: MSVC static analysis
         if: matrix.configuration == 'Release'
         shell: pwsh
         run: ./scripts/Test-SoundForkStaticAnalysis.ps1 -Configuration Release -WithObsPlugin
+
+      - name: MSVC x86 static analysis
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: ./scripts/Test-SoundForkStaticAnalysis.ps1 -Configuration Release -Architecture x86
 
       - name: Upload Release binaries
         if: matrix.configuration == 'Release'
@@ -68,6 +85,11 @@ jobs:
           retention-days: 14
           path: |
             build/windows-msvc-x64/Release/soundfork_driver.dll
+            build/windows-msvc-x64/Release/soundfork_app_relay.dll
+            build/windows-msvc-x86/Release/soundfork_driver.dll
+            build/windows-msvc-x86/Release/soundfork_app_relay.dll
+            build/windows-msvc-x86/Release/soundfork_register.exe
+            build/windows-msvc-x86/Release/soundfork_host.exe
             build/windows-msvc-x64/Release/soundfork_control.exe
             build/windows-msvc-x64/Release/soundfork_discord_relay.exe
             build/windows-msvc-x64/Release/soundfork_capture_hub.exe

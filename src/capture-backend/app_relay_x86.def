@@ -1,0 +1,4 @@
+LIBRARY soundfork_app_relay
+EXPORTS
+    SoundForkAppRelayStart=_SoundForkAppRelayStart@4
+    SoundForkAppRelayStop=_SoundForkAppRelayStop@0

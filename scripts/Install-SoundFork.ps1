@@ -28,6 +28,14 @@ if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
     }
 }
 $resolvedBuild = (Resolve-Path -LiteralPath $BuildDirectory).Path
+$x86Source = Join-Path $resolvedBuild 'x86'
+if (-not (Test-Path -LiteralPath $x86Source)) {
+    $x86Source = Join-Path $PSScriptRoot '..\build\windows-msvc-x86\Release'
+}
+$x86Files = @('soundfork_driver.dll', 'soundfork_app_relay.dll', 'soundfork_register.exe', 'soundfork_host.exe')
+foreach ($file in $x86Files) {
+    if (-not (Test-Path -LiteralPath (Join-Path $x86Source $file) -PathType Leaf)) { throw "Missing x86 companion: $file" }
+}
 $requiredFiles = @(
     'soundfork_driver.dll',
     'soundfork_app_relay.dll',
@@ -89,6 +97,11 @@ if ($payloadSource) {
 
 if ($PSCmdlet.ShouldProcess($fullInstallDirectory, "Install SoundFork and register backend '$BackendName'")) {
     New-Item -ItemType Directory -Path $fullInstallDirectory -Force | Out-Null
+    $x86Destination = Join-Path $fullInstallDirectory 'x86'
+    New-Item -ItemType Directory -Path $x86Destination -Force | Out-Null
+    foreach ($file in $x86Files) {
+        Copy-Item -LiteralPath (Join-Path $x86Source $file) -Destination (Join-Path $x86Destination $file) -Force
+    }
     foreach ($file in $requiredFiles) {
         Copy-Item -LiteralPath (Join-Path $resolvedBuild $file) -Destination (Join-Path $fullInstallDirectory $file) -Force
     }

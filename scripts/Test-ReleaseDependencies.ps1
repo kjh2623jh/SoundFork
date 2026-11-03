@@ -56,3 +56,18 @@ foreach ($name in $binaries) {
     }
 }
 Write-Host 'Release binaries are x64, CFG/NX/ASLR enabled, and use no dynamic MSVC runtime DLLs.'
+$x86Directory = Join-Path (Split-Path -Parent (Split-Path -Parent $resolvedBin)) 'windows-msvc-x86\Release'
+foreach ($name in @('soundfork_driver.dll', 'soundfork_app_relay.dll', 'soundfork_register.exe', 'soundfork_host.exe')) {
+    $path = Join-Path $x86Directory $name
+    if (-not (Test-Path -LiteralPath $path)) { throw "Missing x86 release binary: $path" }
+    $headers = (& $dumpbin /headers $path 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $headers -notmatch '14C machine \(x86\)' -or
+        $headers -notmatch 'Control Flow Guard' -or $headers -notmatch 'NX compatible' -or $headers -notmatch 'Dynamic base') {
+        throw "Invalid x86 PE image or missing CFG/NX/ASLR: $name"
+    }
+    $dependencies = (& $dumpbin /dependents $path 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $dependencies -match '(?im)^\s+(?:VCRUNTIME|MSVCP|ucrtbase)[^\r\n]*\.dll\s*$') {
+        throw "Unexpected x86 runtime dependencies: $name"
+    }
+}
+Write-Host 'x86 companion binaries have CFG/NX/ASLR and a static runtime.'

@@ -106,7 +106,7 @@ HRESULT create_key(HKEY root, const std::wstring& path, HKEY* key) {
       0,
       nullptr,
       REG_OPTION_NON_VOLATILE,
-      KEY_READ | KEY_WRITE | KEY_WOW64_64KEY,
+      KEY_READ | KEY_WRITE,
       nullptr,
       key,
       nullptr);

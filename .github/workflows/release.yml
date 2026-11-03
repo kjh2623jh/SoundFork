@@ -157,6 +157,10 @@ jobs:
           path: |
             build/windows-msvc-x64/Testing/Temporary/LastTest.log
             build/windows-msvc-x64/Testing/Temporary/LastTestsFailed.log
+            build/windows-msvc-x86/Testing/Temporary/LastTest.log
+            build/windows-msvc-x86/Testing/Temporary/LastTestsFailed.log
+            build/interop-Release/*.log
+            build/interop-Release/*.err
 
       - name: Verify release binary dependencies
         shell: pwsh

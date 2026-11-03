@@ -119,9 +119,15 @@ bool HubClient::ensure_running() {
     return false;
   }
   next_launch_ = GetTickCount64() + 1000;
-  const auto directory = current_module_directory();
+  auto directory = current_module_directory();
   if (directory.empty()) {
     return false;
+  }
+  // x86 DLLs live in an x86 subfolder; the shared hub remains x64 in its parent.
+  if constexpr (sizeof(void*) == 4) {
+    const auto split = directory.find_last_of(L"\\/");
+    if (split != std::wstring::npos && _wcsicmp(directory.substr(split + 1).c_str(), L"x86") == 0)
+      directory.resize(split);
   }
   const auto path = directory + L"\\soundfork_capture_hub.exe";
   const std::wstring suffix = names_.input.substr(

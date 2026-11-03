@@ -120,11 +120,23 @@ $state = if ($asioRegistered -and $comRegistered -and $driverExists -and $backen
     'Incomplete'
 }
 
+$x86Base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    [Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry32)
+$x86Backend = ''; $x86Dll = ''
+try {
+    $key32 = $x86Base.OpenSubKey('SOFTWARE\ASIO\SoundFork')
+    if ($null -ne $key32) { try { $x86Backend = [string]$key32.GetValue('BackendCLSID', '') } finally { $key32.Dispose() } }
+    $com32 = $x86Base.OpenSubKey($comPath)
+    if ($null -ne $com32) { try { $x86Dll = [string]$com32.GetValue('', '') } finally { $com32.Dispose() } }
+} finally { $x86Base.Dispose() }
+
 [PSCustomObject]@{
     State = $state
     InstallType = if ($isInstalledCopy) { 'Installed copy' } elseif ($driverExists) { 'Development/build path' } else { 'None' }
     DriverDll = if ($driverDll) { $driverDll } else { '(not registered)' }
     DriverDllExists = [bool]$driverExists
+    X86DriverDll = if ($x86Dll) { $x86Dll } else { '(not registered)' }
+    X86BackendCLSID = if ($x86Backend) { $x86Backend } else { '(not configured; install matching x86 vendor driver)' }
     Backend = if ($backendName) { $backendName } elseif ($backendClsid) { "Unknown ($backendClsid)" } else { '(not configured)' }
     ControlApp = if ($controlProcesses.Count) { "Running (PID $($controlProcesses.Id -join ', '))" } else { 'Stopped' }
     RelayMode = $relayMode

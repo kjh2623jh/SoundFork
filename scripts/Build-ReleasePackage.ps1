@@ -50,6 +50,9 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) {
         throw 'Release build failed.'
     }
+    & (Join-Path $PSScriptRoot 'Build-SoundFork.ps1') -Configuration Release -Version $Version -Architecture x86
+    if ($LASTEXITCODE -ne 0) { throw 'x86 Release build failed.' }
+    & (Join-Path $PSScriptRoot 'Test-SoundForkCrossBitness.ps1') -Configuration Release
 }
 
 $cmakeCommand = Get-Command cmake.exe -ErrorAction SilentlyContinue
@@ -85,6 +88,8 @@ New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw 'CMake install staging failed.'
 }
+& $cmake --install (Join-Path $projectRoot 'build\windows-msvc-x86') --config Release --prefix $packageRoot
+if ($LASTEXITCODE -ne 0) { throw 'x86 CMake install staging failed.' }
 
 $signScript = Join-Path $PSScriptRoot 'Sign-SoundFork.ps1'
 if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {

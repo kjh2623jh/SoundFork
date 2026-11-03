@@ -81,6 +81,11 @@ if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundF
     if ($registeredDll -and (Test-Path -LiteralPath $registeredDll -PathType Leaf)) {
         & (Join-Path $PSScriptRoot 'Unregister-SoundFork.ps1') -DllPath $registeredDll -Confirm:$false
     } else {
+        $x86Helper = Join-Path $fullInstallDirectory 'x86\soundfork_register.exe'
+        if (Test-Path -LiteralPath $x86Helper) {
+            & $x86Helper --unregister
+            if ($LASTEXITCODE -ne 0) { throw 'Could not unregister the x86 SoundFork driver.' }
+        }
         $asioKey = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\ASIO\SoundFork'
         $comKey = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\$soundForkClsid"
         Remove-Item -LiteralPath $asioKey -Recurse -Force -ErrorAction SilentlyContinue
@@ -89,6 +94,8 @@ if ($PSCmdlet.ShouldProcess($fullInstallDirectory, 'Unregister and remove SoundF
     }
 
     $knownFiles = @(
+        'x86\soundfork_driver.dll', 'x86\soundfork_app_relay.dll',
+        'x86\soundfork_register.exe', 'x86\soundfork_host.exe',
         'soundfork_driver.dll',
         'soundfork_app_relay.dll',
         'soundfork_host.exe',

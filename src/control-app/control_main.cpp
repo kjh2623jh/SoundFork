@@ -893,6 +893,30 @@ bool stop_relay(UiLanguage language, std::wstring* error) {
   return result;
 }
 
+bool invoke_x86_registration(bool install, std::wstring_view clsid, std::wstring* error) {
+  const auto path = executable_directory() + L"\\x86\\soundfork_register.exe";
+  if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    // Developer x64-only builds retain their existing registration behavior.
+    return true;
+  }
+  std::wstring command = quote_argument(path) + (install ? L" --register " + quote_argument(clsid) : L" --unregister");
+  std::vector<wchar_t> writable(command.begin(), command.end()); writable.push_back(L'\0');
+  STARTUPINFOW startup{sizeof(startup)};
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(path.c_str(), writable.data(), nullptr, nullptr, FALSE,
+      CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+    *error = L"Could not launch x86 ASIO registration helper."; return false;
+  }
+  CloseHandle(process.hThread);
+  const auto wait = WaitForSingleObject(process.hProcess, 30000);
+  DWORD code = 1;
+  if (wait == WAIT_OBJECT_0) GetExitCodeProcess(process.hProcess, &code);
+  else { TerminateProcess(process.hProcess, ERROR_TIMEOUT); WaitForSingleObject(process.hProcess, 1000); }
+  CloseHandle(process.hProcess);
+  if (code != 0) { *error = L"x86 ASIO registration failed (code " + std::to_wstring(code) + L")."; return false; }
+  return true;
+}
+
 bool set_backend(
     std::wstring_view requested_clsid,
     std::wstring* error,
@@ -907,6 +931,7 @@ bool set_backend(
     *error = strings.backend_missing;
     return false;
   }
+  if (!invoke_x86_registration(true, selected->clsid, error)) return false;
   RegistryKey key;
   const LSTATUS open_result = RegOpenKeyExW(
       HKEY_LOCAL_MACHINE,
@@ -1005,6 +1030,7 @@ bool invoke_adjacent_driver_registration(
   }
 
   FreeLibrary(module);
+  if (!register_driver) return invoke_x86_registration(false, L"", error);
   return true;
 }
 

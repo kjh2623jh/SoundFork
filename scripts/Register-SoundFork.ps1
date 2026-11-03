@@ -62,6 +62,11 @@ if ($PSCmdlet.ShouldProcess($resolvedDll, "Register SoundFork and route it to '$
 
     try {
         New-ItemProperty -LiteralPath $soundForkKey -Name 'BackendCLSID' -PropertyType String -Value $backendClsid -Force | Out-Null
+        $x86Helper = Join-Path (Split-Path -Parent $resolvedDll) 'x86\soundfork_register.exe'
+        if (Test-Path -LiteralPath $x86Helper -PathType Leaf) {
+            & $x86Helper --register $backendClsid
+            if ($LASTEXITCODE -ne 0) { throw 'x86 SoundFork registration failed.' }
+        }
     } catch {
         $rollbackArguments = "/u /s `"$resolvedDll`""
         Start-Process -FilePath $regsvr32 -ArgumentList $rollbackArguments -Wait -WindowStyle Hidden

@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(SoundFork VERSION 1.2.0 LANGUAGES CXX)
+project(SoundFork VERSION 1.3.0 LANGUAGES CXX)
 
 set(
   SOUNDFORK_VERSION
-  "${PROJECT_VERSION}"
+  "${PROJECT_VERSION}-dev"
   CACHE STRING
   "User-visible SoundFork version"
 )
@@ -32,8 +32,8 @@ if(NOT WIN32)
   message(FATAL_ERROR "SoundFork currently supports Windows only")
 endif()
 
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-  message(FATAL_ERROR "SoundFork Phase 1 supports x64 builds only")
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+  message(FATAL_ERROR "SoundFork supports Windows x86 and x64")
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -147,6 +147,16 @@ add_library(soundfork_diagnostics STATIC src/diagnostics/async_log.cpp)
 target_include_directories(soundfork_diagnostics PUBLIC src)
 target_link_libraries(soundfork_diagnostics PUBLIC soundfork_warnings shell32 ole32)
 target_include_directories(soundfork_diagnostics PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+if(BUILD_TESTING)
+  add_executable(soundfork_cross_bitness_tests tests/cross_bitness_tests.cpp src/capture-backend/hub_client.cpp)
+  target_link_libraries(soundfork_cross_bitness_tests PRIVATE soundfork_bridge soundfork_fake_backend soundfork_warnings)
+endif()
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+  include(cmake/X86.cmake)
+  return()
+endif()
 
 set(SOUNDFORK_RELAY_SOURCES
   src/capture-backend/discord_relay.cpp

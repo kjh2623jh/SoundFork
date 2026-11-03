@@ -2,12 +2,15 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
+    [ValidateSet('x64', 'x86')]
+    [string]$Architecture = 'x64',
     [switch]$WithObsPlugin
 )
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $buildDirectory = Join-Path $repositoryRoot 'build\windows-msvc-analyze'
+if ($Architecture -eq 'x86') { $buildDirectory += '-x86' }
 $cmakeCommand = Get-Command cmake.exe -ErrorAction SilentlyContinue
 if ($null -ne $cmakeCommand) {
     $cmake = $cmakeCommand.Source
@@ -27,11 +30,13 @@ if ($null -ne $cmakeCommand) {
 }
 
 $obsArguments = @('-DSOUNDFORK_BUILD_OBS_PLUGIN=OFF')
+if ($Architecture -eq 'x86' -and $WithObsPlugin) { throw 'OBS plugin must remain x64.' }
 if ($WithObsPlugin) {
     & (Join-Path $PSScriptRoot 'Prepare-ObsSdk.ps1')
     $obsArguments = @('-DSOUNDFORK_BUILD_OBS_PLUGIN=ON', "-DSOUNDFORK_OBS_SDK_ROOT=$(Join-Path $repositoryRoot 'build\obs-sdk')")
 }
-& $cmake -S $repositoryRoot -B $buildDirectory -A x64 @obsArguments `
+$platform = if ($Architecture -eq 'x86') { 'Win32' } else { 'x64' }
+& $cmake -S $repositoryRoot -B $buildDirectory -A $platform @obsArguments `
     -DBUILD_TESTING=ON `
     -DSOUNDFORK_ENABLE_STATIC_ANALYSIS=ON
 if ($LASTEXITCODE -ne 0) {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <emmintrin.h>
 
 #include "capture-backend/shared_ring_layout.hpp"
 
@@ -35,6 +36,16 @@ LONG64 load64(const volatile LONG64* value) noexcept {
 
 LONG load32(const volatile LONG* value) noexcept {
   return InterlockedCompareExchange(const_cast<volatile LONG*>(value), 0, 0);
+}
+
+LONG64 observe64(const volatile LONG64* value) noexcept {
+  // MOVQ reads one aligned 64-bit value even in x86, without attempting a write
+  // to the observer's read-only mapping. Writers still use Interlocked APIs.
+  LONG64 snapshot = 0;
+  const auto packed = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(
+      const_cast<const LONG64*>(value)));
+  _mm_storel_epi64(reinterpret_cast<__m128i*>(&snapshot), packed);
+  return snapshot;
 }
 
 bool mapping_region_is_valid(const void* view) noexcept {
@@ -578,9 +589,9 @@ bool SharedRingObserver::snapshot(StreamStatus* status) const noexcept {
       static_cast<ChannelLayout>(shared->channel_layout), shared->payload_bytes};
   // These counters are diagnostic snapshots and need not be one transaction.
   status->stats = {
-      static_cast<std::uint64_t>(shared->write_sequence),
-      static_cast<std::uint64_t>(shared->read_sequence),
-      static_cast<std::uint64_t>(shared->dropped_blocks)};
+      static_cast<std::uint64_t>(observe64(&shared->write_sequence)),
+      static_cast<std::uint64_t>(observe64(&shared->read_sequence)),
+      static_cast<std::uint64_t>(observe64(&shared->dropped_blocks))};
   return true;
 }
 

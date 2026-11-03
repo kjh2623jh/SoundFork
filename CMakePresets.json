@@ -16,9 +16,22 @@
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/out",
         "BUILD_TESTING": "ON"
       }
+    },
+    {
+      "name": "windows-msvc-x86",
+      "displayName": "Windows x86 ASIO components (Visual Studio 2022)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "Win32",
+      "binaryDir": "${sourceDir}/build/windows-msvc-x86",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out",
+        "BUILD_TESTING": "ON"
+      }
     }
   ],
   "buildPresets": [
+    { "name": "debug-x86", "configurePreset": "windows-msvc-x86", "configuration": "Debug" },
+    { "name": "release-x86", "configurePreset": "windows-msvc-x86", "configuration": "Release" },
     {
       "name": "debug",
       "configurePreset": "windows-msvc-x64",

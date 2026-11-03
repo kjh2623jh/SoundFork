@@ -17,6 +17,11 @@ if (-not [Environment]::Is64BitProcess) {
 $resolvedDll = (Resolve-Path -LiteralPath $DllPath).Path
 $regsvr32 = Join-Path $env:SystemRoot 'System32\regsvr32.exe'
 if ($PSCmdlet.ShouldProcess($resolvedDll, 'Unregister SoundFork')) {
+    $x86Helper = Join-Path (Split-Path -Parent $resolvedDll) 'x86\soundfork_register.exe'
+    if (Test-Path -LiteralPath $x86Helper -PathType Leaf) {
+        & $x86Helper --unregister
+        if ($LASTEXITCODE -ne 0) { throw 'x86 SoundFork unregistration failed.' }
+    }
     $unregisterArguments = "/u /s `"$resolvedDll`""
     $process = Start-Process -FilePath $regsvr32 -ArgumentList $unregisterArguments -Wait -PassThru -WindowStyle Hidden
     if ($process.ExitCode -ne 0) {

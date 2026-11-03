@@ -3,6 +3,8 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
     [string]$Version,
+    [ValidateSet('x64', 'x86')]
+    [string]$Architecture = 'x64',
     [switch]$WithObsPlugin,
     [switch]$SkipTests
 )
@@ -31,7 +33,8 @@ if ($null -eq $cmakeCommand) {
 
 Push-Location $projectRoot
 try {
-    $configureArguments = @('--preset', 'windows-msvc-x64')
+    if ($Architecture -eq 'x86' -and $WithObsPlugin) { throw 'The OBS plugin must be built as x64.' }
+    $configureArguments = @('--preset', "windows-msvc-$Architecture")
     if ($WithObsPlugin) {
         & (Join-Path $PSScriptRoot 'Prepare-ObsSdk.ps1')
         $configureArguments += '-DSOUNDFORK_BUILD_OBS_PLUGIN=ON'
@@ -50,7 +53,9 @@ try {
     & $cmake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
 
-    & $cmake --build --preset $Configuration.ToLowerInvariant()
+    $buildPreset = $Configuration.ToLowerInvariant()
+    if ($Architecture -eq 'x86') { $buildPreset += '-x86' }
+    & $cmake --build --preset $buildPreset
     if ($LASTEXITCODE -ne 0) { throw 'CMake build failed.' }
 
     if ($SkipTests) {
@@ -60,8 +65,8 @@ try {
         if (-not (Test-Path -LiteralPath $ctest -PathType Leaf)) {
             throw "CTest was not found beside CMake: $ctest"
         }
-        & $ctest --test-dir build/windows-msvc-x64 -C $Configuration --output-on-failure
-        if ($LASTEXITCODE -ne 0) { throw 'CTest failed. See build/windows-msvc-x64/Testing/Temporary/LastTest.log.' }
+        & $ctest --test-dir "build/windows-msvc-$Architecture" -C $Configuration --output-on-failure
+        if ($LASTEXITCODE -ne 0) { throw "CTest failed. See build/windows-msvc-$Architecture/Testing/Temporary/LastTest.log." }
     }
 } finally {
     Pop-Location
