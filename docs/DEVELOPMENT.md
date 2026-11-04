@@ -85,6 +85,17 @@ Windows 백엔드는 자체 WASAPI 세션을 만들므로 중복 방송을 막�
 API 근거: [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
 [IAudioClock::GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
 
+Windows 출력은 `IAudioClient3::GetSharedModeEnginePeriod`로 지원 주기를 확인하고
+`InitializeSharedAudioStream`으로 최소 유효 주기를 요청한다(EVENTCALLBACK만 사용).
+48kHz 스테레오 Float32 형식·인터페이스를 지원하지 않거나 주기 값이 잘못됐거나 초기화에
+실패하면 새 오디오 클라이언트를 열어 기존 공유 모드와 자동 변환으로 돌아간다.
+독점 모드·KS는 사용하지 않으며 제조사 ASIO 경로는 변경하지 않는다.
+저지연 경로의 큐 목표는 엔드포인트 용량 이내의 엔진 두 주기다. 버퍼 전체를 채우는 대신
+스케줄링 여유를 두고 대기량을 제한하며, 기존 모드로 돌아가면 전체 용량 채우기를 유지한다.
+테스트 호스트는 주기·용량·큐 목표·저지연 초기화 HRESULT를 출력한다. 물리 지연 측정값은 아니다.
+주기 정렬·경계 값·큐 채우기 상한·협상 실패·폴백 오류 전파는 자동 테스트로 검증한다.
+API: [InitializeSharedAudioStream](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient3-initializesharedaudiostream).
+
 ### x86 패키징과 검증
 
 Windows OS는 계속 x64다. 프록시·내부 릴레이·등록 도우미·호스트 도구만 x86으로 함께

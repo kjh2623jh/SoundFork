@@ -23,9 +23,14 @@ namespace {
 class WindowsFactory final : public soundfork::IBackendFactory {
  public:
   explicit WindowsFactory(std::wstring endpoint) : endpoint_(std::move(endpoint)) {}
+  soundfork::WindowsAudioDriver* backend = nullptr; // Owned by the proxy, valid during its lifecycle.
   HRESULT create(IASIO** driver) noexcept override {
-    try { *driver = new soundfork::WindowsAudioDriver(endpoint_); return S_OK; }
+    try { backend = new soundfork::WindowsAudioDriver(endpoint_); *driver = backend; return S_OK; }
     catch(...) { *driver = nullptr; return E_OUTOFMEMORY; }
+  }
+  HRESULT create_with_mode(IASIO** driver, bool* windows) noexcept override {
+    if (!driver || !windows) return E_POINTER;
+    *windows = true; return create(driver);
   }
  private:
   std::wstring endpoint_;
@@ -499,6 +504,14 @@ int wmain(int argc, wchar_t** argv) {
             long active_output_latency = 0;
             const ASIOError rate_result = driver->getSampleRate(&effective_rate);
             driver->getLatencies(&active_input_latency, &active_output_latency);
+            if (!windows_endpoint.empty()) {
+              const auto info = static_cast<WindowsFactory*>(proxy_factory.get())->backend->output_info();
+              std::wcout << L"Windows output: " << (info.period ? L"low-latency shared" : L"legacy shared fallback")
+                         << L", engine period=" << info.period << L" frames, capacity=" << info.capacity
+                         << L" frames, queue target=" << info.queue_target << L" frames"
+                         << L", low-latency HRESULT=0x" << std::hex
+                         << static_cast<unsigned long>(info.low_latency_result) << std::dec << L'\n';
+            }
             if ((rate_result == ASE_OK || rate_result == ASE_SUCCESS) &&
                 effective_rate > 0.0) {
               std::wcout << L"Active sample rate: " << effective_rate << L" Hz"

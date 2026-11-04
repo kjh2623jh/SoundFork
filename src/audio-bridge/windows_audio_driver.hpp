@@ -9,6 +9,10 @@
 #include "audio-bridge/backend_factory.hpp"
 
 namespace soundfork {
+struct WindowsOutputInfo {
+  UINT32 capacity = 0, period = 0, queue_target = 0;
+  HRESULT low_latency_result = S_FALSE;
+};
 // All device methods run on the backend's COM worker, never on the host thread.
 class IWindowsRenderDevice {
  public:
@@ -17,6 +21,7 @@ class IWindowsRenderDevice {
   virtual void close() noexcept = 0;
   virtual UINT32 capacity() const noexcept = 0;
   virtual UINT32 latency_frames() const noexcept { return capacity(); }
+  virtual WindowsOutputInfo info() const noexcept { return {capacity(), 0, capacity(), S_FALSE}; }
   virtual HRESULT start() noexcept = 0;
   virtual HRESULT stop() noexcept = 0;
   virtual HRESULT reset() noexcept = 0;
@@ -31,6 +36,8 @@ class WindowsAudioDriver final : public IASIO {
   explicit WindowsAudioDriver(std::wstring endpoint,
       std::unique_ptr<IWindowsRenderDevice> device = make_windows_render_device());
   ~WindowsAudioDriver();
+  // Read after successful createBuffers, before disposeBuffers (serialized ASIO lifecycle).
+  WindowsOutputInfo output_info() const noexcept { return output_info_; }
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void**) override;
   ULONG STDMETHODCALLTYPE AddRef() override;
   ULONG STDMETHODCALLTYPE Release() override;
@@ -73,6 +80,7 @@ class WindowsAudioDriver final : public IASIO {
   std::atomic<HRESULT> result_{S_OK};
   std::atomic<UINT64> position_{0}, timestamp_{0};
   UINT32 endpoint_frames_ = 0, latency_frames_ = 0;
+  WindowsOutputInfo output_info_{};
   long frames_ = 0, index_ = 0, offset_ = 0;
   UINT64 generated_ = 0, callback_timestamp_ = 0;
   bool initialized_ = false, time_info_ = false, callback_active_ = false;

@@ -1,4 +1,5 @@
 #include "audio-bridge/windows_audio_driver.hpp"
+#include "audio-bridge/windows_render_policy.hpp"
 #include <audioclient.h>
 #include <mmdeviceapi.h>
 #include <ks.h>
@@ -19,27 +20,51 @@ class WasapiDevice final : public IWindowsRenderDevice {
         IID_PPV_ARGS(&enumerator));
     // Exact selection only. Never silently switch to a default or broadcast endpoint.
     if (SUCCEEDED(result)) result = enumerator->GetDevice(endpoint.c_str(), &device);
-    if (SUCCEEDED(result)) result = device->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER,
-        nullptr, reinterpret_cast<void**>(client_.GetAddressOf()));
     WAVEFORMATEXTENSIBLE format{};
     format.Format = {WAVE_FORMAT_EXTENSIBLE, 2, 48000, 384000, 8, 32,
         sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)};
     format.Samples.wValidBitsPerSample = 32;
     format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
     format.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-    if (SUCCEEDED(result)) result = client_->Initialize(AUDCLNT_SHAREMODE_SHARED,
-        AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST |
-        AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-        0, 0, &format.Format, nullptr);
+    if (SUCCEEDED(result)) {
+      ComPtr<IAudioClient3> client3;
+      result = initialize_shared_render(
+          [&](UINT32* fundamental, UINT32* minimum, UINT32* maximum) {
+            auto status = device->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER,
+                nullptr, reinterpret_cast<void**>(client_.ReleaseAndGetAddressOf()));
+            if (SUCCEEDED(status)) status = client_.As(&client3);
+            UINT32 normal = 0;
+            if (SUCCEEDED(status)) status = client3->GetSharedModeEnginePeriod(
+                &format.Format, &normal, fundamental, minimum, maximum);
+            return status;
+          },
+          [&](UINT32 period) {
+            // InitializeSharedAudioStream supports EVENTCALLBACK, not AUTOCONVERTPCM.
+            return client3->InitializeSharedAudioStream(
+                AUDCLNT_STREAMFLAGS_EVENTCALLBACK, period, &format.Format, nullptr);
+          },
+          [&] {
+            // Failed low-latency negotiation must not prevent ordinary shared playback.
+            client3.Reset(); client_.Reset();
+            auto status = device->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER,
+                nullptr, reinterpret_cast<void**>(client_.GetAddressOf()));
+            if (SUCCEEDED(status)) status = client_->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST |
+                AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                0, 0, &format.Format, nullptr);
+            return status;
+          }, &period_, &low_latency_result_);
+    }
     if (SUCCEEDED(result)) result = client_->SetEventHandle(event);
     if (SUCCEEDED(result)) result = client_->GetBufferSize(&frames_);
+    target_ = shared_queue_target(frames_, period_);
     if (SUCCEEDED(result)) result = client_->GetService(IID_PPV_ARGS(&render_));
     if (SUCCEEDED(result)) result = client_->GetService(IID_PPV_ARGS(&clock_));
     if (SUCCEEDED(result)) result = clock_->GetFrequency(&frequency_);
     REFERENCE_TIME latency = 0;
     if (SUCCEEDED(result)) result = client_->GetStreamLatency(&latency);
     if (SUCCEEDED(result) && latency >= 0 && latency < 100000000)
-      latency_ = (std::max)(frames_, static_cast<UINT32>((latency * 48000 + 9999999) / 10000000));
+      latency_ = (std::max)(target_, static_cast<UINT32>((latency * 48000 + 9999999) / 10000000));
     if (SUCCEEDED(result) && (frames_ == 0 || frames_ > 96000 || frequency_ == 0 ||
         frequency_ > (std::numeric_limits<UINT64>::max)() / 48000)) result = E_FAIL;
     return result;
@@ -47,6 +72,7 @@ class WasapiDevice final : public IWindowsRenderDevice {
   void close() noexcept override { clock_.Reset(); render_.Reset(); client_.Reset(); }
   UINT32 capacity() const noexcept override { return frames_; }
   UINT32 latency_frames() const noexcept override { return latency_; }
+  WindowsOutputInfo info() const noexcept override { return {frames_, period_, target_, low_latency_result_}; }
   HRESULT start() noexcept override { return client_->Start(); }
   HRESULT stop() noexcept override { return client_->Stop(); }
   HRESULT reset() noexcept override { return client_->Reset(); }
@@ -55,7 +81,7 @@ class WasapiDevice final : public IWindowsRenderDevice {
     HRESULT result = client_->GetCurrentPadding(&padding);
     if (FAILED(result)) return result;
     if (padding > frames_) return E_FAIL;
-    *frames = frames_ - padding; *data = nullptr;
+    *frames = shared_write_frames(frames_, target_, padding); *data = nullptr;
     return *frames == 0 ? S_OK : render_->GetBuffer(*frames, reinterpret_cast<BYTE**>(data));
   }
   HRESULT release(UINT32 frames) noexcept override { return render_->ReleaseBuffer(frames, 0); }
@@ -74,6 +100,8 @@ class WasapiDevice final : public IWindowsRenderDevice {
   ComPtr<IAudioClock> clock_;
   UINT32 frames_ = 0;
   UINT32 latency_ = 0;
+  UINT32 period_ = 0, target_ = 0;
+  HRESULT low_latency_result_ = S_FALSE;
   UINT64 frequency_ = 0;
 };
 }

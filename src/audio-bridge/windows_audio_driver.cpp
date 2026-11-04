@@ -162,6 +162,7 @@ void WindowsAudioDriver::worker() noexcept {
   HRESULT result = FAILED(com) ? com : device_->open(endpoint_, audio_);
   endpoint_frames_ = SUCCEEDED(result) ? device_->capacity() : 0;
   latency_frames_ = SUCCEEDED(result) ? device_->latency_frames() : 0;
+  output_info_ = SUCCEEDED(result) ? device_->info() : WindowsOutputInfo{};
   result_ = result; SetEvent(ready_);
   if(SUCCEEDED(result)) {
     DWORD task = 0;

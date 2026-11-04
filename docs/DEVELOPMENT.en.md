@@ -75,6 +75,18 @@ block does not imply a 64-frame Windows engine period. Device failure requests A
 stops rendering. The host must stop/recreate buffers, or the user must restart the application;
 there is no silent device fallback or seamless reconnection.
 
+Windows output now queries `IAudioClient3::GetSharedModeEnginePeriod` and requests the
+smallest valid period through `InitializeSharedAudioStream` (EVENTCALLBACK only).
+This requires support for the exact 48 kHz stereo Float32 stream. Unsupported
+interfaces/formats, invalid period metadata or initialization failures activate a fresh
+audio client and fall back to previous shared initialization with conversion. No exclusive
+mode or kernel streaming is used. Vendor ASIO callbacks remain unchanged.
+On this path the queue target is two engine periods, capped at endpoint capacity,
+retaining a scheduling margin instead of filling the entire buffer. Legacy fallback
+retains full-capacity filling. The test host prints period, capacity, queue target and
+low-latency HRESULT after preparation; these are settings, not physical measurements.
+Tests cover period bounds/alignment, refill limits and negotiation/fallback failures.
+
 Windows output already owns an in-process WASAPI session, so the additional internal relay is
 skipped to avoid duplicate capture. Vendor ASIO callback code remains unchanged. Fake-device
 tests cover 64/256/2048 frames, both callback types, partial periods/stereo waveforms, clock,
@@ -85,7 +97,8 @@ still need manual verification. A registry-free silent probe is available:
 .\build\windows-msvc-x64\Release\soundfork_host.exe --windows-endpoint @default --duration 2 --signal silence
 ```
 
-API references: [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
+API references: [IAudioClient3::InitializeSharedAudioStream](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient3-initializesharedaudiostream),
+[IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
 [IAudioClock::GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
 
 ### x86 packaging and verification

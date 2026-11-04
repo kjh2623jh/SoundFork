@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include "audio-bridge/windows_audio_driver.hpp"
 #include "audio-bridge/windows_output_settings.hpp"
+#include "audio-bridge/windows_render_policy.hpp"
 #include "audio-bridge/proxy_driver.hpp"
 #include "capture-backend/shared_ring.hpp"
 
@@ -130,9 +131,40 @@ void test_settings() {
   require(FAILED(factory.create_with_mode(&driver, &windows)) && !windows && !driver,
       "missing vendor unexpectedly fell back to Windows");
 }
+void test_render_policy() {
+  using namespace soundfork;
+  require(minimum_shared_period(4, 48, 448) == 48, "minimum engine period");
+  require(minimum_shared_period(4, 49, 448) == 52, "unaligned minimum period");
+  require(minimum_shared_period(4, 49, 50) == 0 && minimum_shared_period(0, 48, 448) == 0 &&
+      minimum_shared_period(4, 0, 448) == 0 && minimum_shared_period(4, 48, 96001) == 0 &&
+      minimum_shared_period(MAXUINT32, 48, 448) == 0, "invalid driver period metadata");
+  require(shared_queue_target(960, 48) == 96 && shared_queue_target(64, 48) == 64 &&
+      shared_queue_target(960, 0) == 960, "queue target/fallback");
+  require(shared_write_frames(960, 96, 0) == 96 && shared_write_frames(960, 96, 48) == 48 &&
+      shared_write_frames(960, 96, 96) == 0 && shared_write_frames(960, 96, 144) == 0 &&
+      shared_write_frames(960, 96, 961) == 0, "bounded fill/overfill/empty queue");
+  // The same initialization policy is used by the COM sink. Exercise success and every fallback stage.
+  for (const int failure : {0, 1, 2, 3, 4}) {
+    int queried = 0, initialized = 0, fallback = 0;
+    UINT32 selected = 123; HRESULT reason = S_FALSE;
+    const auto result = initialize_shared_render(
+        [&](UINT32* fundamental, UINT32* minimum, UINT32* maximum) {
+          ++queried; *fundamental = failure == 2 ? 0 : 4; *minimum = 48; *maximum = 448;
+          return failure == 1 ? E_NOINTERFACE : S_OK;
+        },
+        [&](UINT32 period) { ++initialized; require(period == 48, "wrong requested period");
+          return failure >= 3 ? E_FAIL : S_OK; },
+        [&] { ++fallback; return failure == 4 ? E_ACCESSDENIED : S_OK; }, &selected, &reason);
+    require(queried == 1 && initialized == (failure == 1 || failure == 2 ? 0 : 1), "negotiation order");
+    require(fallback == (failure ? 1 : 0) && selected == (failure ? 0U : 48U), "fallback selection");
+    require((failure == 4 ? result == E_ACCESSDENIED : result == S_OK) &&
+        (failure ? FAILED(reason) : reason == S_OK), "fallback error propagation");
+  }
+}
 }
 int main() {
   try {
+    test_render_policy();
     test_settings();
     for(long frames : {64L, 256L, 2048L}) { test(frames,false); test(frames,true); }
     auto mock = std::make_unique<MockDevice>(); mock->open_fail = true;

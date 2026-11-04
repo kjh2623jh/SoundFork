@@ -399,6 +399,16 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   remains for isolated release CI. Listening, games, Discord and long sessions remain
   manual tests. Local results do not establish remote CI success.
 
+- 2026-11-05 low-latency shared-mode update: x64 Release CTest passed 30/30 and x86
+  9/9; both `/analyze /WX` builds passed. Ten-second silent default-endpoint probes
+  passed on both architectures. Negotiated period: 480 frames (10 ms), capacity:
+  1056 frames, queue target: 960 frames. Reported ASIO output latency at a 64-frame
+  block: 1024 frames (21.33 ms). These are settings/reported metadata, not measured
+  physical latency or proof of glitch-free audible output. The selected endpoint's
+  minimum period limits this result. Inno Setup 6.7.3 was subsequently found in the
+  repository's local tools and used to compile local installers; installation itself
+  was not run. Physical latency, real listening and long-duration tests remain manual.
+
 The following are not claimed complete:
 
 - Real x86 games/vendor ASIO playback, Discord application sharing and the full installed lifecycle.
