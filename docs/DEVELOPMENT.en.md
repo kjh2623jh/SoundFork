@@ -101,6 +101,24 @@ API references: [IAudioClient3::InitializeSharedAudioStream](https://learn.micro
 [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
 [IAudioClock::GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
 
+### Optional manual software-loopback probe
+
+Configure `-DSOUNDFORK_BUILD_LATENCY_PROBE=ON` and build `soundfork_latency_probe`.
+It defaults OFF, has no CTest entry and is not installed. `--list` lists render/capture
+IDs and states. Run `soundfork <render-ID> <block-frames>`,
+`dll <render-ID> <frames> <absolute-DLL-path> <CLSID>` (registration-free loading), or
+`registered <render-ID> <frames> <CLSID>` (existing ASIO registration). Third-party
+output configuration must actually route to the selected capture endpoint.
+
+The callback timestamps PCM writing and emits 20 small 48 kHz bursts. Float32 WASAPI
+loopback records sample QPC timestamps and packet-arrival QPC separately. Count mismatch,
+ASIO reset, erroneous/discontinuous marker timestamps or ambiguous timing fail the run.
+Initial silent-packet discontinuities are counted separately. Use a quiet endpoint.
+Arrival includes capture delivery/batching; sample timestamps belong to the API timeline.
+Neither is DAC, physical output, roundtrip or touch-to-sound latency. The probe does not
+change defaults/rates or register drivers. Exclusive ASIO/KS paths require physical
+loopback for a comparable output measurement, not ordinary WASAPI loopback.
+
 ### x86 packaging and verification
 
 The OS remains Windows x64. The proxy, internal relay DLL, registration helper and

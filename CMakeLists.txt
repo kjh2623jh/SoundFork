@@ -49,6 +49,7 @@ endif()
 include(CTest)
 option(SOUNDFORK_ENABLE_STATIC_ANALYSIS "Enable MSVC code analysis" OFF)
 option(SOUNDFORK_BUILD_OBS_PLUGIN "Build the optional OBS audio source" OFF)
+option(SOUNDFORK_BUILD_LATENCY_PROBE "Build the opt-in manual ASIO/loopback latency probe" OFF)
 set(SOUNDFORK_OBS_SDK_ROOT "" CACHE PATH "Prepared OBS headers and import library")
 
 add_library(soundfork_warnings INTERFACE)
@@ -83,6 +84,10 @@ target_include_directories(soundfork_bridge
     "${SOUNDFORK_SDK_DIR}"
 )
 target_link_libraries(soundfork_bridge PUBLIC soundfork_warnings ole32 advapi32 uuid avrt)
+  if(SOUNDFORK_BUILD_LATENCY_PROBE)
+    add_executable(soundfork_latency_probe tests/manual/asio_latency_probe.cpp)
+    target_link_libraries(soundfork_latency_probe PRIVATE soundfork_bridge soundfork_warnings)
+  endif()
 if(BUILD_TESTING)
   add_executable(soundfork_windows_audio_tests tests/windows_audio_tests.cpp)
   target_link_libraries(soundfork_windows_audio_tests PRIVATE soundfork_bridge soundfork_warnings)

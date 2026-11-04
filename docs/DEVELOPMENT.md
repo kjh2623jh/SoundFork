@@ -96,6 +96,22 @@ Windows 출력은 `IAudioClient3::GetSharedModeEnginePeriod`로 지원 주기를
 주기 정렬·경계 값·큐 채우기 상한·협상 실패·폴백 오류 전파는 자동 테스트로 검증한다.
 API: [InitializeSharedAudioStream](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient3-initializesharedaudiostream).
 
+### 선택적 소프트웨어 루프백 지연 측정 도구
+
+`-DSOUNDFORK_BUILD_LATENCY_PROBE=ON`으로 구성하고 `soundfork_latency_probe` 타깃을 빌드한다.
+기본값은 OFF이며 CTest·설치 패키지에는 포함하지 않는다. `--list`로 출력·입력 ID와 상태를
+열거하고, `soundfork <출력 ID> <블록 프레임>`으로 측정한다. `dll <출력 ID> <프레임> <DLL 절대 경로>
+<CLSID>`는 등록 없이 ASIO DLL을 직접 로드하고, `registered <출력 ID> <프레임> <CLSID>`는
+기존 ASIO 등록을 사용한다. 제3자 드라이버의 출력 설정은 해당 출력 ID와 실제로 일치해야 한다.
+
+48kHz 신호를 생성하는 콜백에서 첫 샘플 작성 QPC를 기록하고, 같은 출력의 Float32 WASAPI
+루프백에서 20개의 작은 신호를 검출한다. 원본·검출 개수 불일치, 리셋, 마커의 타임스탬프 오류·
+불연속, 모호한 시간 범위는 실패다. 초기화 중 첫 무음 패킷의 불연속은 별도 카운트로 표시한다.
+출력은 캡처 샘플의 QPC 시각과 패킷 수신 시각을 구분한다. 수신 시각에는 캡처 전달·배칭이
+포함되고, 샘플 시각은 API가 부여한 시간축이다. 어느 쪽도 DAC·물리 출력·입력 지연 측정값이 아니다.
+다른 소리가 없는 상태에서 시험해야 하며, 제어판·기본 장치·샘플레이트 설정을 자동 변경하지 않는다.
+독점 ASIO/KS는 일반 WASAPI 루프백으로 공정하게 측정할 수 없으므로 물리 루프백이 필요하다.
+
 ### x86 패키징과 검증
 
 Windows OS는 계속 x64다. 프록시·내부 릴레이·등록 도우미·호스트 도구만 x86으로 함께
