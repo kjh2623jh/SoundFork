@@ -1,4 +1,6 @@
 #include <windows.h>
+#include <commctrl.h>
+#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #include <audioclient.h>
 #include <propkeydef.h>
 #include <functiondiscoverykeys_devpkey.h>
@@ -29,6 +31,7 @@
 #include "control-app/obs_plugin_manager.hpp"
 #include "control-app/obs_plugin_strings.hpp"
 #include "control-app/update_checker.hpp"
+#include "control-app/update_preferences.hpp"
 #include "control-app/relay_settings.hpp"
 #include "control-app/control_status.hpp"
 #include "soundfork_version.hpp"
@@ -50,6 +53,8 @@ constexpr wchar_t kSoundForkClsid[] =
     L"{A04A0128-E43C-4D08-B701-87EC1A847A89}";
 constexpr UINT_PTR kRefreshTimer = 1;
 constexpr UINT kUpdateResultMessage = WM_APP + 1;
+constexpr UINT kAutomaticUpdateMessage = WM_APP + 20;
+constexpr int kAutomaticUpdateNotifications = 2300;
 constexpr UINT kTrayCallbackMessage = WM_APP + 2;
 constexpr UINT kObsPluginResultMessage = WM_APP + 3;
 constexpr UINT kShowControlMessage = WM_APP + 4;
@@ -376,6 +381,10 @@ struct AppState {
   std::vector<Endpoint> endpoints;
   std::atomic<bool> shutting_down{false};
   bool update_check_in_progress = false;
+  bool automatic_updates_enabled = true;
+  bool automatic_update_considered = false;
+  bool silent_update_request = false;
+  bool pending_update_notice = false;
   std::mutex update_mutex;
   soundfork::control::UpdateResult update_result;
   std::thread update_thread;
@@ -1968,6 +1977,9 @@ void rebuild_menu(AppState* state) {
   state->obs_menu = obs;
   update_obs_menu(state);
   AppendMenuW(settings, MF_POPUP, reinterpret_cast<UINT_PTR>(obs), obs_text.menu);
+  AppendMenuW(settings, MF_STRING | (state->automatic_updates_enabled ? MF_CHECKED : MF_UNCHECKED),
+      kAutomaticUpdateNotifications, state->language == UiLanguage::korean
+          ? L"새 버전 자동 알림" : L"Notify me about new versions");
   AppendMenuW(
       menu,
       MF_POPUP,
@@ -2055,6 +2067,37 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   update_status(state);
 }
 
+void start_update_check(AppState* state, bool silent,
+    UpdateResult (*check)() noexcept = check_for_updates) {
+  if (state->update_check_in_progress) return;
+  if (state->update_thread.joinable()) state->update_thread.join();
+  state->pending_update_notice = false;
+  state->silent_update_request = silent;
+  state->update_check_in_progress = true;
+  rebuild_menu(state);
+  const HWND window = state->window;
+  try {
+    state->update_thread = std::thread([state, window, check]() {
+      const UpdateResult result = check();
+      if (state->shutting_down.load(std::memory_order_acquire)) return;
+      { const std::lock_guard<std::mutex> lock(state->update_mutex); state->update_result = result; }
+      if (!state->shutting_down.load(std::memory_order_acquire))
+        PostMessageW(window, kUpdateResultMessage, 0, 0);
+    });
+  } catch (const std::system_error&) {
+    state->update_check_in_progress = false;
+    rebuild_menu(state);
+    if (!silent) MessageBoxW(window, ui_strings(state->language).update_failed, L"SoundFork", MB_ICONERROR);
+  }
+}
+
+void begin_automatic_update_once(AppState* state,
+    UpdateResult (*check)() noexcept = check_for_updates) {
+  if (!state->automatic_updates_enabled || state->automatic_update_considered) return;
+  state->automatic_update_considered = true;
+  start_update_check(state, true, check);
+}
+
 LRESULT CALLBACK window_proc(
     HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
   auto* state = reinterpret_cast<AppState*>(
@@ -2076,6 +2119,16 @@ LRESULT CALLBACK window_proc(
   }
 
   switch (message) {
+    case WM_SHOWWINDOW:
+      if (wparam) PostMessageW(window, kAutomaticUpdateMessage, 0, 0);
+      break;
+    case kAutomaticUpdateMessage:
+      if (!IsWindowVisible(window) || IsIconic(window) || !state->automatic_updates_enabled) return 0;
+      if (state->pending_update_notice) {
+        state->pending_update_notice = false;
+        SendMessageW(window, kUpdateResultMessage, 0, 0);
+      } else begin_automatic_update_once(state);
+      return 0;
     case kShowControlMessage:
       show_control_window(state);
       return 0;
@@ -2104,6 +2157,7 @@ LRESULT CALLBACK window_proc(
     }
     case WM_SIZE: {
       if (state->status != nullptr && wparam != SIZE_MINIMIZED) layout_controls(state, LOWORD(lparam));
+      if (wparam != SIZE_MINIMIZED) PostMessageW(window, kAutomaticUpdateMessage, 0, 0);
       return 0;
     }
     case WM_TIMER:
@@ -2182,6 +2236,10 @@ LRESULT CALLBACK window_proc(
       }
       state->update_check_in_progress = false;
       rebuild_menu(state);
+      if (state->silent_update_request) {
+        if (!state->automatic_updates_enabled || result.status != UpdateStatus::available) return 0;
+        if (!IsWindowVisible(window) || IsIconic(window)) { state->pending_update_notice = true; return 0; }
+      }
       const UiStrings& strings = ui_strings(state->language);
       if (result.status == UpdateStatus::available) {
         std::wstring message_text = strings.update_available;
@@ -2189,12 +2247,27 @@ LRESULT CALLBACK window_proc(
         message_text += L"\n";
         message_text += strings.update_current;
         message_text += L"v" SOUNDFORK_VERSION_WIDE;
-        message_text += strings.update_open_question;
-        if (MessageBoxW(
-                window,
-                message_text.c_str(),
-                L"SoundFork",
-                MB_ICONINFORMATION | MB_YESNO) == IDYES) {
+        const bool korean = state->language == UiLanguage::korean;
+        const TASKDIALOG_BUTTON buttons[] = {
+            {IDYES, korean ? L"릴리스 페이지 열기" : L"Open release page"},
+            {IDNO, korean ? L"나중에" : L"Later"}};
+        TASKDIALOGCONFIG dialog{sizeof(dialog)};
+        dialog.hwndParent = window;
+        dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT;
+        dialog.pszWindowTitle = L"SoundFork";
+        dialog.pszMainInstruction = korean ? L"새 버전이 있습니다" : L"A new version is available";
+        dialog.pszContent = message_text.c_str();
+        dialog.pszVerificationText = korean ? L"앞으로 자동 업데이트 알림 표시 안 함" : L"Don't show automatic update notifications again";
+        dialog.cButtons = static_cast<UINT>(std::size(buttons)); dialog.pButtons = buttons;
+        dialog.nDefaultButton = IDNO;
+        int chosen = IDNO; BOOL disable = FALSE;
+        const auto shown = TaskDialogIndirect(&dialog, &chosen, nullptr, &disable);
+        if (SUCCEEDED(shown) && disable) {
+          const auto saved = soundfork::control::save_automatic_updates(false);
+          if (saved == ERROR_SUCCESS) { state->automatic_updates_enabled = false; rebuild_menu(state); }
+          else MessageBoxW(window, korean ? L"알림 설정을 저장하지 못했습니다." : L"Could not save notification settings.", L"SoundFork", MB_ICONERROR);
+        }
+        if (SUCCEEDED(shown) && chosen == IDYES) {
           std::wstring release_url = kReleasesUrl;
           release_url += L"/tag/";
           release_url += result.latest_tag;
@@ -2227,6 +2300,16 @@ LRESULT CALLBACK window_proc(
     }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
+      if (control == kAutomaticUpdateNotifications) {
+        const bool enabled = !state->automatic_updates_enabled;
+        if (soundfork::control::save_automatic_updates(enabled) == ERROR_SUCCESS) {
+          state->automatic_updates_enabled = enabled;
+          if (!enabled) state->pending_update_notice = false;
+          rebuild_menu(state);
+        } else MessageBoxW(window, state->language == UiLanguage::korean
+            ? L"알림 설정을 저장하지 못했습니다." : L"Could not save notification settings.", L"SoundFork", MB_ICONERROR);
+        return 0;
+      }
       if (control == kShowDiagnostics) { show_diagnostics(state); return 0; }
       if (control == kOpenLogs) {
         const auto directory = diagnostics::log_directory();
@@ -2415,34 +2498,7 @@ LRESULT CALLBACK window_proc(
         return 0;
       }
       if (control == kCheckForUpdates) {
-        if (state->update_check_in_progress) {
-          return 0;
-        }
-        if (state->update_thread.joinable()) {
-          state->update_thread.join();
-        }
-        state->update_check_in_progress = true;
-        rebuild_menu(state);
-        try {
-          state->update_thread = std::thread([state, window]() {
-            const UpdateResult result = check_for_updates();
-            if (state->shutting_down.load(std::memory_order_acquire)) {
-              return;
-            }
-            {
-              const std::lock_guard<std::mutex> lock(state->update_mutex);
-              state->update_result = result;
-            }
-            if (!state->shutting_down.load(std::memory_order_acquire)) {
-              PostMessageW(window, kUpdateResultMessage, 0, 0);
-            }
-          });
-        } catch (const std::system_error&) {
-          state->update_check_in_progress = false;
-          rebuild_menu(state);
-          MessageBoxW(
-              window, strings.update_failed, L"SoundFork", MB_ICONERROR);
-        }
+        start_update_check(state, false);
         return 0;
       }
       if (control == kOpenProject) {
@@ -2673,6 +2729,8 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
   if (window == nullptr) {
     return 2;
   }
+  state.automatic_updates_enabled = soundfork::control::automatic_updates_enabled();
+  rebuild_menu(&state);
   ShowWindow(window, startup_launch && state.tray_icon_added ? SW_HIDE : show_command);
   UpdateWindow(window);
   if (startup_launch) PostMessageW(window, kStartSavedRelayMessage, 0, 0);

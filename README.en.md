@@ -14,10 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.2.0/SoundFork-Setup-v1.2.0.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.2.1/SoundFork-Setup-v1.2.1.exe) ·
 [View all releases](../../releases)
 
-The current version is `v1.2.0`. Executables are not code-signed, so Windows SmartScreen may show a warning.
+The current version is `v1.2.1`. Executables are not code-signed, so Windows SmartScreen may show a warning.
 
 ## Requirements
 
@@ -86,7 +86,9 @@ For another virtual device, select the same virtual playback device in both Soun
 
 Close games/DAWs and OBS and stop audio forwarding before updating or uninstalling.
 
-- **Updates:** Use **Help → Check for updates** in the control panel, then run the new Setup.
+- **Updates:** SoundFork checks for new versions when you first open the control panel.
+  Disable notifications in the notice or under **Settings → Notify me about new versions**.
+  **Help → Check for updates** remains available. Download and run the new Setup.
   If you use the OBS plugin, select its installation option to update it at the same time.
 - **Language:** Choose English or Korean under **Settings → Language** in the control panel.
 - **Automatic startup:** Device selection is saved automatically. Check **Start audio forwarding at Windows sign-in** in the main window

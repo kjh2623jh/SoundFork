@@ -41,6 +41,8 @@ int wmain(int argc, wchar_t**) {
     definition.lpszClassName = kDiagnosticClass;
     require_ui(RegisterClassExW(&definition) != 0, "diagnostic class failed");
     AppState state;
+    // The preview must never contact GitHub or change notification preferences.
+    state.automatic_updates_enabled = false;
     state.language = UiLanguage::korean;
     state.obs_status.present = state.obs_status.complete = true;
     state.obs_status.installed_version = L"1.0.1";
@@ -75,6 +77,24 @@ int wmain(int argc, wchar_t**) {
       GetClassNameW(state.status, class_name.data(), static_cast<int>(class_name.size()));
       require_ui(std::wstring_view(class_name.data()) == L"Static", "main status is not compact static text");
       require_ui((GetWindowLongPtrW(state.status, GWL_STYLE) & WS_VSCROLL) == 0, "main status still scrolls");
+      SendMessageW(window, kAutomaticUpdateMessage, 0, 0);
+      require_ui(!state.update_check_in_progress && !state.automatic_update_considered,
+          "hidden/disabled control started an automatic update check");
+      static std::atomic<int> update_calls{0};
+      const auto fake_check = +[]() noexcept -> UpdateResult { ++update_calls; return {}; };
+      begin_automatic_update_once(&state, fake_check);
+      require_ui(!state.automatic_update_considered, "disabled preference was ignored");
+      state.automatic_updates_enabled = true;
+      begin_automatic_update_once(&state, fake_check);
+      begin_automatic_update_once(&state, fake_check);
+      require_ui(state.silent_update_request, "background request was not silent");
+      if (state.update_thread.joinable()) state.update_thread.join();
+      require_ui(update_calls == 1, "automatic update did not run exactly once");
+      SendMessageW(window, kUpdateResultMessage, 0, 0);
+      require_ui(!state.update_check_in_progress, "silent failure did not complete");
+      state.automatic_updates_enabled = false;
+      MSG pending{};
+      while (PeekMessageW(&pending, window, kUpdateResultMessage, kUpdateResultMessage, PM_REMOVE)) {}
       if (state.startup_checkbox == nullptr) throw std::runtime_error("startup checkbox missing");
       const HWND startup_checkbox = state.startup_checkbox;
       require_ui(GetDlgItem(window, kStartupRelay) == startup_checkbox, "startup checkbox is not on main window");

@@ -5,7 +5,7 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.2.0 raw Int16/Int24/Int32/Float32 PCM capture and
+This document describes 1.2.1 raw Int16/Int24/Int32/Float32 PCM capture and
 the optional in-application Discord relay.
 
 ## Compatibility and scope
@@ -365,6 +365,13 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
 - 2026-11-03 1.2.0 release build: the explicitly versioned OBS-enabled Release build
   passed CTest 28/28. Final install/upgrade/uninstall and ClamAV scans of distribution
   files run in the tag-triggered release workflow.
+
+- 2026-11-04 1.2.1 update notices: checks once asynchronously on the first visible
+  Control opening and notifies only for a new version. The dialog opt-out and Settings
+  menu persist per user. OBS-enabled Release CTest passed 29/29; two focused tests
+  passed again after the final pending-notice adjustment. Changed Control/test targets
+  passed `/analyze /WX`. Fake checks and private registry keys verify one-shot execution,
+  silent failure and preferences; live requests and dialog clicks were not tested.
 
 The following are not claimed complete:
 

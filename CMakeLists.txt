@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(SoundFork VERSION 1.2.0 LANGUAGES CXX)
+project(SoundFork VERSION 1.2.1 LANGUAGES CXX)
 
 set(
   SOUNDFORK_VERSION
@@ -257,6 +257,7 @@ target_link_libraries(soundfork_control PRIVATE
   uuid
   advapi32
   shell32
+  comctl32
   winhttp
 )
 
@@ -267,6 +268,10 @@ endif()
 
 if(BUILD_TESTING)
   find_program(SOUNDFORK_POWERSHELL NAMES pwsh powershell REQUIRED)
+  add_executable(soundfork_update_preferences_tests tests/update_preferences_tests.cpp)
+  target_include_directories(soundfork_update_preferences_tests PRIVATE src)
+  target_link_libraries(soundfork_update_preferences_tests PRIVATE soundfork_warnings advapi32)
+  add_test(NAME soundfork_update_preferences_tests COMMAND soundfork_update_preferences_tests)
   add_test(NAME soundfork_installer_policy_tests COMMAND "${SOUNDFORK_POWERSHELL}"
     -NoLogo -NoProfile -NonInteractive -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_policy_tests.ps1")
   add_test(NAME soundfork_release_process_tests COMMAND "${SOUNDFORK_POWERSHELL}"
@@ -282,7 +287,7 @@ if(BUILD_TESTING)
   target_include_directories(soundfork_control_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
   target_link_libraries(soundfork_control_ui_tests PRIVATE soundfork_obs_manager soundfork_relay_settings
-    soundfork_diagnostics soundfork_warnings ole32 uuid advapi32 shell32 winhttp)
+    soundfork_diagnostics soundfork_warnings ole32 uuid advapi32 shell32 comctl32 winhttp)
   add_executable(soundfork_diagnostics_tests tests/diagnostics_tests.cpp)
   target_link_libraries(soundfork_diagnostics_tests PRIVATE soundfork_diagnostics)
   add_test(NAME soundfork_diagnostics_tests COMMAND soundfork_diagnostics_tests)
