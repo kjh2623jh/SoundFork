@@ -53,7 +53,39 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 `SOUNDFORK_VERSION`에서 생성한다. 언어 선택은 사용자별
 `HKCU\Software\SoundFork\Language`에 저장한다.
 
-## 1.3.0 32비트 ASIO 호스트
+## 1.3.0 Windows 재생 출력과 32비트 ASIO 호스트
+
+### Windows 재생 백엔드
+
+`windows_audio_driver.*`는 IASIO를 구현하고 `windows_render_device.cpp`가 48kHz 스테레오
+Float32 공유 모드 WASAPI를 담당한다. `HKLM\SOFTWARE\SoundFork\Output\WindowsEndpoint`의
+64비트 뷰에 정확한 장치 ID를 저장하여 x86·x64가 같은 선택을 읽는다. 값이 없으면 기존 제조사
+ASIO를 사용한다. 설치 마법사의 `windows` 선택은 당시 기본 재생 장치의 ID를 저장하며,
+장치가 없으면 `unconfigured`로 두어 제어판에서 명시적으로 선택하도록 한다. 기본 장치 설정을
+변경하거나 이후 기본 장치로 자동 이동하지 않는다. `/BACKENDCLSID=windows`로 무인 설치할 수 있다.
+
+버퍼 생성 시 샘플 메모리·이벤트·COM 작업자를 준비한다. 시작·중지의 확인 대기는 비실시간
+수명주기에만 있고 콜백에서 호출하면 거부한다. 작업자는 WASAPI 이벤트가 열어 준 공간만 채운다.
+Windows 주기와 ASIO 블록 크기의 차이는 부분 블록 오프셋으로 보존하며 샘플을 버리거나 반복하지 않는다.
+장치 클럭과 QPC를 ASIO 프레임·나노초로 변환한다. 보고 지연은 장치 스트림 지연·버퍼와 ASIO
+블록에 근거한 값이며 물리 측정값은 아니다. 공유 모드 엔진 주기는 64 samples와 같다고 가정하지 않는다.
+장치 오류·분리는 호스트에 `kAsioResetRequest`를 보내고 재생을 중지한다. 자동 장치 교체·무중단
+복구는 제공하지 않으며 호스트가 중지·버퍼 재생성(필요시 애플리케이션 재시작)해야 한다.
+
+Windows 백엔드는 자체 WASAPI 세션을 만들므로 중복 방송을 막기 위해 내부 릴레이를 생략한다.
+제조사 ASIO 콜백 경로는 유지하며, Proxy의 비실시간 초기화·버퍼 생성에서만 출력 모드를 전달한다.
+가짜 Windows 장치 테스트는 64/256/2048프레임, 기본/TimeInfo 콜백, 부분 주기 파형·좌우,
+클럭·재시작·오류·느린 복제 소비자 격리를 검사한다. 실제 장치 청음·Discord 창 공유·장시간
+지연은 별도 수동 검증이다. 등록 없이 무음 장치 검사를 실행할 수 있다:
+
+```powershell
+.\build\windows-msvc-x64\Release\soundfork_host.exe --windows-endpoint @default --duration 2 --signal silence
+```
+
+API 근거: [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
+[IAudioClock::GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
+
+### x86 패키징과 검증
 
 Windows OS는 계속 x64다. 프록시·내부 릴레이·등록 도우미·호스트 도구만 x86으로 함께
 패키징하며 `bin/x86`(설치 후 `{app}/x86`)에 둔다. Hub·외부 릴레이·제어판·OBS는 x64다.

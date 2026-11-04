@@ -55,7 +55,40 @@ The base version comes from `project(VERSION ...)` in `CMakeLists.txt`; the
 user-visible version is generated from `SOUNDFORK_VERSION`. Language preferences
 are stored per user in `HKCU\Software\SoundFork\Language`.
 
-## 1.3.0 32-bit ASIO hosts
+## 1.3.0 Windows playback and 32-bit ASIO hosts
+
+### Windows playback backend
+
+`windows_audio_driver.*` implements IASIO; `windows_render_device.cpp` provides 48 kHz
+stereo Float32 shared-mode WASAPI. Both architectures read the exact device ID from the
+64-bit view of `HKLM\SOFTWARE\SoundFork\Output\WindowsEndpoint`. No value selects vendor ASIO.
+Setup's `windows` choice snapshots the current default's ID, or saves `unconfigured` when
+there is no device. It does not change the default or follow later changes. Select an actual
+device in Control. Silent Setup accepts `/BACKENDCLSID=windows`.
+
+Buffer preparation allocates/prefaults samples and creates events and a COM worker. Lifecycle
+start/stop acknowledgments may wait; calls from callbacks are rejected. WASAPI events determine
+available render space. A partial-block offset bridges device and ASIO periods without skipping
+or repeating samples. Device-clock/QPC values become ASIO frames/nanoseconds. Reported latency
+uses the stream latency/buffer and ASIO block; it is not a physical measurement. A 64-frame ASIO
+block does not imply a 64-frame Windows engine period. Device failure requests ASIO reset and
+stops rendering. The host must stop/recreate buffers, or the user must restart the application;
+there is no silent device fallback or seamless reconnection.
+
+Windows output already owns an in-process WASAPI session, so the additional internal relay is
+skipped to avoid duplicate capture. Vendor ASIO callback code remains unchanged. Fake-device
+tests cover 64/256/2048 frames, both callback types, partial periods/stereo waveforms, clock,
+restart/failure and slow-consumer isolation. Real listening, Discord sharing and long sessions
+still need manual verification. A registry-free silent probe is available:
+
+```powershell
+.\build\windows-msvc-x64\Release\soundfork_host.exe --windows-endpoint @default --duration 2 --signal silence
+```
+
+API references: [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
+[IAudioClock::GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
+
+### x86 packaging and verification
 
 The OS remains Windows x64. The proxy, internal relay DLL, registration helper and
 test host also build as x86 into `bin/x86` (`{app}/x86` after installation). Control,

@@ -23,7 +23,7 @@ The latest stable version is `v1.2.1`. This development branch prepares 32-bit h
 
 - Windows 10/11 x64
 - A game or DAW with ASIO support: stable releases support x64; v1.3.0 development builds also support x86.
-- A compatible vendor ASIO driver, installed beforehand. A 32-bit application also needs the vendor's 32-bit ASIO driver. Setup and Control select the 64-bit driver.
+- Vendor ASIO output needs an ASIO driver matching the host's bitness. The Windows output mode in v1.3.0 development builds needs no separate ASIO driver.
 
 Capture supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
@@ -34,6 +34,13 @@ All four PCM formats have automated coverage. Real ASIO driver compatibility bey
 
 1. Run Setup and select the **ASIO driver to use** with SoundFork.
 2. Select **SoundFork** as the ASIO driver in the game or DAW and set the sample rate to **48 kHz**.
+
+In v1.3.0 development builds, choose `ASIO — driver name` or `Windows — speakers/headphones`
+under **Playback output** and press **Apply**, then restart the application. Vendor ASIO
+is the recommended low-latency path; Windows output uses shared-mode WASAPI. The Windows
+default device is not changed. The **Forwarding device** is a separate broadcast selection.
+Windows output already belongs to the application, so no additional internal relay is loaded.
+Disable forwarding to avoid duplicate capture and use the dedicated OBS source.
 
 Open the control panel from **SoundFork Control** in the Start menu. For game
 playback alone, neither the control panel nor audio forwarding needs to stay open.

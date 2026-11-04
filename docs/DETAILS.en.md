@@ -23,6 +23,10 @@ virtual driver's own buffering latency is not removed.
 
 Broadcast capture has additional constraints:
 
+The 1.3.0 development build also offers Windows playback without a vendor ASIO driver:
+48 kHz stereo Float32 shared-mode WASAPI, with separate playback/broadcast selections.
+This does not add support for 32-bit Windows or load x64 vendor DLLs in x86 processes.
+
 - Windows 10/11 x64 with x64 or x86 ASIO hosts. The vendor driver must match the host's bitness.
 - 48 kHz, stereo output channels 0 and 1, Int16LSB/Int24LSB/Int32LSB/Float32LSB samples.
 - Capture blocks of 1–8,192 frames; hardware must support the chosen buffer size.
@@ -184,7 +188,7 @@ Setup registers SoundFork using a selected registered x64 ASIO backend. It retai
 a valid existing selection. New installations require user selection without
 vendor preference, even if only one driver exists. Fresh unattended setup requires
 an explicit `/BACKENDCLSID`.
-With no compatible driver, it asks for the manufacturer's driver and stops. It
+Without a vendor driver, Windows playback can be selected explicitly. It
 does not remove hardware drivers or virtual devices, or change Windows default devices.
 
 The OBS plugin is optional at installation and can be installed, updated or removed
@@ -381,6 +385,19 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   passed again after the final pending-notice adjustment. Changed Control/test targets
   passed `/analyze /WX`. Fake checks and private registry keys verify one-shot execution,
   silent failure and preferences; live requests and dialog clicks were not tested.
+
+- 2026-11-05 1.3.0-dev Windows playback: Release CTest passed 30/30 (x64, including OBS)
+  and 9/9 (x86). Final settings tests passed on both architectures; deployment policy
+  tests passed again after wording changes. Both MSVC `/analyze /WX` builds and
+  CFG/NX/ASLR/static-runtime checks passed. Cross-bitness tests passed in both directions
+  for all four PCM formats at 64/256 frames. Registry-free two-second silent WASAPI
+  probes passed on x64 and x86 at 48 kHz and 64-frame ASIO blocks. Reported output latency
+  was 1186 frames: device/buffer metadata, **not measured physical latency**. Mock devices
+  verify partial-period continuity, stereo, restart, device failure and slow-consumer
+  isolation. No system registration or default-device change was performed. Inno Setup
+  was unavailable locally; the new Windows-mode install/upgrade/removal smoke test
+  remains for isolated release CI. Listening, games, Discord and long sessions remain
+  manual tests. Local results do not establish remote CI success.
 
 The following are not claimed complete:
 
