@@ -375,6 +375,13 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   compilation and full installation were not run. These results do not verify remote
   GitHub CI, real x86 games/vendor drivers, Discord reception or physical latency.
 
+- 2026-11-04 1.2.1 update notices: checks once asynchronously on the first visible
+  Control opening and notifies only for a new version. The dialog opt-out and Settings
+  menu persist per user. OBS-enabled Release CTest passed 29/29; two focused tests
+  passed again after the final pending-notice adjustment. Changed Control/test targets
+  passed `/analyze /WX`. Fake checks and private registry keys verify one-shot execution,
+  silent failure and preferences; live requests and dialog clicks were not tested.
+
 The following are not claimed complete:
 
 - Real x86 games/vendor ASIO playback, Discord application sharing and the full installed lifecycle.
