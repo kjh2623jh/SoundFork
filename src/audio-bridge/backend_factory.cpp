@@ -3,6 +3,8 @@
 #include <array>
 
 #include "audio-bridge/ids.hpp"
+#include "audio-bridge/windows_audio_driver.hpp"
+#include "audio-bridge/windows_output_settings.hpp"
 
 namespace soundfork {
 namespace {
@@ -51,10 +53,23 @@ HRESULT read_backend_clsid(CLSID* clsid) noexcept {
 }  // namespace
 
 HRESULT RegistryBackendFactory::create(IASIO** driver) noexcept {
+  bool windows = false;
+  return create_with_mode(driver, &windows);
+}
+HRESULT RegistryBackendFactory::create_with_mode(IASIO** driver, bool* windows) noexcept {
+  if(!windows) return E_POINTER;
+  *windows = false;
   if (driver == nullptr) {
     return E_POINTER;
   }
   *driver = nullptr;
+
+  try {
+    std::wstring endpoint;
+    const auto selected = read_windows_output(&endpoint);
+    if(FAILED(selected)) return selected;
+    if(selected == S_OK) { *driver = new WindowsAudioDriver(std::move(endpoint)); *windows = true; return S_OK; }
+  } catch (...) { return E_OUTOFMEMORY; }
 
   CLSID backend_clsid{};
   const HRESULT config_result = read_backend_clsid(&backend_clsid);

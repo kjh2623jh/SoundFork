@@ -27,5 +27,7 @@ if ($PSCmdlet.ShouldProcess($resolvedDll, 'Unregister SoundFork')) {
     if ($process.ExitCode -ne 0) {
         throw "regsvr32 /u failed with exit code $($process.ExitCode)."
     }
+    Remove-ItemProperty -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\SoundFork\Output' `
+        -Name WindowsEndpoint -ErrorAction SilentlyContinue
     Write-Host 'SoundFork was unregistered. Existing ASIO drivers were not modified.'
 }

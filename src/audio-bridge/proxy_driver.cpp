@@ -83,7 +83,7 @@ ASIOBool ProxyDriver::init(void* system_handle) {
     return ASIOFalse;
   }
 
-  const HRESULT result = backend_factory_.create(&backend_);
+  const HRESULT result = backend_factory_.create_with_mode(&backend_, &windows_output_);
   if (FAILED(result) || backend_ == nullptr) {
     set_hresult_error("Cannot create configured backend", result);
     backend_ = nullptr;
@@ -255,7 +255,7 @@ ASIOError ProxyDriver::createBuffers(
     buffer_infos[index].buffers[1] = downstream_buffers_[index].buffers[1];
   }
   prepare_capture(buffer_size);
-  if (allow_application_relay_ && capture_publisher_.is_open()) {
+  if (allow_application_relay_ && !windows_output_ && capture_publisher_.is_open()) {
     application_relay_.start_if_enabled();
   }
   state_ = State::prepared;

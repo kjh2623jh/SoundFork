@@ -37,23 +37,25 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [CustomMessages]
-english.BackendTitle=ASIO driver selection
+english.BackendTitle=Playback output
 english.StartupRemoveFailed=Could not remove this account's SoundFork startup entry. Close SoundFork and retry.
 korean.StartupRemoveFailed=현재 계정의 SoundFork 자동 실행 항목을 제거하지 못했습니다. SoundFork를 종료하고 다시 시도하세요.
-english.BackendDescription=Select an ASIO driver to use.
-english.BackendSubCaption=The selected driver will not be modified or removed.
-english.SelectBackend=Select an ASIO driver before continuing.
+english.BackendDescription=Select an ASIO driver or Windows playback mode.
+english.BackendSubCaption=The Windows playback device can be changed in SoundFork Control.
+english.SelectBackend=Select a playback output before continuing.
+english.WindowsPlayback=Windows playback device (WASAPI; change device in Control)
 english.NoBackend=No compatible x64 ASIO driver is registered. Install a compatible ASIO driver first, such as your DAC or audio interface manufacturer's driver.
-english.InvalidSilentBackend=Silent setup requires /BACKENDCLSID={{GUID} identifying a registered x64 ASIO driver.
+english.InvalidSilentBackend=Silent setup requires /BACKENDCLSID with a registered ASIO CLSID or windows.
 english.RegistrationFailed=SoundFork driver registration failed. Setup rolled back the partial registration.
 english.GetVbCable=Open the official VB-CABLE download page (recommended for Discord)
 english.LaunchControl=Launch SoundFork Control
-korean.BackendTitle=ASIO 드라이버 선택
-korean.BackendDescription=사용할 ASIO 드라이버를 선택하세요.
-korean.BackendSubCaption=선택한 드라이버를 수정하거나 제거하지 않습니다.
-korean.SelectBackend=계속하려면 사용할 ASIO 드라이버를 선택하세요.
+korean.BackendTitle=재생 출력
+korean.BackendDescription=ASIO 드라이버 또는 Windows 재생 모드를 선택하세요.
+korean.BackendSubCaption=Windows 재생 장치는 SoundFork 제어판에서 변경할 수 있습니다.
+korean.SelectBackend=계속하려면 재생 출력을 선택하세요.
+korean.WindowsPlayback=Windows 재생 장치 (WASAPI; 제어판에서 장치 변경)
 korean.NoBackend=호환되는 x64 ASIO 드라이버가 등록되어 있지 않습니다. DAC·오디오 인터페이스 제조사 드라이버 등 호환 ASIO 드라이버를 먼저 설치하세요.
-korean.InvalidSilentBackend=자동 설치에는 등록된 x64 ASIO 드라이버의 /BACKENDCLSID={{GUID}가 필요합니다.
+korean.InvalidSilentBackend=자동 설치에는 /BACKENDCLSID에 등록된 ASIO CLSID 또는 windows를 지정해야 합니다.
 korean.RegistrationFailed=SoundFork 드라이버 등록에 실패했습니다. 부분 등록은 롤백했습니다.
 korean.GetVbCable=VB-CABLE 공식 다운로드 페이지 열기 (Discord 권장)
 korean.LaunchControl=SoundFork Control 실행
@@ -188,20 +190,30 @@ var
   Index: Integer;
   Inner: Integer;
   Count: Integer;
+  WindowsEndpoint: String;
 begin
-  SetArrayLength(BackendNames, 0);
-  SetArrayLength(BackendClsids, 0);
+  SetArrayLength(BackendNames, 1);
+  SetArrayLength(BackendClsids, 1);
+  BackendNames[0] := CustomMessage('WindowsPlayback');
+  BackendClsids[0] := 'windows';
   ExistingBackendClsid := '';
   RegQueryStringValue(
     HKLM64,
     AsioRoot + '\SoundFork',
     'BackendCLSID',
     ExistingBackendClsid);
+  WindowsEndpoint := '';
+  if RegQueryStringValue(HKLM64, 'SOFTWARE\SoundFork\Output', 'WindowsEndpoint', WindowsEndpoint) and
+     (WindowsEndpoint <> '') then
+    ExistingBackendClsid := 'windows';
   DefaultBackendIndex := -1;
   if not RegGetSubkeyNames(HKLM64, AsioRoot, Subkeys) then
+  begin
+    DefaultBackendIndex := FindBackendByClsid(ExistingBackendClsid);
     Exit;
+  end;
 
-  Count := 0;
+  Count := 1;
   for Index := 0 to GetArrayLength(Subkeys) - 1 do
   begin
     Name := Subkeys[Index];

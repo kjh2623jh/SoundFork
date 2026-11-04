@@ -1,5 +1,7 @@
 #include <windows.h>
 #include <objbase.h>
+#include <mmdeviceapi.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <array>
@@ -15,8 +17,19 @@
 
 #include "audio-bridge/backend_factory.hpp"
 #include "audio-bridge/proxy_driver.hpp"
+#include "audio-bridge/windows_audio_driver.hpp"
 
 namespace {
+class WindowsFactory final : public soundfork::IBackendFactory {
+ public:
+  explicit WindowsFactory(std::wstring endpoint) : endpoint_(std::move(endpoint)) {}
+  HRESULT create(IASIO** driver) noexcept override {
+    try { *driver = new soundfork::WindowsAudioDriver(endpoint_); return S_OK; }
+    catch(...) { *driver = nullptr; return E_OUTOFMEMORY; }
+  }
+ private:
+  std::wstring endpoint_;
+};
 
 enum class TestSignal {
   silence,
@@ -256,6 +269,7 @@ void print_usage() {
          L"[--buffer-size 64] [--channels 0,1] [--duration seconds] "
          L"[--signal silence|sine|sine-left|sine-right] [--gain-db -40]\n"
       << L"  soundfork_host --proxy-backend <name> [same options]\n";
+  std::wcout << L"  soundfork_host --windows-endpoint <device-id|@default> [same options; no registry changes]\n";
 }
 
 const wchar_t* sample_type_name(ASIOSampleType type) {
@@ -296,6 +310,7 @@ int wmain(int argc, wchar_t** argv) {
   }
 
   std::wstring driver_name;
+  std::wstring windows_endpoint;
   bool use_proxy = false;
   double sample_rate = 48000.0;
   long buffer_size = 64;
@@ -306,6 +321,8 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring_view argument(argv[index]);
     if (argument == L"--driver" && index + 1 < argc) {
       driver_name = argv[++index];
+    } else if (argument == L"--windows-endpoint" && index + 1 < argc) {
+      windows_endpoint = argv[++index]; driver_name = L"Windows playback device"; use_proxy = true;
     } else if (argument == L"--proxy-backend" && index + 1 < argc) {
       driver_name = argv[++index];
       use_proxy = true;
@@ -361,16 +378,30 @@ int wmain(int argc, wchar_t** argv) {
         return _wcsicmp(candidate.key_name.c_str(), driver_name.c_str()) == 0 ||
                _wcsicmp(candidate.description.c_str(), driver_name.c_str()) == 0;
       });
-  if (selected == drivers.end()) {
+  if (selected == drivers.end() && windows_endpoint.empty()) {
     std::wcerr << L"ASIO driver not found: " << driver_name << L'\n';
     CoUninitialize();
     return 3;
   }
 
   IASIO* driver = nullptr;
-  std::unique_ptr<soundfork::ClsidBackendFactory> proxy_factory;
+  std::unique_ptr<soundfork::IBackendFactory> proxy_factory;
   HRESULT result = S_OK;
-  if (use_proxy) {
+  if (!windows_endpoint.empty()) {
+    if(windows_endpoint == L"@default") {
+      Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
+      Microsoft::WRL::ComPtr<IMMDevice> device;
+      LPWSTR id = nullptr;
+      if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&enumerator))) ||
+          FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device)) || FAILED(device->GetId(&id))) {
+        std::wcerr << L"No default Windows playback device\n"; CoUninitialize(); return 4;
+      }
+      windows_endpoint = id; CoTaskMemFree(id);
+    }
+    proxy_factory = std::make_unique<WindowsFactory>(windows_endpoint);
+    driver = new (std::nothrow) soundfork::ProxyDriver(*proxy_factory);
+    if(!driver) result = E_OUTOFMEMORY;
+  } else if (use_proxy) {
     proxy_factory =
         std::make_unique<soundfork::ClsidBackendFactory>(selected->clsid);
     driver = new (std::nothrow) soundfork::ProxyDriver(*proxy_factory);
@@ -412,7 +443,7 @@ int wmain(int argc, wchar_t** argv) {
     driver->getSampleRate(&current_rate);
     driver->getLatencies(&input_latency, &output_latency);
     std::wcout << L"Path: " << (use_proxy ? L"SoundFork proxy" : L"direct")
-               << L" -> " << selected->description << L'\n';
+               << L" -> " << (windows_endpoint.empty() ? selected->description : L"Windows playback device") << L'\n';
     std::wcout << L"Inputs: " << input_count << L", outputs: " << output_count
                << L"\nBuffer: min=" << min_size << L", max=" << max_size
                << L", preferred=" << preferred_size << L", granularity="
@@ -501,6 +532,7 @@ int wmain(int argc, wchar_t** argv) {
             driver->disposeBuffers();
           } else if (exit_code == 0) {
             std::wcerr << L"Buffer creation failed\n";
+            char error[124]{}; driver->getErrorMessage(error); std::cerr << error << '\n';
             exit_code = 8;
           }
           g_host = nullptr;

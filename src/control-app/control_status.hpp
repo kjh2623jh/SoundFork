@@ -14,7 +14,7 @@ struct ControlStatus {
 };
 
 inline std::wstring control_status_text(const ControlStatus& status, bool korean) {
-  std::wstring text = korean ? L"ASIO 설정: " : L"ASIO configuration: ";
+  std::wstring text = korean ? L"재생 출력 설정: " : L"Playback configuration: ";
   text += status.asio_configured ? (korean ? L"준비됨" : L"Ready")
                                  : (korean ? L"확인 필요" : L"Needs attention");
   text += korean ? L"\r\n가상 장치로 오디오 전달: " : L"\r\nForwarding to virtual device: ";
@@ -27,7 +27,7 @@ inline std::wstring control_status_text(const ControlStatus& status, bool korean
     text += korean ? L"\r\n자동 전달 시작 실패. 도움말 → 진단 정보를 확인하세요."
                    : L"\r\nAutomatic forwarding failed. Open Help > Diagnostics for details.";
   } else if (!status.asio_configured) {
-    text += korean ? L"\r\nASIO 드라이버 설정을 확인하세요." : L"\r\nCheck the ASIO driver configuration.";
+    text += korean ? L"\r\n재생 출력 설정을 확인하세요." : L"\r\nCheck the playback output configuration.";
   } else if (!status.device_available && !status.forwarding_running) {
     text += korean ? L"\r\n전달하려면 방송용 가상 장치를 선택하세요." : L"\r\nSelect a virtual broadcast device to start forwarding.";
   }

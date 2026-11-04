@@ -43,6 +43,15 @@ try {
 } finally {
     $stream.Dispose()
 }
+if ($BackendName -ieq 'windows') {
+    $control = Join-Path (Split-Path -Parent $resolvedDll) 'soundfork_control.exe'
+    if (-not (Test-Path -LiteralPath $control)) { throw 'The adjacent Control executable is required for Windows output registration.' }
+    if ($PSCmdlet.ShouldProcess($resolvedDll, 'Register SoundFork using Windows playback')) {
+        & $control --register-driver --backend-clsid windows
+        if ($LASTEXITCODE -ne 0) { throw 'Windows output registration failed.' }
+    }
+    return
+}
 if (-not (Test-Path -LiteralPath $backendKey)) {
     throw "ASIO backend '$BackendName' was not found under HKLM\SOFTWARE\ASIO."
 }

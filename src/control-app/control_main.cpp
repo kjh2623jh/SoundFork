@@ -32,6 +32,7 @@
 #include "control-app/obs_plugin_strings.hpp"
 #include "control-app/update_checker.hpp"
 #include "control-app/update_preferences.hpp"
+#include "audio-bridge/windows_output_settings.hpp"
 #include "control-app/relay_settings.hpp"
 #include "control-app/control_status.hpp"
 #include "soundfork_version.hpp"
@@ -701,6 +702,8 @@ RegistrationStatus query_registration() {
                         GetFileAttributesW(status.driver_dll.c_str()) !=
                             INVALID_FILE_ATTRIBUTES;
   }
+  std::wstring endpoint;
+  if(soundfork::read_windows_output(&endpoint) == S_OK) status.backend_clsid = L"wasapi:" + endpoint;
   return status;
 }
 
@@ -931,6 +934,33 @@ bool set_backend(
     std::wstring* error,
     UiLanguage language = UiLanguage::english) {
   const UiStrings& strings = ui_strings(language);
+  if(requested_clsid.starts_with(L"wasapi:") || requested_clsid == L"windows") {
+    const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if(FAILED(com) && com != RPC_E_CHANGED_MODE) { *error = L"Could not initialize Windows audio."; return false; }
+    struct ComScope { bool active; ~ComScope() { if(active) CoUninitialize(); } } scope{SUCCEEDED(com)};
+    std::wstring endpoint_id;
+    if(requested_clsid == L"windows") {
+      (void)soundfork::read_windows_output(&endpoint_id);
+      if(endpoint_id.empty()) {
+      ComPtr<IMMDeviceEnumerator> enumerator;
+      ComPtr<IMMDevice> endpoint;
+      LPWSTR id = nullptr;
+      if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&enumerator))) ||
+          FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &endpoint)) || FAILED(endpoint->GetId(&id))) {
+        endpoint_id = L"unconfigured";
+      } else { endpoint_id = id; CoTaskMemFree(id); }
+      }
+    } else endpoint_id = requested_clsid.substr(7);
+    const auto devices = enumerate_endpoints();
+    if(requested_clsid != L"windows" && std::none_of(devices.begin(), devices.end(), [&](const auto& item) { return item.id == endpoint_id; })) {
+      *error = L"The selected Windows playback device is unavailable."; return false;
+    }
+    if(!invoke_x86_registration(true, L"{00000000-0000-0000-0000-000000000001}", error)) return false;
+    if(soundfork::save_windows_output(endpoint_id) != ERROR_SUCCESS) {
+      *error = L"Could not save the Windows playback device."; return false;
+    }
+    return true;
+  }
   const std::vector<AsioDriver> drivers = enumerate_asio_drivers();
   const auto selected = std::find_if(
       drivers.begin(), drivers.end(), [&](const AsioDriver& driver) {
@@ -964,6 +994,9 @@ bool set_backend(
     *error = strings.backend_write_failed;
     return false;
   }
+  if(soundfork::save_windows_output(L"") != ERROR_SUCCESS) {
+    *error = strings.backend_write_failed; return false;
+  }
   return true;
 }
 
@@ -987,7 +1020,7 @@ bool invoke_adjacent_driver_registration(
         drivers.begin(), drivers.end(), [&](const AsioDriver& driver) {
           return equals_ignore_case(driver.clsid, backend_clsid);
         });
-    if (!backend_is_registered) {
+    if (!backend_is_registered && backend_clsid != L"windows" && !backend_clsid.starts_with(L"wasapi:")) {
       *error = L"The requested x64 ASIO backend is not registered.";
       return false;
     }
@@ -1039,7 +1072,10 @@ bool invoke_adjacent_driver_registration(
   }
 
   FreeLibrary(module);
-  if (!register_driver) return invoke_x86_registration(false, L"", error);
+  if (!register_driver) {
+    if(!invoke_x86_registration(false, L"", error)) return false;
+    return soundfork::save_windows_output(L"") == ERROR_SUCCESS;
+  }
   return true;
 }
 
@@ -1158,6 +1194,9 @@ void set_control_font(HWND control, HFONT font) {
 void populate_backend_combo(AppState* state) {
   const RegistrationStatus registration = query_registration();
   state->drivers = enumerate_asio_drivers();
+  for(auto& driver : state->drivers) driver.name = L"ASIO — " + driver.name;
+  for(const auto& endpoint : enumerate_endpoints())
+    state->drivers.push_back({L"Windows — " + endpoint.name, L"wasapi:" + endpoint.id});
   SendMessageW(state->backend_combo, CB_RESETCONTENT, 0, 0);
   int selected_index = -1;
   for (std::size_t index = 0; index < state->drivers.size(); ++index) {
@@ -1589,7 +1628,11 @@ void update_status(AppState* state) {
   EnableWindow(state->startup_checkbox,
       relay_mode == soundfork::control::RelayMode::entire_screen);
   SetWindowTextW(state->note,
-      relay_mode == soundfork::control::RelayMode::application
+      registration.backend_clsid.starts_with(L"wasapi:")
+          ? (state->language == UiLanguage::korean
+              ? L"Windows 출력은 앱의 오디오로 재생됩니다. 중복 캡처를 피하려면 릴레이 전달은 끄고 OBS는 전용 소스를 사용하세요."
+              : L"Windows output belongs to the app. Disable forwarding to avoid duplicate capture; use the dedicated OBS source.")
+          : relay_mode == soundfork::control::RelayMode::application
           ? relay_mode_strings(state->language).application_note
           : strings.note);
   EnableWindow(state->endpoint_combo, relay_running ? FALSE : TRUE);
@@ -1746,7 +1789,7 @@ void create_controls(AppState* state) {
       DEFAULT_PITCH,
       L"Segoe UI");
   const bool korean = state->language == UiLanguage::korean;
-  state->output_group = CreateWindowExW(0, L"BUTTON", korean ? L"ASIO 출력" : L"ASIO output",
+  state->output_group = CreateWindowExW(0, L"BUTTON", korean ? L"재생 출력 (ASIO 권장)" : L"Playback output (ASIO recommended)",
       WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
   state->forwarding_group = CreateWindowExW(0, L"BUTTON", korean ? L"방송 오디오 전달" : L"Broadcast audio forwarding",
       WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
@@ -2058,7 +2101,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   SetWindowTextW(state->apply_button, strings.apply);
   SetWindowTextW(state->endpoint_label, language == UiLanguage::korean ? L"전달 장치" : L"Forwarding device");
   SetWindowTextW(state->relay_mode_label, relay_mode_strings(language).label);
-  SetWindowTextW(state->output_group, language == UiLanguage::korean ? L"ASIO 출력" : L"ASIO output");
+  SetWindowTextW(state->output_group, language == UiLanguage::korean ? L"재생 출력 (ASIO 권장)" : L"Playback output (ASIO recommended)");
   SetWindowTextW(state->forwarding_group, language == UiLanguage::korean ? L"방송 오디오 전달" : L"Broadcast audio forwarding");
   SetWindowTextW(state->buffer_label, language == UiLanguage::korean ? L"전달 버퍼" : L"Forwarding buffer");
   SetWindowTextW(state->refresh_button, strings.refresh_devices);

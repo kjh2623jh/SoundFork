@@ -64,8 +64,14 @@ $userRun = $null
 $startupCommand = $null
 $startupSeeded = $false
 $testDirectoryMayHaveBeenCreated = $false
+$windowsOutputMayHaveBeenCreated = $false
 
 try {
+    $existingOutput = $baseKey.OpenSubKey('SOFTWARE\SoundFork\Output')
+    if ($null -ne $existingOutput) {
+        try { if ($null -ne $existingOutput.GetValue('WindowsEndpoint', $null)) { throw 'Refusing to overwrite an existing Windows playback selection.' } }
+        finally { $existingOutput.Dispose() }
+    }
     foreach ($path in @("SOFTWARE\ASIO\$fakeName", "SOFTWARE\Classes\CLSID\$fakeClsid",
             'SOFTWARE\ASIO\SoundFork', "SOFTWARE\Classes\CLSID\$soundForkClsid")) {
         $existing32 = $baseKey32.OpenSubKey($path)
@@ -286,8 +292,44 @@ try {
         throw 'Uninstall incorrectly removed the selected backend driver key.'
     }
     $remainingFake.Dispose()
+    # Exercise explicit Windows playback with no dependency on a real ASIO DLL
+    # or an active endpoint on this headless runner. Setup may leave device selection
+    # pending; it must still register both proxy architectures.
+    $windowsOutputMayHaveBeenCreated = $true
+    $windowsExit = Invoke-ReleaseTestProcess -StepName 'Install Windows playback mode' `
+        -FilePath $resolvedSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
+            "/DIR=`"$fullTestDirectory`"", '/BACKENDCLSID=windows')
+    if ($windowsExit -ne 0) { throw "Windows playback setup failed: $windowsExit" }
+    $windowsKey = $baseKey.OpenSubKey('SOFTWARE\SoundFork\Output')
+    if ($null -eq $windowsKey) { throw 'Windows playback selection missing' }
+    try { $savedWindowsEndpoint = [string]$windowsKey.GetValue('WindowsEndpoint', '') }
+    finally { $windowsKey.Dispose() }
+    if (-not $savedWindowsEndpoint) { throw 'Windows mode was not saved' }
+    foreach ($view in @($baseKey, $baseKey32)) {
+        $key = $view.OpenSubKey('SOFTWARE\ASIO\SoundFork')
+        if ($null -eq $key) { throw 'Windows mode did not register both proxy architectures' }
+        $key.Dispose()
+    }
+    $windowsUpgrade = Invoke-ReleaseTestProcess -StepName 'Upgrade preserving Windows playback mode' `
+        -FilePath $resolvedSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
+            "/DIR=`"$fullTestDirectory`"")
+    if ($windowsUpgrade -ne 0) { throw 'Windows playback upgrade failed' }
+    $windowsKey = $baseKey.OpenSubKey('SOFTWARE\SoundFork\Output')
+    try { if ([string]$windowsKey.GetValue('WindowsEndpoint', '') -cne $savedWindowsEndpoint) { throw 'Upgrade changed the selected Windows endpoint' } }
+    finally { $windowsKey.Dispose() }
+    $windowsRemove = Invoke-ReleaseTestProcess -StepName 'Uninstall Windows playback mode' `
+        -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+    if ($windowsRemove -ne 0) { throw 'Windows playback removal failed' }
+    foreach ($view in @($baseKey, $baseKey32)) {
+        $key = $view.OpenSubKey('SOFTWARE\ASIO\SoundFork')
+        if ($null -ne $key) { $key.Dispose(); throw 'Windows mode left ASIO registration behind' }
+    }
     Write-Host 'SoundFork installer smoke test passed.'
 } finally {
+    if ($windowsOutputMayHaveBeenCreated) {
+        $outputKey = $baseKey.OpenSubKey('SOFTWARE\SoundFork\Output', $true)
+        if ($null -ne $outputKey) { try { $outputKey.DeleteValue('WindowsEndpoint', $false) } finally { $outputKey.Dispose() } }
+    }
     if ($fake32Created) {
         $baseKey32.DeleteSubKeyTree("SOFTWARE\ASIO\$fakeName", $false)
         $baseKey32.DeleteSubKeyTree("SOFTWARE\Classes\CLSID\$fakeClsid", $false)

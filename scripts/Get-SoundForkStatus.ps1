@@ -77,6 +77,8 @@ $backendClsid = [string](Read-RegistryValue64 -Path $asioPath -Name 'BackendCLSI
 $comPath = "SOFTWARE\Classes\CLSID\$soundForkClsid\InprocServer32"
 $driverDll = [string](Read-RegistryValue64 -Path $comPath -Name '')
 $backendName = if ($backendClsid) { Find-AsioNameByClsid -Clsid $backendClsid } else { $null }
+$windowsOutput = [string](Read-RegistryValue64 -Path 'SOFTWARE\SoundFork\Output' -Name 'WindowsEndpoint')
+if ($windowsOutput) { $backendName = 'Windows playback device'; $backendClsid = $windowsOutput }
 
 $asioRegistered = $registeredClsid -and $registeredClsid.Equals(
     $soundForkClsid,
@@ -132,11 +134,12 @@ try {
 
 [PSCustomObject]@{
     State = $state
+    PlaybackMode = if ($windowsOutput) { 'Windows shared-mode WASAPI' } else { 'Vendor ASIO' }
     InstallType = if ($isInstalledCopy) { 'Installed copy' } elseif ($driverExists) { 'Development/build path' } else { 'None' }
     DriverDll = if ($driverDll) { $driverDll } else { '(not registered)' }
     DriverDllExists = [bool]$driverExists
     X86DriverDll = if ($x86Dll) { $x86Dll } else { '(not registered)' }
-    X86BackendCLSID = if ($x86Backend) { $x86Backend } else { '(not configured; install matching x86 vendor driver)' }
+    X86BackendCLSID = if ($windowsOutput) { '(Windows output; vendor backend not required)' } elseif ($x86Backend) { $x86Backend } else { '(not configured; install matching x86 vendor driver)' }
     Backend = if ($backendName) { $backendName } elseif ($backendClsid) { "Unknown ($backendClsid)" } else { '(not configured)' }
     ControlApp = if ($controlProcesses.Count) { "Running (PID $($controlProcesses.Id -join ', '))" } else { 'Stopped' }
     RelayMode = $relayMode

@@ -72,6 +72,8 @@ set(SOUNDFORK_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk/common")
 add_library(soundfork_bridge STATIC
   src/audio-bridge/application_relay.cpp
   src/audio-bridge/backend_factory.cpp
+  src/audio-bridge/windows_audio_driver.cpp
+  src/audio-bridge/windows_render_device.cpp
   src/audio-bridge/proxy_driver.cpp
   src/capture-backend/shared_ring.cpp
 )
@@ -80,7 +82,13 @@ target_include_directories(soundfork_bridge
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${SOUNDFORK_SDK_DIR}"
 )
-target_link_libraries(soundfork_bridge PUBLIC soundfork_warnings ole32 advapi32)
+target_link_libraries(soundfork_bridge PUBLIC soundfork_warnings ole32 advapi32 uuid avrt)
+if(BUILD_TESTING)
+  add_executable(soundfork_windows_audio_tests tests/windows_audio_tests.cpp)
+  target_link_libraries(soundfork_windows_audio_tests PRIVATE soundfork_bridge soundfork_warnings)
+  add_test(NAME soundfork_windows_audio_tests COMMAND soundfork_windows_audio_tests)
+  set_tests_properties(soundfork_windows_audio_tests PROPERTIES TIMEOUT 30 LABELS "audio;unit")
+endif()
 
 add_library(soundfork_driver SHARED
   src/asio-proxy/com_server.cpp

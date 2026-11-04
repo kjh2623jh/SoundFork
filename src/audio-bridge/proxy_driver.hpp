@@ -95,6 +95,7 @@ class ProxyDriver final : public IASIO {
   capture::SharedRingPublisher capture_publisher_;
   ApplicationRelay application_relay_;
   bool allow_application_relay_ = false;
+  bool windows_output_ = false;
   std::array<wchar_t, 128> capture_mapping_name_{};
   long capture_left_index_ = -1;
   long capture_right_index_ = -1;
