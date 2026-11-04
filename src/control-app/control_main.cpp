@@ -341,6 +341,7 @@ struct Endpoint {
   std::wstring name;
   std::wstring id;
   EndpointKind kind = EndpointKind::other;
+  bool is_default = false;
 };
 
 struct RegistrationStatus {
@@ -717,6 +718,14 @@ std::vector<Endpoint> enumerate_endpoints() {
           IID_PPV_ARGS(&enumerator)))) {
     return endpoints;
   }
+  std::wstring default_id;
+  ComPtr<IMMDevice> default_device;
+  LPWSTR default_device_id = nullptr;
+  if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &default_device)) &&
+      SUCCEEDED(default_device->GetId(&default_device_id)) && default_device_id != nullptr) {
+    default_id = default_device_id;
+    CoTaskMemFree(default_device_id);
+  }
   ComPtr<IMMDeviceCollection> collection;
   if (FAILED(enumerator->EnumAudioEndpoints(
           eRender, DEVICE_STATE_ACTIVE, &collection))) {
@@ -751,6 +760,7 @@ std::vector<Endpoint> enumerate_endpoints() {
         endpoint.name = endpoint.id;
       }
       endpoint.kind = classify_endpoint(endpoint.name);
+      endpoint.is_default = equals_ignore_case(endpoint.id, default_id);
       endpoints.push_back(std::move(endpoint));
     }
   }
@@ -1191,12 +1201,23 @@ void set_control_font(HWND control, HFONT font) {
   SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
 
-void populate_backend_combo(AppState* state) {
+std::wstring playback_endpoint_name(const Endpoint& endpoint, UiLanguage language) {
+  auto name = L"Windows — " + endpoint.name;
+  if (endpoint.is_default) name += language == UiLanguage::korean
+      ? L" (기본 장치)" : L" (Default device)";
+  return name;
+}
+
+void populate_backend_combo(AppState* state, bool preserve_selection = false) {
   const RegistrationStatus registration = query_registration();
+  auto selected_clsid = registration.backend_clsid;
+  const auto previous = SendMessageW(state->backend_combo, CB_GETCURSEL, 0, 0);
+  if (preserve_selection && previous >= 0 && static_cast<std::size_t>(previous) < state->drivers.size())
+    selected_clsid = state->drivers[static_cast<std::size_t>(previous)].clsid;
   state->drivers = enumerate_asio_drivers();
   for(auto& driver : state->drivers) driver.name = L"ASIO — " + driver.name;
   for(const auto& endpoint : enumerate_endpoints())
-    state->drivers.push_back({L"Windows — " + endpoint.name, L"wasapi:" + endpoint.id});
+    state->drivers.push_back({playback_endpoint_name(endpoint, state->language), L"wasapi:" + endpoint.id});
   SendMessageW(state->backend_combo, CB_RESETCONTENT, 0, 0);
   int selected_index = -1;
   for (std::size_t index = 0; index < state->drivers.size(); ++index) {
@@ -1206,7 +1227,7 @@ void populate_backend_combo(AppState* state) {
         0,
         reinterpret_cast<LPARAM>(state->drivers[index].name.c_str()));
     if (equals_ignore_case(
-            state->drivers[index].clsid, registration.backend_clsid)) {
+            state->drivers[index].clsid, selected_clsid)) {
       selected_index = static_cast<int>(index);
     }
   }
@@ -2117,6 +2138,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
     SetWindowTextW(state->diagnostic_close, diagnostic.close);
   }
   rebuild_menu(state);
+  populate_backend_combo(state, true);
   populate_endpoint_combo(state);
   populate_relay_mode_combo(state);
   if (!selected_endpoint_id.empty()) {
