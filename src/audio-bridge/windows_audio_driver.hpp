@@ -12,6 +12,7 @@ namespace soundfork {
 struct WindowsOutputInfo {
   UINT32 capacity = 0, period = 0, queue_target = 0;
   HRESULT low_latency_result = S_FALSE;
+  UINT32 device_rate = 48000, conversion_delay = 0;
 };
 // All device methods run on the backend's COM worker, never on the host thread.
 class IWindowsRenderDevice {

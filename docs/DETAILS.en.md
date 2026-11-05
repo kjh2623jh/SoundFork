@@ -409,6 +409,16 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   repository's local tools and used to compile local installers; installation itself
   was not run. Physical latency, real listening and long-duration tests remain manual.
 
+- Native mix-format adaptation (2026-11-05): Release CTest passed 30/30 x64 and
+  9/9 x86; changed targets passed `/analyze /WX` on both architectures. Converter
+  tests cover 32/44.1/48/96/192/384 kHz, chunk continuity, stereo, reset, DC and a
+  downsampling alias-rejection case. A two-second silent FiiO probe succeeded with
+  its existing 192 kHz Windows mix and 48 kHz ASIO input. Low-latency initialization
+  succeeded; negotiated period was 1920 device frames (10 ms), queue target 3840
+  device frames and converter allowance 32 source frames. Reported ASIO output
+  latency was 1056 source frames (22 ms), not a physical measurement. Actual
+  listening, longer sessions and live format-change recovery remain unverified.
+
 The following are not claimed complete:
 
 - Real x86 games/vendor ASIO playback, Discord application sharing and the full installed lifecycle.

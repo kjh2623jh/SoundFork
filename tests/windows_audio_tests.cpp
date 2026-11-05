@@ -8,6 +8,7 @@
 #include "audio-bridge/windows_audio_driver.hpp"
 #include "audio-bridge/windows_output_settings.hpp"
 #include "audio-bridge/windows_render_policy.hpp"
+#include "audio-bridge/windows_resampler.hpp"
 #include "audio-bridge/proxy_driver.hpp"
 #include "capture-backend/shared_ring.hpp"
 
@@ -161,10 +162,46 @@ void test_render_policy() {
         (failure ? FAILED(reason) : reason == S_OK), "fallback error propagation");
   }
 }
+void test_resampler() {
+  for(unsigned rate : {32000U, 44100U, 48000U, 96000U, 192000U, 384000U}) {
+    soundfork::WindowsResampler whole, split;
+    require(whole.prepare(rate) && split.prepare(rate), "resampler preparation");
+    constexpr unsigned outputs = 4096;
+    const auto needed = whole.input_frames(outputs);
+    std::vector<float> input(static_cast<std::size_t>(needed) * 2), a(outputs * 2), b(outputs * 2);
+    for(unsigned i = 0; i < needed; ++i) {
+      input[i*2] = static_cast<float>(0.1 * std::sin(i * 0.1)); input[i*2+1] = -input[i*2];
+    }
+    whole.process(input.data(), outputs, a.data());
+    unsigned read = 0;
+    for(unsigned offset = 0; offset < outputs;) {
+      const unsigned count = (std::min)(17U, outputs - offset);
+      const auto consumed = split.input_frames(count);
+      require(read + consumed <= needed, "resampler input bound");
+      split.process(input.data() + read*2, count, b.data() + offset*2); read += consumed; offset += count;
+    }
+    require(read == needed && a == b, "chunk boundary changed resampling");
+    for(unsigned i = 0; i < outputs; ++i)
+      require(std::isfinite(a[i*2]) && a[i*2] == -a[i*2+1], "resampler stereo/finite");
+    whole.reset(); require(whole.input_frames(outputs) == needed, "resampler reset phase");
+    std::fill(input.begin(), input.end(), 0.1F); whole.process(input.data(), outputs, a.data());
+    require(std::abs(a.back() - 0.1F) < 0.00001F, "resampler DC gain");
+    if(rate == 32000) {
+      whole.reset();
+      for(unsigned i = 0; i < needed; ++i)
+        input[i*2] = input[i*2+1] = static_cast<float>(0.1 * std::sin(i * 6.283185307179586 * 20000 / 48000));
+      whole.process(input.data(), outputs, a.data());
+      double energy = 0;
+      for(unsigned i = 256; i < outputs; ++i) energy += a[i*2] * a[i*2];
+      require(std::sqrt(energy / (outputs - 256)) < 0.001, "downsampling alias rejection");
+    }
+  }
+}
 }
 int main() {
   try {
     test_render_policy();
+    test_resampler();
     test_settings();
     for(long frames : {64L, 256L, 2048L}) { test(frames,false); test(frames,true); }
     auto mock = std::make_unique<MockDevice>(); mock->open_fail = true;

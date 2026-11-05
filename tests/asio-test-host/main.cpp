@@ -507,8 +507,9 @@ int wmain(int argc, wchar_t** argv) {
             if (!windows_endpoint.empty()) {
               const auto info = static_cast<WindowsFactory*>(proxy_factory.get())->backend->output_info();
               std::wcout << L"Windows output: " << (info.period ? L"low-latency shared" : L"legacy shared fallback")
-                         << L", engine period=" << info.period << L" frames, capacity=" << info.capacity
+                         << L", device rate=" << info.device_rate << L" Hz, engine period=" << info.period << L" device frames, capacity=" << info.capacity
                          << L" frames, queue target=" << info.queue_target << L" frames"
+                         << L", conversion delay=" << info.conversion_delay << L" source frames (48 kHz)"
                          << L", low-latency HRESULT=0x" << std::hex
                          << static_cast<unsigned long>(info.low_latency_result) << std::dec << L'\n';
             }

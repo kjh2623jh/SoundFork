@@ -77,9 +77,9 @@ there is no silent device fallback or seamless reconnection.
 
 Windows output now queries `IAudioClient3::GetSharedModeEnginePeriod` and requests the
 smallest valid period through `InitializeSharedAudioStream` (EVENTCALLBACK only).
-This requires support for the exact 48 kHz stereo Float32 stream. Unsupported
+This requires support for the selected stream format (native mix when supported). Unsupported
 interfaces/formats, invalid period metadata or initialization failures activate a fresh
-audio client and fall back to previous shared initialization with conversion. No exclusive
+audio client and fall back to ordinary shared initialization. No exclusive
 mode or kernel streaming is used. Vendor ASIO callbacks remain unchanged.
 On this path the queue target is two engine periods, capped at endpoint capacity,
 retaining a scheduling margin instead of filling the entire buffer. Legacy fallback
@@ -100,6 +100,29 @@ still need manual verification. A registry-free silent probe is available:
 API references: [IAudioClient3::InitializeSharedAudioStream](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient3-initializesharedaudiostream),
 [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
 [IAudioClock::GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
+
+### Native Windows mix-format conversion
+
+Windows playback reads `GetMixFormat()` at buffer preparation. Stereo Float32 mix
+formats from 32 to 384 kHz use their native sample rate for shared initialization
+and engine-period negotiation. Game ASIO and capture remain 48 kHz stereo. Other
+mix layouts/formats retain the previous 48 kHz shared automatic-conversion fallback.
+An unsupported low-latency interface/period falls back to ordinary shared rendering
+with the selected native format; no format/default setting is changed.
+
+When rates differ, a causal 64-tap polyphase windowed-sinc converter runs only in
+the Windows render worker after host callbacks. Coefficients/staging are allocated
+and touched before playback; processing allocates nothing. Equal rates bypass it.
+Rational phase/history persist across render events. Queue/period diagnostics use
+device-rate frames; ASIO latency/capacity/clock remain in 48 kHz source frames. The
+reported conversion allowance is 32 source frames (about 0.67 ms), not a physical
+measurement. Native vendor-ASIO callbacks are unchanged. Tests cover rational
+chunk equivalence, stereo, reset, DC gain and a downsampling rejection case.
+
+This is startup-format adaptation only. Live format changes still follow existing
+ASIO-reset/recreate handling, not automatic seamless reopening. Stereo Float32
+32/44.1/48/96/192/384 kHz conversion is unit-tested; broader music quality, unusual
+device formats and long-session behavior still need validation.
 
 ### Optional manual software-loopback probe
 

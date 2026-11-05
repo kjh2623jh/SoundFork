@@ -159,7 +159,12 @@ HRESULT WindowsAudioDriver::render() noexcept {
 void WindowsAudioDriver::worker() noexcept {
   worker_id_ = GetCurrentThreadId();
   const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  HRESULT result = FAILED(com) ? com : device_->open(endpoint_, audio_);
+  HRESULT result = com;
+  if(SUCCEEDED(result)) {
+    try { result = device_->open(endpoint_, audio_); }
+    catch(const std::bad_alloc&) { result = E_OUTOFMEMORY; }
+    catch(...) { result = E_FAIL; }
+  }
   endpoint_frames_ = SUCCEEDED(result) ? device_->capacity() : 0;
   latency_frames_ = SUCCEEDED(result) ? device_->latency_frames() : 0;
   output_info_ = SUCCEEDED(result) ? device_->info() : WindowsOutputInfo{};
