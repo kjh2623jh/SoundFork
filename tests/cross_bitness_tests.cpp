@@ -19,7 +19,7 @@ template<class Predicate> void await(Predicate predicate) {
 ASIOBufferInfo* buffers = nullptr;
 std::size_t plane = 0;
 int sequence = 0;
-std::array<std::byte, 2048> expected{};
+std::array<std::byte, 4096> expected{};
 void prepare(int index) {
   for (std::size_t i = 0; i < plane; ++i) {
     expected[i] = static_cast<std::byte>((i + static_cast<unsigned>(index) * 7) & 255);
@@ -43,7 +43,7 @@ int wmain(int argc, wchar_t** argv) {
   const std::wstring scope(argv[2]);
   const int format_index = _wtoi(argv[3]);
   const long frames = _wtol(argv[4]);
-  if (format_index < 0 || format_index >= 4 || (frames != 64 && frames != 256)) return 2;
+  if (format_index < 0 || static_cast<std::size_t>(format_index) >= soundfork::test::kPcmCases.size() || (frames != 64 && frames != 256)) return 2;
   const auto& format = soundfork::test::kPcmCases[format_index];
   plane = static_cast<std::size_t>(frames) * format.bytes;
   const HubNames names(scope);
@@ -87,7 +87,7 @@ int wmain(int argc, wchar_t** argv) {
       for (int i = 0; i < 128; ++i) {
         prepare(i);
         for (auto* reader : {&relay_reader, &obs_reader}) {
-          std::array<std::byte, 2048> pcm{}; std::uint32_t count = 0;
+          std::array<std::byte, 4096> pcm{}; std::uint32_t count = 0;
           await([&] { return reader->read_planar(pcm.data(), pcm.size(), &count); });
           require(count == static_cast<std::uint32_t>(frames) &&
               std::memcmp(pcm.data(), expected.data(), plane * 2) == 0, "cross-bitness payload changed");

@@ -15,6 +15,7 @@ std::size_t sample_width(ASIOSampleType type) noexcept {
     case ASIOSTInt32LSB16: case ASIOSTInt32LSB18: case ASIOSTInt32LSB20: case ASIOSTInt32LSB24:
     case ASIOSTInt32MSB16: case ASIOSTInt32MSB18: case ASIOSTInt32MSB20: case ASIOSTInt32MSB24: return 4;
     case ASIOSTFloat64LSB: case ASIOSTFloat64MSB: return 8;
+    case ASIOSTDSDInt8LSB1: return 1; // Playback-only fixture: capture deliberately rejects DSD.
     default: return 0;
   }
 }

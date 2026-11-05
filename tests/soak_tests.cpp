@@ -86,6 +86,8 @@ void run_soak(const Options& options, const soundfork::test::PcmCase& format) {
   require(callbacks > 0, "duration produced no callbacks");
   std::wcout << L"START accelerated format=" << format.name << L" frames/block=" << options.frames
              << L" simulated_seconds=" << options.hours * 3600.0 << std::endl;
+  require(static_cast<std::size_t>(options.frames) <= soundfork::capture::kMaxPayloadBytes/(2*format.bytes),
+      "block exceeds capture slot: Float64 supports up to 4096 frames");
   soundfork::test::FakeBackendFactory factory({options.frames, 48000.0, {format.asio, format.asio}});
   const auto mapping = L"Local\\SoundFork.SoakTest." + std::to_wstring(GetCurrentProcessId());
   auto* proxy = new soundfork::ProxyDriver(factory, mapping.c_str());

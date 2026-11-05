@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "capture-backend/shared_ring.hpp"
 #include "capture-backend/shared_ring_layout.hpp"
@@ -140,14 +141,15 @@ void test_raw_layout_and_validation() {
   const auto name = L"Local\\SoundFork.RawRingTest." + std::to_wstring(GetCurrentProcessId());
   SharedRingPublisher publisher;
   SharedRingReader reader;
-  for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le}) {
+  for (auto format : {SampleFormat::s16le, SampleFormat::s24le, SampleFormat::s32le, SampleFormat::f32le,
+      SampleFormat::f64le,SampleFormat::f64be,SampleFormat::s32be24}) {
     require(publisher.open(48000, 64, name.c_str(), format), "raw publisher");
     require(reader.open(name.c_str(), false), "raw reader");
     const auto description = reader.format();
     require(description.sample_format == format && description.layout == ChannelLayout::planar &&
             description.payload_bytes == 128 * sample_bytes(format), "wire format mismatch");
-    std::array<std::byte, 256> left{}, right{};
-    std::array<std::byte, 512> raw{};
+    std::array<std::byte, 512> left{}, right{};
+    std::array<std::byte, 1024> raw{};
     const auto plane = description.payload_bytes / 2;
     for (std::size_t i = 0; i < plane; ++i) { left[i] = static_cast<std::byte>(i & 255); right[i] = static_cast<std::byte>((i + 1) & 255); }
     require(publisher.publish_planar(left.data(), right.data()), "raw publish");
@@ -195,6 +197,19 @@ void test_raw_layout_and_validation() {
   }
   require(!publisher.open(48000, UINT32_MAX, name.c_str()) &&
           !publisher.open(48000, 64, name.c_str(), SampleFormat::invalid), "invalid publisher format accepted");
+  require(!publisher.open(48000,4097,name.c_str(),SampleFormat::f64le),"oversized Float64 slot accepted");
+  require(publisher.open(48000,4096,name.c_str(),SampleFormat::f64be),"maximum Float64 block rejected");
+  require(reader.open(name.c_str()),"maximum Float64 reader");
+  std::vector<std::byte> max_plane(4096*8,std::byte{0x5a}), max_raw(4096*16);
+  for(unsigned slot=0;slot<kCapacityBlocks+1;++slot) {
+    require(publisher.publish_planar(max_plane.data(),max_plane.data()),"maximum slot publish");
+    std::uint32_t count=0;
+    require(reader.read_planar(max_raw.data(),max_raw.size(),&count) && count==4096,"maximum slot read");
+    require(std::memcmp(max_raw.data(),max_plane.data(),max_plane.size())==0 &&
+        std::memcmp(max_raw.data()+max_plane.size(),max_plane.data(),max_plane.size())==0,"maximum slot byte identity");
+  }
+  reader.close();
+  publisher.close();
   require(publisher.open_disabled(CaptureError::sample_format, name.c_str()), "disabled diagnostic mapping");
   SharedRingObserver observer; StreamStatus status;
   require(observer.open(name.c_str()) && observer.snapshot(&status) && !status.producer_active &&

@@ -30,6 +30,10 @@ Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 
 All four PCM formats have automated coverage. Real ASIO driver compatibility beyond the tested FiiO environment needs further verification.
 
+The v1.3.0 development build also captures Float64, MSB and right-aligned
+16/18/20/24 valid-bit Int32 containers. Float64 capture is limited to 4096 frames;
+real-device compatibility for the additional formats still needs verification.
+
 ## Installation and playback
 
 1. Run Setup and select the **ASIO driver to use** with SoundFork.

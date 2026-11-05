@@ -46,8 +46,61 @@ void test_decoders() {
   require(!decode_planar(SampleFormat::s32le, 4, payload, 32, integers.data(), 7), "short output accepted");
   require(decode_int32(reinterpret_cast<const std::byte*>(values.data()) + 6 * 4, SampleFormat::f32le) == 0, "NaN not silent");
 }
+void write_word(std::byte* out, std::uint64_t word, unsigned bytes, bool msb) {
+  for(unsigned b=0;b<bytes;++b) out[b]=static_cast<std::byte>((word >> ((msb ? bytes-1-b : b)*8)) & 255);
+}
+void test_extended() {
+  struct IntegerCase { SampleFormat format; unsigned bytes,bits; bool msb; };
+  const IntegerCase cases[]{
+    {SampleFormat::s16be,2,16,true},{SampleFormat::s24be,3,24,true},{SampleFormat::s32be,4,32,true},
+    {SampleFormat::s32le16,4,16,false},{SampleFormat::s32le18,4,18,false},
+    {SampleFormat::s32le20,4,20,false},{SampleFormat::s32le24,4,24,false},
+    {SampleFormat::s32be16,4,16,true},{SampleFormat::s32be18,4,18,true},
+    {SampleFormat::s32be20,4,20,true},{SampleFormat::s32be24,4,24,true}};
+  std::array<std::byte,65> storage{}; auto* payload=storage.data()+1;
+  std::array<std::int32_t,8> ints{}; std::array<float,8> floats{};
+  for(const auto& c: cases) {
+    require(sample_bytes(c.format)==c.bytes,"container width");
+    const std::int64_t minimum=-(1LL<<(c.bits-1)), maximum=(1LL<<(c.bits-1))-1;
+    const std::int64_t values[]{minimum,maximum,-1,1,0,minimum,maximum,1};
+    for(unsigned i=0;i<8;++i) {
+      auto word=static_cast<std::uint64_t>(values[i]);
+      // Invalid upper padding is deliberately ignored; only the declared valid bits count.
+      if(c.bytes==4 && c.bits<32) word=(word & ((1ULL<<c.bits)-1)) | (0xa5a5a5a5ULL & ~((1ULL<<c.bits)-1));
+      write_word(payload+i*c.bytes,word,c.bytes,c.msb);
+    }
+    require(decode_planar(c.format,4,payload,8*c.bytes,ints.data(),8),"extended integer decode");
+    require(decode_planar(c.format,4,payload,8*c.bytes,floats.data(),8),"extended integer float decode");
+    for(unsigned frame=0;frame<4;++frame) for(unsigned channel=0;channel<2;++channel) {
+      const auto expected=values[channel*4+frame]*(1LL<<(32-c.bits));
+      require(ints[frame*2+channel]==expected,"extended sign/scale/channel order");
+    }
+    require(floats[0]==-1.0F,"extended normalization");
+    require(!decode_planar(c.format,4,payload,8*c.bytes-1,ints.data(),8),"extended short payload");
+  }
+  for(auto format:{SampleFormat::f64le,SampleFormat::f32be,SampleFormat::f64be}) {
+    const bool wide=format!=SampleFormat::f32be, msb=format!=SampleFormat::f64le;
+    const unsigned bytes=wide?8U:4U;
+    const double values[]{-1,1,-0.5/2147483648.0,0.5/2147483648.0,2,-2,
+      (std::numeric_limits<double>::quiet_NaN)(),(std::numeric_limits<double>::infinity)()};
+    for(unsigned i=0;i<8;++i) write_word(payload+i*bytes,
+        wide?std::bit_cast<std::uint64_t>(values[i]):std::bit_cast<std::uint32_t>(static_cast<float>(values[i])),bytes,msb);
+    require(decode_planar(format,4,payload,8*bytes,ints.data(),8),"extended float integer decode");
+    require(ints==std::array<std::int32_t,8>{INT32_MIN,INT32_MAX,INT32_MAX,INT32_MIN,-1,0,1,0},"extended float saturation/rounding/NaN");
+    require(decode_planar(format,4,payload,8*bytes,floats.data(),8),"extended float decode");
+    require(floats[1]==2 && floats[3]==-2 && floats[5]==0 && floats[7]==0,"float preservation/nonfinite");
+    require(!decode_planar(format,4,payload,8*bytes-1,floats.data(),8),"short float64 payload");
+    if(wide) {
+      write_word(payload,std::bit_cast<std::uint64_t>((std::numeric_limits<double>::max)()),8,msb);
+      require(decode_planar(format,4,payload,64,floats.data(),8) && std::isfinite(floats[0]) &&
+          floats[0]==(std::numeric_limits<float>::max)(),"Float64 finite overflow handling");
+    }
+  }
+  require(sample_bytes(static_cast<SampleFormat>(19))==0 && sample_bytes(static_cast<SampleFormat>(UINT32_MAX))==0,
+      "unknown wire format accepted");
+}
 }
 int main() {
-  try { test_decoders(); std::cout << "Sample format boundaries, unaligned planar decoding and saturation passed\n"; return 0; }
+  try { test_decoders(); test_extended(); std::cout << "Sample format boundaries, unaligned planar decoding and saturation passed\n"; return 0; }
   catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

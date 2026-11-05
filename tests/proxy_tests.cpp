@@ -319,7 +319,7 @@ ASIOTime* raw_time(ASIOTime* time, long index, ASIOBool direct) { raw_switch(ind
 void test_raw_formats() {
   using namespace soundfork::capture;
   for (const auto& format : soundfork::test::kPcmCases) {
-   for (long block_frames : {32L, 64L, 256L}) {
+   for (long block_frames : {32L, 64L, 256L, 4096L}) {
     soundfork::test::FakeBackendFactory factory({block_frames});
     const auto name = L"Local\\SoundFork.RawProxyTest." + std::to_wstring(GetCurrentProcessId()) +
         L"." + format.name + L"." + std::to_wstring(block_frames);
@@ -382,11 +382,11 @@ void test_raw_formats() {
     reader.close();
     // Unsupported and mismatched types still prepare ASIO, but expose no PCM.
     for (bool mismatch : {false, true}) {
-      fake->set_channel_type(0, mismatch ? ASIOSTInt16LSB : ASIOSTFloat64LSB);
-      fake->set_channel_type(1, mismatch ? ASIOSTInt32LSB : ASIOSTFloat64LSB);
+      fake->set_channel_type(0, mismatch ? ASIOSTInt16LSB : ASIOSTDSDInt8LSB1);
+      fake->set_channel_type(1, mismatch ? ASIOSTInt32LSB : ASIOSTDSDInt8LSB1);
       require(proxy->createBuffers(buffers, 2, block_frames, &host) == ASE_OK, "unsupported playback rejected");
-      require(fake->output_bytes(0) == static_cast<std::size_t>(block_frames) * (mismatch ? 2 : 8), "unsupported fixture storage width");
-      state.plane_bytes = static_cast<std::size_t>(block_frames) * (mismatch ? 2 : 8);
+      require(fake->output_bytes(0) == static_cast<std::size_t>(block_frames) * (mismatch ? 2 : 1), "unsupported fixture storage width");
+      state.plane_bytes = static_cast<std::size_t>(block_frames) * (mismatch ? 2 : 1);
       state.left.resize(state.plane_bytes); state.right.resize(state.plane_bytes);
       require(!reader.open(name.c_str()), "unsupported capture attached");
       require(observer.open(name.c_str()) && observer.snapshot(&status) &&

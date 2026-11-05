@@ -97,6 +97,13 @@ void encode_sample(std::byte* destination, soundfork::capture::SampleFormat form
   } else if (format == SampleFormat::f32le) {
     const float sample = static_cast<float>(static_cast<double>(value) / 2147483648.0);
     std::memcpy(destination, &sample, 4);
+  } else if(format == SampleFormat::f64le || format == SampleFormat::f64be) {
+    const double sample = static_cast<double>(value)/2147483648.0;
+    std::array<std::byte,8> bytes{}; std::memcpy(bytes.data(),&sample,8);
+    for(unsigned b=0;b<8;++b) destination[b]=bytes[format==SampleFormat::f64be ? 7-b : b];
+  } else if(format == SampleFormat::s32be24) {
+    const auto sample=static_cast<std::uint32_t>(value/256);
+    for(unsigned b=0;b<4;++b) destination[b]=static_cast<std::byte>((sample >> ((3-b)*8)) & 255);
   } else std::memcpy(destination, &value, 4);
 }
 }  // namespace
@@ -107,8 +114,11 @@ int main(int argc, char** argv) {
   const std::string option = argc == 4 ? argv[3] : "";
   const bool recovery_test = option == "--recovery" || option == "--float-recovery";
   const auto format = option == "--int16" ? SampleFormat::s16le : option == "--int24" ? SampleFormat::s24le :
+      option == "--float64" ? SampleFormat::f64le : option == "--float64be" ? SampleFormat::f64be :
+      option == "--int32be24" ? SampleFormat::s32be24 :
       (option == "--float32" || option == "--float-recovery") ? SampleFormat::f32le : SampleFormat::s32le;
-  if (!option.empty() && !recovery_test && option != "--int16" && option != "--int24" && option != "--float32") return 2;
+  if (!option.empty() && !recovery_test && option != "--int16" && option != "--int24" && option != "--float32" &&
+      option != "--float64" && option != "--float64be" && option != "--int32be24") return 2;
   const auto scope = L"obs-test-" + std::to_wstring(GetCurrentProcessId());
   SetEnvironmentVariableW(L"SOUNDFORK_CAPTURE_SCOPE", scope.c_str());
   const HubNames names(scope);
@@ -138,7 +148,7 @@ int main(int argc, char** argv) {
     std::array<std::int32_t, 64> left{};
     std::array<std::int32_t, 64> right{};
     std::array<std::int32_t, 128> output{};
-    std::array<std::byte, 256> left_bytes{}, right_bytes{};
+    std::array<std::byte, 512> left_bytes{}, right_bytes{};
     HANDLE timer = create_periodic_timer(4);
     if (timer == nullptr) throw std::runtime_error("test timer failed");
     struct TimerCloser { HANDLE value; ~TimerCloser() { CloseHandle(value); } } closer{timer};

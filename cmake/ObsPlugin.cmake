@@ -64,17 +64,19 @@ if(BUILD_TESTING)
     "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data")
   add_test(NAME soundfork_obs_recovery_tests COMMAND soundfork_obs_tests
     "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data" --recovery)
-  foreach(_format IN ITEMS int16 int24 float32)
+  foreach(_format IN ITEMS int16 int24 float32 float64 float64be int32be24)
     add_test(NAME soundfork_obs_${_format}_tests COMMAND soundfork_obs_tests
       "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data" --${_format})
   endforeach()
   add_test(NAME soundfork_obs_float_recovery_tests COMMAND soundfork_obs_tests
     "$<TARGET_FILE:soundfork_obs>" "${CMAKE_CURRENT_SOURCE_DIR}/src/obs-plugin/data" --float-recovery)
   set_tests_properties(soundfork_obs_plugin_tests soundfork_obs_recovery_tests
+    soundfork_obs_float64_tests soundfork_obs_float64be_tests soundfork_obs_int32be24_tests
     soundfork_obs_int16_tests soundfork_obs_int24_tests soundfork_obs_float32_tests soundfork_obs_float_recovery_tests PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${SOUNDFORK_OBS_SDK_ROOT}/runtime"
     TIMEOUT 30)
   set_tests_properties(soundfork_obs_plugin_tests soundfork_obs_recovery_tests soundfork_obs_int16_tests
+    soundfork_obs_float64_tests soundfork_obs_float64be_tests soundfork_obs_int32be24_tests
     soundfork_obs_int24_tests soundfork_obs_float32_tests soundfork_obs_float_recovery_tests
     PROPERTIES LABELS "audio;integration;obs")
 endif()

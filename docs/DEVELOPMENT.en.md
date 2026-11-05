@@ -181,7 +181,8 @@ the matching vendor's x86 driver. No unrelated driver is selected or cross-loade
 Use `-Configuration Debug` for Debug coverage. Per-architecture CTest runs independently;
 the cross-bitness script needs both builds and runs as a required CI/package step.
 It checks a real x86 fake-host proxy -> x64 hub -> two consumers, and the reverse
-producer/consumer bitness, across four formats and 64/256 frames. Acknowledgment waits
+producer/consumer bitness, across eight representative formats and 64/256 frames.
+`-AllFormats` expands this to all 18 PCM types. Acknowledgment waits
 are outside callbacks in the fake host. Wire v3 and its sizes/offsets are unchanged
 and asserted at compilation. Counters use aligned Interlocked64 operations; read-only
 diagnostic snapshots use SSE2 MOVQ. Registration tests redirect HKLM only in the test
@@ -448,7 +449,7 @@ synthetic backend discovery. The probe never proceeds to installation.
 The original soak was a manual accelerated tool with a four-hour default and no
 `add_test` registration (introduced in `e6b4838`). No explicit exclusion rationale
 was recorded. Keep the long profile manual; the new `soundfork_soak_ci_tests`
-executes 30 simulated seconds per format, all four formats, with a 60-second timeout
+executes 30 simulated seconds per format, all 18 formats, with a 60-second timeout
 in ordinary Debug/Release and release CTest. No extra workflow repeats that test.
 Run `soundfork_soak_tests --seconds 30 --format all` directly for the short profile.
 `--hours`/`--seconds` specify simulated duration per format, not real elapsed time.
@@ -457,7 +458,8 @@ underflows and queue depth, while reporting private bytes. The Int32 profile ret
 the original consumer read/decoder path; other formats are verified as raw bytes.
 The fake driver uses
 preallocated native-width buffers and configurable blocks. Proxy tests exercise
-four formats × 32/64/256 frames; soak accepts other sizes via `--buffer-size`.
+18 formats × 32/64/256/4096 frames; soak accepts other sizes via `--buffer-size`
+(Float64 is limited to 4096).
 Without `-SkipBuild`, the script builds and runs full CTest; add `-WithObsPlugin`
 to keep OBS enabled. Relay drift tests are repeated only with `-SkipBuild`, when
 CTest has not already run them. The command above accelerates 10,800,000 callbacks
@@ -522,9 +524,19 @@ start/stop/device reconnection in a new build remain manual checks.
 
 ### Formats and playback invariant
 
-Capture supports 48 kHz, stereo output channels 0/1, and `ASIOSTInt16LSB`,
-`ASIOSTInt24LSB`, `ASIOSTInt32LSB`, `ASIOSTFloat32LSB`. Float64, MSB,
-Int32LSB16/18/20/24, DSD, multichannel and other rates are excluded.
+v1.3.0-dev keeps wire IDs 1-4, mapping size and 64 KiB slot size, adding IDs 5-18.
+Float64 capture is capped at 4096 frames; oversized blocks keep ASIO playback and
+disable capture with a buffer-size diagnostic. Producer preparation and header
+validation both enforce the payload limit. Older consumers reject unknown IDs:
+update the hub/relay/OBS components together for new formats. Decoding is consumer-only.
+Float64 NaN/Inf becomes silence; finite values outside Float32 range saturate at
+Float32 limits. OBS float sources avoid Int32; the WASAPI relay retains its existing
+Int32 consumer path. Valid-bit integer containers use sign-extended low bits, ignoring
+upper padding. The mapping does not grow for existing FiiO/Int32 streams.
+
+Capture supports 48 kHz stereo output channels 0/1: Int16/Int24/Int32/Float32/Float64
+in LSB/MSB order and right-aligned 16/18/20/24 valid-bit Int32 containers (18 types).
+DSD, multichannel and other rates remain excluded.
 Unsupported/mismatched formats disable capture, not playback, with a diagnostic
 reason. This is not a guarantee of compatibility with every ASIO driver.
 
@@ -538,12 +550,12 @@ without notifications are not detected by querying the driver in callbacks.
 ### v3 transport contract
 
 - Input: `Local\SoundFork.Audio.v3`; outputs: `Local\SoundFork.CaptureHub.v2.OBS` and
-  `.Relay`. Independent wire IDs S16LE/S24LE/S32LE/F32LE use planar
+  `.Relay`. The 18 independent wire IDs use planar
   `[all left samples][all right samples]` storage.
 - Headers describe format, layout, sample width, channels, rate, frames and payload
   bytes. Validate allowed values, bounds, checksum, consistent lengths and generation;
   copy using cached lengths only. The right plane starts halfway through the payload.
-- Retain 64 slots, at most 8192 frames, two channels and four bytes per sample.
+- Retain 64 slots and two channels: up to 8192 frames, or 4096 with eight-byte samples.
   Prefault the roughly 4 MiB data region before streaming; each slot is at most
   64 KiB. Capacity is not actual queued latency.
 - The hub forwards original payloads. Consumer-side ring APIs perform conversion:

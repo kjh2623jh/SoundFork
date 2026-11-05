@@ -421,6 +421,20 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
       case ASIOSTInt24LSB: format = capture::SampleFormat::s24le; break;
       case ASIOSTInt32LSB: format = capture::SampleFormat::s32le; break;
       case ASIOSTFloat32LSB: format = capture::SampleFormat::f32le; break;
+      case ASIOSTFloat64LSB: format = capture::SampleFormat::f64le; break;
+      case ASIOSTInt16MSB: format = capture::SampleFormat::s16be; break;
+      case ASIOSTInt24MSB: format = capture::SampleFormat::s24be; break;
+      case ASIOSTInt32MSB: format = capture::SampleFormat::s32be; break;
+      case ASIOSTFloat32MSB: format = capture::SampleFormat::f32be; break;
+      case ASIOSTFloat64MSB: format = capture::SampleFormat::f64be; break;
+      case ASIOSTInt32LSB16: format = capture::SampleFormat::s32le16; break;
+      case ASIOSTInt32LSB18: format = capture::SampleFormat::s32le18; break;
+      case ASIOSTInt32LSB20: format = capture::SampleFormat::s32le20; break;
+      case ASIOSTInt32LSB24: format = capture::SampleFormat::s32le24; break;
+      case ASIOSTInt32MSB16: format = capture::SampleFormat::s32be16; break;
+      case ASIOSTInt32MSB18: format = capture::SampleFormat::s32be18; break;
+      case ASIOSTInt32MSB20: format = capture::SampleFormat::s32be20; break;
+      case ASIOSTInt32MSB24: format = capture::SampleFormat::s32be24; break;
       default: break;
     }
   }
@@ -428,6 +442,9 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
     unsupported(capture::CaptureError::sample_format); return;
   }
   if (sample_rate != 48000.0) { unsupported(capture::CaptureError::sample_rate); return; }
+  if(static_cast<std::size_t>(buffer_size) > capture::kMaxPayloadBytes / (2 * capture::sample_bytes(format))) {
+    unsupported(capture::CaptureError::buffer_size); return;
+  }
   if (!capture_publisher_.open(48000, static_cast<std::uint32_t>(buffer_size),
                               capture_mapping_name_.data(), format))
     capture_left_index_ = capture_right_index_ = -1;

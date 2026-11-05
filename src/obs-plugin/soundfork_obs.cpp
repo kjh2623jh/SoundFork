@@ -91,7 +91,7 @@ struct AudioScheduling {
 class ObsAudioSource {
  public:
   explicit ObsAudioSource(const soundfork::capture::StreamFormat& format) {
-    if (format.sample_format == soundfork::capture::SampleFormat::f32le)
+    if (soundfork::capture::float_format(format.sample_format))
       floating_ = std::make_unique<soundfork::capture::RelayFloatAudioSource>(format);
     else integer_ = std::make_unique<soundfork::capture::RelayAudioSource>(format);
   }

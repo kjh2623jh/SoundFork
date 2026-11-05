@@ -28,8 +28,9 @@ The 1.3.0 development build also offers Windows playback without a vendor ASIO d
 This does not add support for 32-bit Windows or load x64 vendor DLLs in x86 processes.
 
 - Windows 10/11 x64 with x64 or x86 ASIO hosts. The vendor driver must match the host's bitness.
-- 48 kHz, stereo output channels 0 and 1, Int16LSB/Int24LSB/Int32LSB/Float32LSB samples.
-- Capture blocks of 1–8,192 frames; hardware must support the chosen buffer size.
+- 48 kHz stereo output channels 0 and 1; Int16/Int24/Int32/Float32/Float64 in LSB/MSB order,
+  including right-aligned 16/18/20/24 valid-bit Int32 containers.
+- Capture blocks of 1–8192 frames (Float64: up to 4096); hardware must support the chosen buffer size.
 - Only one prepared ASIO stream per process.
 - Other formats, rates or channel layouts may play through ASIO without enabling capture.
 - The dedicated OBS plugin targets OBS Studio 32.2.2 or later, x64.
@@ -425,6 +426,15 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   architecture at the observed 48 kHz mix. No physical unplug or Windows format
   change was performed. Real notification delivery, game responsiveness, audible
   recovery and long-session stability remain manual verification items.
+
+- Extended PCM capture (2026-11-05): x64 Release CTest passed 33/33 and x86 9/9,
+  including new Float64, Float64MSB and valid-bit MSB libobs integration. All 18
+  types passed registration-free fake-host raw-copy tests; 72 cross-bitness
+  combinations passed (18 types, two directions, 64/256 frames). Both full MSVC
+  `/analyze /WX` builds passed. Float64 is bounded to 4096 frames to preserve the
+  existing mapping/slot allocation. Boundary, NaN/Inf, unaligned/endian, padding,
+  saturation and full-slot wrap tests are covered. These results do not verify
+  new formats on actual vendor hardware or establish measured physical latency.
 
 The following are not claimed complete:
 

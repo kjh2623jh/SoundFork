@@ -86,6 +86,7 @@ bool valid_header(const SharedHeader* value) noexcept {
          value->frames_per_block > 0 &&
          value->frames_per_block <= kMaxFramesPerBlock &&
          value->payload_bytes == value->frames_per_block * 2 * value->bytes_per_sample &&
+         value->payload_bytes <= kMaxPayloadBytes &&
          value->format_checksum == detail::format_checksum(
                                        value->sample_rate,
                                        value->frames_per_block,
@@ -115,6 +116,7 @@ bool SharedRingPublisher::open(
     const wchar_t* mapping_name, SampleFormat sample_format, CaptureError status) noexcept {
   close();
   if (sample_rate != 48000 || sample_bytes(sample_format) == 0 || frames_per_block == 0 ||
+      frames_per_block > kMaxPayloadBytes / (2 * sample_bytes(sample_format)) ||
       frames_per_block > kMaxFramesPerBlock || mapping_name == nullptr ||
       mapping_name[0] == L'\0') {
     return false;

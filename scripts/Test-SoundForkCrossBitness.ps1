@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release')
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release', [switch]$AllFormats)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $stage = Join-Path $root "build\interop-$Configuration"
@@ -20,7 +20,7 @@ function Start-TestWorker([string]$Executable, [string]$Arguments) {
     return $worker
 }
 foreach ($reverse in @($false, $true)) {
-    foreach ($format in 0..3) {
+    foreach ($format in $(if ($AllFormats) { 0..17 } else { @(0,1,2,3,4,9,11,17) })) {
         foreach ($frames in @(64, 256)) {
             $scope = 'interop-' + [Guid]::NewGuid().ToString('N')
             $x64 = Join-Path $stage 'soundfork_cross_bitness_tests.exe'
@@ -53,4 +53,4 @@ foreach ($reverse in @($false, $true)) {
         }
     }
 }
-Write-Host 'Cross-bitness proxy -> x64 hub -> dual consumers passed in both directions, all four PCM formats, 64/256 frames.'
+Write-Host 'Cross-bitness proxy -> x64 hub -> dual consumers passed in both directions, selected PCM formats, 64/256 frames.'
