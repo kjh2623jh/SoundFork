@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <audioclient.h>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -46,6 +47,33 @@ struct MockDevice final : soundfork::IWindowsRenderDevice {
   }
   HRESULT position(UINT64* frames, UINT64* nanoseconds) noexcept override {
     *frames = delivered.load(); *nanoseconds = *frames * 1000000000ULL / 48000; return S_OK;
+  }
+};
+struct RecoveryDevice final : soundfork::IWindowsRenderDevice {
+  HANDLE event = nullptr;
+  std::array<float, 1024> output{};
+  std::atomic<bool> missing{false}, invalidate{false};
+  std::atomic<bool> stop_invalid{false};
+  std::atomic<UINT32> rate{96000};
+  UINT64 played = 0;
+  HRESULT open(const std::wstring& id, HANDLE signal) override {
+    if(id != L"test-device") return E_INVALIDARG;
+    if(missing) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    event = signal; return S_OK;
+  }
+  void close() noexcept override { event = nullptr; }
+  UINT32 capacity() const noexcept override { return 512; }
+  soundfork::WindowsOutputInfo info() const noexcept override { return {1024, 256, 512, S_OK, rate.load(), 32}; }
+  HRESULT start() noexcept override { SetEvent(event); return S_OK; }
+  HRESULT stop() noexcept override { return stop_invalid.exchange(false) ? AUDCLNT_E_DEVICE_INVALIDATED : S_OK; }
+  HRESULT reset() noexcept override { played = 0; return S_OK; }
+  HRESULT acquire(UINT32* frames, float** data) noexcept override {
+    if(invalidate.exchange(false)) return AUDCLNT_E_DEVICE_INVALIDATED;
+    *frames = 512; *data = output.data(); return S_OK;
+  }
+  HRESULT release(UINT32 frames) noexcept override { played += frames; SetEvent(event); return S_OK; }
+  HRESULT position(UINT64* frames, UINT64* time) noexcept override {
+    *frames = played; *time = played * 1000000000ULL / 48000; return S_OK;
   }
 };
 ASIOBufferInfo* output = nullptr;
@@ -197,11 +225,93 @@ void test_resampler() {
     }
   }
 }
+void test_recovery() {
+  auto device = std::make_unique<RecoveryDevice>(); auto* mock = device.get();
+  soundfork::WindowsAudioDriver driver(L"test-device", std::move(device));
+  require(driver.init(nullptr) == ASIOTrue, "recovery init");
+  ASIOBufferInfo buffers[2]{}; buffers[1].channelNum = 1; output = buffers; block_size = 64;
+  ASIOCallbacks cb{fill,rate,message,timed};
+  require(driver.createBuffers(buffers, 2, 64, &cb) == ASE_OK, "recovery buffers");
+  generated = 0; calls = 0; resets = 0;
+  require(driver.start() == ASE_OK, "recovery start"); await([&] { return calls > 3; });
+  mock->missing = true; mock->invalidate = true;
+  await([&] { return driver.recovery_info().recovering; });
+  const auto before = calls.load();
+  await([&] { return calls > before + 10 && driver.recovery_info().attempts >= 1; });
+  ASIOSamples position{}; ASIOTimeStamp time{};
+  require(driver.getSamplePosition(&position, &time) == ASE_OK, "offline clock");
+  const auto offline_position = position.lo;
+  mock->rate = 192000; mock->missing = false;
+  await([&] { return driver.recovery_info().recoveries >= 1; });
+  require(!driver.recovery_info().recovering && driver.recovery_info().device_rate == 192000,
+      "new format not adopted");
+  require(driver.getSamplePosition(&position, &time) == ASE_OK && position.lo >= offline_position,
+      "clock moved backwards after reopen");
+  mock->rate = 48000; mock->invalidate = true;
+  await([&] { return driver.recovery_info().recoveries >= 2; });
+  require(driver.recovery_info().device_rate == 48000 && resets == 0, "format recovery reset host");
+  mock->stop_invalid = true;
+  require(driver.stop() == ASE_OK, "stop raced with device invalidation");
+  require(driver.start() == ASE_OK, "restart after stop invalidation");
+  await([&] { return driver.recovery_info().recoveries >= 3; });
+  mock->missing = true; mock->invalidate = true;
+  await([&] { return driver.recovery_info().recovering; });
+  require(driver.stop() == ASE_OK, "stop during unplug");
+  const auto attempts = driver.recovery_info().attempts; const auto stopped_calls = calls.load();
+  Sleep(600);
+  require(driver.recovery_info().attempts == attempts && calls == stopped_calls, "stop did not cancel recovery");
+  require(driver.start() == ASE_OK, "restart while device missing");
+  await([&] { return driver.recovery_info().recovering && calls > stopped_calls; });
+  require(driver.disposeBuffers() == ASE_OK, "dispose during unplug");
 }
-int main() {
+struct ReopenRealDevice final : soundfork::IWindowsRenderDevice {
+  std::unique_ptr<soundfork::IWindowsRenderDevice> inner = soundfork::make_windows_render_device();
+  bool injected = false;
+  HRESULT open(const std::wstring& id, HANDLE event) override { return inner->open(id,event); }
+  void close() noexcept override { inner->close(); }
+  UINT32 capacity() const noexcept override { return inner->capacity(); }
+  UINT32 latency_frames() const noexcept override { return inner->latency_frames(); }
+  soundfork::WindowsOutputInfo info() const noexcept override { return inner->info(); }
+  HRESULT start() noexcept override { return inner->start(); }
+  HRESULT stop() noexcept override { return inner->stop(); }
+  HRESULT reset() noexcept override { return inner->reset(); }
+  HRESULT acquire(UINT32* frames,float** data) noexcept override { return inner->acquire(frames,data); }
+  HRESULT release(UINT32 frames) noexcept override { return inner->release(frames); }
+  HRESULT position(UINT64* frames,UINT64* time) noexcept override {
+    const auto result = inner->position(frames,time);
+    if(SUCCEEDED(result) && !injected && *frames >= 48000) { injected = true; return AUDCLNT_E_DEVICE_INVALIDATED; }
+    return result;
+  }
+};
+void silent_fill(long index,ASIOBool) {
+  for(int channel = 0; channel < 2; ++channel) {
+    auto* samples = static_cast<float*>(output[channel].buffers[index]);
+    std::fill(samples,samples + block_size,0.0F);
+  }
+  ++calls;
+}
+void test_real_reopen(const wchar_t* endpoint) {
+  soundfork::WindowsAudioDriver driver(endpoint,std::make_unique<ReopenRealDevice>());
+  require(driver.init(nullptr) == ASIOTrue,"real reopen init");
+  ASIOBufferInfo buffers[2]{}; buffers[1].channelNum = 1; output = buffers; block_size = 64; calls = 0;
+  ASIOCallbacks cb{silent_fill,rate,message,nullptr};
+  require(driver.createBuffers(buffers,2,64,&cb) == ASE_OK,"real reopen buffers");
+  require(driver.start() == ASE_OK,"real reopen start");
+  await([&] { return driver.recovery_info().recoveries == 1; });
+  require(driver.stop() == ASE_OK && calls > 100,"real reopen stop/callbacks");
+  const auto recovered = driver.recovery_info();
+  require(driver.disposeBuffers() == ASE_OK,"real reopen dispose");
+  std::cout << "REAL WASAPI SILENT REOPEN: attempts=" << recovered.attempts << ", completed=" << recovered.recoveries
+      << ", device rate=" << recovered.device_rate << "; injected error, not physical unplug or format change\n";
+}
+}
+int wmain(int argc,wchar_t** argv) {
   try {
+    if(argc == 3 && std::wstring(argv[1]) == L"--real-reopen") { test_real_reopen(argv[2]); return 0; }
+    require(argc == 1,"unexpected arguments");
     test_render_policy();
     test_resampler();
+    test_recovery();
     test_settings();
     for(long frames : {64L, 256L, 2048L}) { test(frames,false); test(frames,true); }
     auto mock = std::make_unique<MockDevice>(); mock->open_fail = true;

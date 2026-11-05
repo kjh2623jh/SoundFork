@@ -1,6 +1,7 @@
 #include "audio-bridge/windows_audio_driver.hpp"
 #include "audio-bridge/ids.hpp"
 #include <avrt.h>
+#include <audioclient.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -8,6 +9,16 @@
 
 namespace soundfork {
 namespace {
+bool recoverable(HRESULT error) noexcept {
+  return error == AUDCLNT_E_DEVICE_INVALIDATED || error == AUDCLNT_E_RESOURCES_INVALIDATED ||
+      error == AUDCLNT_E_SERVICE_NOT_RUNNING || error == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) ||
+      error == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED);
+}
+UINT64 clock_ns() noexcept {
+  LARGE_INTEGER counter{}, frequency{}; QueryPerformanceCounter(&counter); QueryPerformanceFrequency(&frequency);
+  const auto value = static_cast<UINT64>(counter.QuadPart), rate = static_cast<UINT64>(frequency.QuadPart);
+  return value / rate * 1000000000ULL + value % rate * 1000000000ULL / rate;
+}
 template<class T = ASIOSamples> T split(UINT64 value) noexcept {
   return {static_cast<unsigned long>(value >> 32), static_cast<unsigned long>(value)};
 }
@@ -36,7 +47,7 @@ ASIOError WindowsAudioDriver::getChannels(long* input, long* output) {
 }
 ASIOError WindowsAudioDriver::getLatencies(long* input, long* output) {
   if(!input || !output) return ASE_InvalidParameter;
-  *input = 0; *output = static_cast<long>(latency_frames_) + (frames_ ? frames_ : 256); return ASE_OK;
+  *input = 0; *output = static_cast<long>(latency_frames_.load()) + (frames_ ? frames_ : 256); return ASE_OK;
 }
 ASIOError WindowsAudioDriver::getBufferSize(long* min, long* max, long* preferred, long* granularity) {
   if(!min || !max || !preferred || !granularity) return ASE_InvalidParameter;
@@ -109,6 +120,7 @@ ASIOError WindowsAudioDriver::disposeBuffers() {
     if(*handle) CloseHandle(*handle); *handle = nullptr;
   }
   running_ = false; worker_id_ = 0; enabled_ = {}; callbacks_ = {}; endpoint_frames_ = 0;
+  recovering_ = false;
   for(auto& channel : buffers_) for(auto& buffer : channel) buffer.clear();
   return ASE_OK;
 }
@@ -133,6 +145,7 @@ HRESULT WindowsAudioDriver::render() noexcept {
   UINT64 played = 0, time = 0;
   auto result = device_->position(&played, &time);
   if(FAILED(result)) return result;
+  played += clock_origin_;
   if(time == 0) {
     LARGE_INTEGER counter{}, frequency{};
     QueryPerformanceCounter(&counter); QueryPerformanceFrequency(&frequency);
@@ -168,39 +181,81 @@ void WindowsAudioDriver::worker() noexcept {
   endpoint_frames_ = SUCCEEDED(result) ? device_->capacity() : 0;
   latency_frames_ = SUCCEEDED(result) ? device_->latency_frames() : 0;
   output_info_ = SUCCEEDED(result) ? device_->info() : WindowsOutputInfo{};
+  device_rate_ = output_info_.device_rate;
+  recoveries_ = 0; attempts_ = 0; recovering_ = false;
   result_ = result; SetEvent(ready_);
   if(SUCCEEDED(result)) {
     DWORD task = 0;
     HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &task);
     const HANDLE handles[] = {shutdown_, control_, audio_};
+    bool opened = true;
+    UINT64 retry_at = 0, callback_at = 0;
+    const UINT64 block_ns = static_cast<UINT64>(frames_) * 1000000000ULL / 48000;
+    auto lost = [&](HRESULT error) {
+      result_ = error;
+      if(opened) (void)device_->stop(); device_->close(); opened = false;
+      if(recoverable(error)) {
+        recovering_ = true; retry_at = clock_ns() + 500000000ULL; callback_at = clock_ns();
+      } else {
+        recovering_ = false; running_ = false;
+        if(callbacks_.asioMessage) callbacks_.asioMessage(kAsioResetRequest, 0, nullptr, nullptr);
+      }
+    };
     for(;;) {
-      const auto wake = WaitForMultipleObjects(3, handles, FALSE, 1000);
+      const auto wake = WaitForMultipleObjects(3, handles, FALSE, recovering_ && running_ ? 1 : 1000);
       if(wake == WAIT_OBJECT_0 || wake == WAIT_FAILED) break;
       if(wake == WAIT_OBJECT_0 + 1) {
         if(requested_running_) {
-          result = device_->reset(); index_ = 0; offset_ = 0; generated_ = 0; position_ = 0; timestamp_ = 0;
+          index_ = 0; offset_ = 0; generated_ = 0; clock_origin_ = 0; position_ = 0; timestamp_ = 0;
+          result = opened ? device_->reset() : AUDCLNT_E_DEVICE_INVALIDATED;
           if(SUCCEEDED(result)) result = render();
           if(SUCCEEDED(result)) result = device_->start();
-          running_ = SUCCEEDED(result);
-        } else { result = device_->stop(); running_ = false; }
-        result_ = result; SetEvent(ready_);
-      } else if(wake == WAIT_OBJECT_0 + 2 && running_) {
-        result = render();
-        if(FAILED(result)) {
-          result_ = result; running_ = false; (void)device_->stop();
-          // The host owns ASIO reset/recreate policy. Do not silently change devices.
-          if(callbacks_.asioMessage) callbacks_.asioMessage(kAsioResetRequest, 0, nullptr, nullptr);
+          running_ = SUCCEEDED(result) || recoverable(result);
+          if(FAILED(result) && running_) { lost(result); result = S_OK; }
+        } else {
+          result = opened ? device_->stop() : S_OK; running_ = false; recovering_ = false;
+          if(recoverable(result)) { device_->close(); opened = false; result = S_OK; }
         }
-      } else if(wake == WAIT_TIMEOUT && running_) {
+        result_ = result; SetEvent(ready_);
+      } else if(wake == WAIT_OBJECT_0 + 2 && running_ && !recovering_ && opened) {
+        result = render();
+        if(FAILED(result)) lost(result);
+      } else if(wake == WAIT_TIMEOUT && running_ && !recovering_ && opened) {
         UINT64 played = 0, stamp = 0;
         result = device_->position(&played, &stamp);
-        if(FAILED(result)) {
-          result_ = result; running_ = false; (void)device_->stop();
-          if(callbacks_.asioMessage) callbacks_.asioMessage(kAsioResetRequest, 0, nullptr, nullptr);
+        if(FAILED(result)) lost(result);
+      }
+      if(recovering_ && running_) {
+        // Keep the host/capture clock alive while the selected endpoint is unavailable.
+        // No samples are accumulated for later playback: outage audio is discarded.
+        auto now = clock_ns(); unsigned catchup = 0;
+        while(now >= callback_at && catchup++ < 4) {
+          position_ = generated_; timestamp_ = now; index_ ^= 1; offset_ = frames_; fill_block();
+          callback_at += block_ns;
+        }
+        if(now >= callback_at) callback_at = now + block_ns;
+        if(now >= retry_at) {
+          ++attempts_;
+          try { result = device_->open(endpoint_, audio_); }
+          catch(const std::bad_alloc&) { result = E_OUTOFMEMORY; }
+          catch(...) { result = E_FAIL; }
+          if(SUCCEEDED(result)) {
+            opened = true; endpoint_frames_ = device_->capacity(); latency_frames_ = device_->latency_frames();
+            device_rate_ = device_->info().device_rate;
+            clock_origin_ = generated_; offset_ = 0; index_ ^= 1;
+            result = device_->reset();
+            if(SUCCEEDED(result)) result = render();
+            if(SUCCEEDED(result)) result = device_->start();
+          }
+          if(SUCCEEDED(result)) { recovering_ = false; ++recoveries_; result_ = S_OK; }
+          else {
+            if(opened) (void)device_->stop(); device_->close(); opened = false;
+            result_ = result; retry_at = clock_ns() + 500000000ULL;
+          }
         }
       }
     }
-    (void)device_->stop();
+    if(opened) (void)device_->stop();
     if(mmcss) AvRevertMmThreadCharacteristics(mmcss);
   }
   device_->close();

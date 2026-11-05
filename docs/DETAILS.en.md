@@ -419,6 +419,13 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   latency was 1056 source frames (22 ms), not a physical measurement. Actual
   listening, longer sessions and live format-change recovery remain unverified.
 
+- Windows stream recovery (2026-11-05): Release CTest passed x64 30/30 and x86 9/9.
+  Final recovery tests and changed-target `/analyze /WX` builds passed on both.
+  Injected-error silent tests reopened the real FiiO WASAPI stream once on each
+  architecture at the observed 48 kHz mix. No physical unplug or Windows format
+  change was performed. Real notification delivery, game responsiveness, audible
+  recovery and long-session stability remain manual verification items.
+
 The following are not claimed complete:
 
 - Real x86 games/vendor ASIO playback, Discord application sharing and the full installed lifecycle.

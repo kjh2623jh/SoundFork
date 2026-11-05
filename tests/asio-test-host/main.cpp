@@ -535,6 +535,11 @@ int wmain(int argc, wchar_t** argv) {
             if (driver->start() == ASE_OK) {
               Sleep(static_cast<DWORD>(duration_seconds * 1000));
               driver->stop();
+              if(!windows_endpoint.empty()) {
+                const auto recovery = static_cast<WindowsFactory*>(proxy_factory.get())->backend->recovery_info();
+                std::wcout << L"Windows recovery: attempts=" << recovery.attempts << L", completed=" << recovery.recoveries
+                    << L", current device rate=" << recovery.device_rate << L" Hz\n";
+              }
               std::wcout << L"Callbacks: " << host.callbacks.load() << L'\n';
               if (host.reset_requested.load()) {
                 std::wcout << L"Driver requested reset/resync during the run\n";

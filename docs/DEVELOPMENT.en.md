@@ -71,9 +71,9 @@ start/stop acknowledgments may wait; calls from callbacks are rejected. WASAPI e
 available render space. A partial-block offset bridges device and ASIO periods without skipping
 or repeating samples. Device-clock/QPC values become ASIO frames/nanoseconds. Reported latency
 uses the stream latency/buffer and ASIO block; it is not a physical measurement. A 64-frame ASIO
-block does not imply a 64-frame Windows engine period. Device failure requests ASIO reset and
-stops rendering. The host must stop/recreate buffers, or the user must restart the application;
-there is no silent device fallback or seamless reconnection.
+block does not imply a 64-frame Windows engine period. Recoverable device failures reopen
+the same selected endpoint; other render failures request an ASIO reset and stop rendering.
+There is no automatic switch to another/default endpoint or gap-free reconnection guarantee.
 
 Windows output now queries `IAudioClient3::GetSharedModeEnginePeriod` and requests the
 smallest valid period through `InitializeSharedAudioStream` (EVENTCALLBACK only).
@@ -119,10 +119,29 @@ reported conversion allowance is 32 source frames (about 0.67 ms), not a physica
 measurement. Native vendor-ASIO callbacks are unchanged. Tests cover rational
 chunk equivalence, stereo, reset, DC gain and a downsampling rejection case.
 
-This is startup-format adaptation only. Live format changes still follow existing
-ASIO-reset/recreate handling, not automatic seamless reopening. Stereo Float32
+Live format changes/device removal use session-disconnection notifications and WASAPI
+errors. The worker releases the failed stream and retries the exact selected ID every
+500 ms, reading mix format and preparing conversion again. During the outage it calls
+the host on a QPC-paced fallback clock and discards playback samples instead of saving
+them for later. Catch-up is bounded to four callbacks per worker iteration. After reopen,
+the source clock stays monotonic and partial old output is dropped. Stop cancels retries;
+dispose interrupts the wait and joins the worker. Native-ASIO callbacks remain unchanged.
+Reopening/COM allocation occurs outside host callbacks, on the Windows worker. OS device
+initialization is synchronous and may briefly delay fallback callbacks and stop/shutdown
+acknowledgments; this is not a hard real-time or no-game-stall guarantee. Audio gaps and
+filter startup transients are possible. Recovery counters/current device rate are atomic;
+`output_info()` remains the initial preparation snapshot. The test host prints recovery
+totals on stop. Stereo Float32
 32/44.1/48/96/192/384 kHz conversion is unit-tested; broader music quality, unusual
 device formats and long-session behavior still need validation.
+
+Recovery tests use a fake device for 96->192->48 kHz reopen, repeated absence,
+continued callbacks, sample-position monotonicity, stop/invalidation races, restart
+while missing and disposal during recovery. An opt-in real-stream test is
+`soundfork_windows_audio_tests --real-reopen <render-ID>`: it injects one invalid-device
+error after a second of silent playback, then reopens the actual selected WASAPI
+endpoint. It does not change the Windows format or physically disconnect hardware.
+Real format-switch notifications, unplug/replug and game behavior remain manual tests.
 
 ### Optional manual software-loopback probe
 

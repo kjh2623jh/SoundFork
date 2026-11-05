@@ -14,6 +14,11 @@ struct WindowsOutputInfo {
   HRESULT low_latency_result = S_FALSE;
   UINT32 device_rate = 48000, conversion_delay = 0;
 };
+struct WindowsRecoveryInfo {
+  bool recovering = false;
+  UINT64 recoveries = 0, attempts = 0;
+  UINT32 device_rate = 48000;
+};
 // All device methods run on the backend's COM worker, never on the host thread.
 class IWindowsRenderDevice {
  public:
@@ -39,6 +44,9 @@ class WindowsAudioDriver final : public IASIO {
   ~WindowsAudioDriver();
   // Read after successful createBuffers, before disposeBuffers (serialized ASIO lifecycle).
   WindowsOutputInfo output_info() const noexcept { return output_info_; }
+  WindowsRecoveryInfo recovery_info() const noexcept {
+    return {recovering_.load(), recoveries_.load(), attempts_.load(), device_rate_.load()};
+  }
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void**) override;
   ULONG STDMETHODCALLTYPE AddRef() override;
   ULONG STDMETHODCALLTYPE Release() override;
@@ -80,7 +88,11 @@ class WindowsAudioDriver final : public IASIO {
   std::atomic<bool> requested_running_{false}, running_{false};
   std::atomic<HRESULT> result_{S_OK};
   std::atomic<UINT64> position_{0}, timestamp_{0};
-  UINT32 endpoint_frames_ = 0, latency_frames_ = 0;
+  UINT32 endpoint_frames_ = 0;
+  std::atomic<UINT32> latency_frames_{0}, device_rate_{48000};
+  std::atomic<bool> recovering_{false};
+  std::atomic<UINT64> recoveries_{0}, attempts_{0};
+  UINT64 clock_origin_ = 0;
   WindowsOutputInfo output_info_{};
   long frames_ = 0, index_ = 0, offset_ = 0;
   UINT64 generated_ = 0, callback_timestamp_ = 0;
