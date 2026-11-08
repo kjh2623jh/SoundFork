@@ -150,7 +150,7 @@ try {
         'x86\soundfork_driver.dll', 'x86\soundfork_app_relay.dll',
         'x86\soundfork_register.exe', 'x86\soundfork_host.exe',
         'soundfork_driver.dll', 'soundfork_app_relay.dll', 'soundfork_control.exe',
-        'soundfork_discord_relay.exe', 'soundfork_capture_hub.exe', 'unins000.exe',
+        'soundfork_discord_relay.exe', 'soundfork_capture_hub.exe',
         'README.md', 'README.en.md', 'LICENSE',
         'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.en.md',
         'docs\DETAILS.md', 'docs\DETAILS.en.md',
@@ -253,12 +253,7 @@ try {
     } finally {
         $upgradedAsio.Dispose()
     }
-    $uninstallers = @(Get-ChildItem -LiteralPath $fullTestDirectory -Filter 'unins*.exe' -File)
-    if ($uninstallers.Count -ne 1) {
-        throw "In-place upgrade produced $($uninstallers.Count) uninstallers instead of one."
-    }
-
-    $uninstaller = Join-Path $fullTestDirectory 'unins000.exe'
+    $uninstaller = Get-ReleaseTestUninstaller -InstallDirectory $fullTestDirectory
     $uninstallLog = Join-Path $LogDirectory '04-uninstall.log'
     $uninstallExit = Invoke-ReleaseTestProcess -StepName 'Uninstall' `
         -FilePath $uninstaller -LogPath $uninstallLog -ArgumentList @(
@@ -292,14 +287,20 @@ try {
         throw 'Uninstall incorrectly removed the selected backend driver key.'
     }
     $remainingFake.Dispose()
+    # Use a distinct directory: Inno's uninstaller can finish self-cleanup after
+    # the process we waited for exits. Do not immediately reuse its file names.
+    $windowsTestDirectory = Join-Path $fullTestDirectory 'windows-playback'
     # Exercise explicit Windows playback with no dependency on a real ASIO DLL
     # or an active endpoint on this headless runner. Setup may leave device selection
     # pending; it must still register both proxy architectures.
     $windowsOutputMayHaveBeenCreated = $true
     $windowsExit = Invoke-ReleaseTestProcess -StepName 'Install Windows playback mode' `
         -FilePath $resolvedSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
-            "/DIR=`"$fullTestDirectory`"", '/BACKENDCLSID=windows')
+            "/DIR=`"$windowsTestDirectory`"", '/BACKENDCLSID=windows',
+            "/LOG=`"$(Join-Path $LogDirectory '05-windows-install.log')`"") `
+        -LogPath (Join-Path $LogDirectory '05-windows-install.log')
     if ($windowsExit -ne 0) { throw "Windows playback setup failed: $windowsExit" }
+    $windowsUninstaller = Get-ReleaseTestUninstaller -InstallDirectory $windowsTestDirectory
     $windowsKey = $baseKey.OpenSubKey('SOFTWARE\SoundFork\Output')
     if ($null -eq $windowsKey) { throw 'Windows playback selection missing' }
     try { $savedWindowsEndpoint = [string]$windowsKey.GetValue('WindowsEndpoint', '') }
@@ -312,13 +313,17 @@ try {
     }
     $windowsUpgrade = Invoke-ReleaseTestProcess -StepName 'Upgrade preserving Windows playback mode' `
         -FilePath $resolvedSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
-            "/DIR=`"$fullTestDirectory`"")
+            "/DIR=`"$windowsTestDirectory`"", "/LOG=`"$(Join-Path $LogDirectory '06-windows-upgrade.log')`"") `
+        -LogPath (Join-Path $LogDirectory '06-windows-upgrade.log')
     if ($windowsUpgrade -ne 0) { throw 'Windows playback upgrade failed' }
+    $windowsUninstaller = Get-ReleaseTestUninstaller -InstallDirectory $windowsTestDirectory
     $windowsKey = $baseKey.OpenSubKey('SOFTWARE\SoundFork\Output')
     try { if ([string]$windowsKey.GetValue('WindowsEndpoint', '') -cne $savedWindowsEndpoint) { throw 'Upgrade changed the selected Windows endpoint' } }
     finally { $windowsKey.Dispose() }
     $windowsRemove = Invoke-ReleaseTestProcess -StepName 'Uninstall Windows playback mode' `
-        -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+        -FilePath $windowsUninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
+            "/LOG=`"$(Join-Path $LogDirectory '07-windows-uninstall.log')`"") `
+        -LogPath (Join-Path $LogDirectory '07-windows-uninstall.log')
     if ($windowsRemove -ne 0) { throw 'Windows playback removal failed' }
     foreach ($view in @($baseKey, $baseKey32)) {
         $key = $view.OpenSubKey('SOFTWARE\ASIO\SoundFork')

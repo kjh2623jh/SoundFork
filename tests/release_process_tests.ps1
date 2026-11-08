@@ -5,6 +5,25 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('SoundForkProcessTest-' + [Gui
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 $pidFile = Join-Path $testRoot 'owned-processes.txt'
 try {
+    # Inno may choose a nonzero suffix after an earlier uninstall. Resolve each
+    # installation independently and reject missing or ambiguous payloads.
+    $installFixture = Join-Path $testRoot 'install'
+    New-Item -ItemType Directory -Path $installFixture | Out-Null
+    foreach ($name in @('unins000.exe', 'unins001.exe')) {
+        $fixture = Join-Path $installFixture $name
+        New-Item -ItemType File -Path $fixture | Out-Null
+        if ((Get-ReleaseTestUninstaller $installFixture) -cne $fixture) {
+            throw "Failed to resolve $name"
+        }
+        Remove-Item -LiteralPath $fixture
+    }
+    foreach ($names in @(@(), @('unins000.exe', 'unins001.exe'))) {
+        foreach ($name in $names) { New-Item -ItemType File -Path (Join-Path $installFixture $name) | Out-Null }
+        $rejected = $false
+        try { Get-ReleaseTestUninstaller $installFixture | Out-Null }
+        catch { if ($_.Exception.Message -notlike 'Expected one uninstaller*') { throw }; $rejected = $true }
+        if (-not $rejected) { throw 'Missing or ambiguous uninstaller was accepted.' }
+    }
     foreach ($expected in @(0, 7)) {
         $actual = Invoke-ReleaseTestProcess -StepName "Fixture exit $expected" -FilePath $shell `
             -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', "exit $expected") `

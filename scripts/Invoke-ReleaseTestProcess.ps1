@@ -1,4 +1,14 @@
 # Shared only by release tests. Never used by the real-time audio path.
+function Get-ReleaseTestUninstaller {
+    param([Parameter(Mandatory = $true)][string]$InstallDirectory)
+
+    $files = @(Get-ChildItem -LiteralPath $InstallDirectory -Filter 'unins*.exe' -File -ErrorAction Stop)
+    if ($files.Count -ne 1) {
+        throw "Expected one uninstaller in '$InstallDirectory', found $($files.Count)."
+    }
+    return $files[0].FullName
+}
+
 function Invoke-ReleaseTestProcess {
     [CmdletBinding()]
     param(
