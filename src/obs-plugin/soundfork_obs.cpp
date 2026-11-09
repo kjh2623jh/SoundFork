@@ -122,8 +122,15 @@ void capture(Source& state) {
   std::unique_ptr<soundfork::obs::AudioBufferPolicy> buffering;
   std::uint32_t sample_rate = 48000;
   std::uint32_t frames = sample_rate / 100;
-  std::array<std::int32_t, 3840 * 2> samples{};
-  std::array<float, 3840 * 2> float_samples{};
+  // Allocate and zero the largest packet once, before timed delivery starts.
+  // 384kHz stereo packets need ~60KiB across the integer and float paths.
+  struct PacketBuffers {
+    std::array<std::int32_t, 3840 * 2> integer{};
+    std::array<float, 3840 * 2> floating{};
+  };
+  auto packet_buffers = std::make_unique<PacketBuffers>();
+  auto& samples = packet_buffers->integer;
+  auto& float_samples = packet_buffers->floating;
   HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr,
       CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
   if (timer == nullptr) timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
