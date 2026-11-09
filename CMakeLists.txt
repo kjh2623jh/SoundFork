@@ -320,6 +320,16 @@ if(BUILD_TESTING)
   set_tests_properties(soundfork_diagnostics_tests PROPERTIES TIMEOUT 30)
   add_test(NAME soundfork_control_ui_tests COMMAND soundfork_control_ui_tests --test)
   set_tests_properties(soundfork_control_ui_tests PROPERTIES TIMEOUT 20)
+  option(SOUNDFORK_BUILD_UI_PREVIEW "Build local-only tabbed UI prototype" OFF)
+  if(SOUNDFORK_BUILD_UI_PREVIEW)
+    add_executable(soundfork_tabs_preview tests/manual/control_tabs_preview.cpp
+      src/control-app/update_checker.cpp src/control-app/soundfork_control.rc
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"
+      src/capture-backend/shared_ring.cpp)
+    target_include_directories(soundfork_tabs_preview PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(soundfork_tabs_preview PRIVATE soundfork_obs_manager soundfork_relay_settings
+      soundfork_diagnostics soundfork_warnings ole32 uuid advapi32 shell32 comctl32 winhttp)
+  endif()
   add_executable(soundfork_control_status_tests tests/control_status_tests.cpp)
   target_include_directories(soundfork_control_status_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
   target_link_libraries(soundfork_control_status_tests PRIVATE soundfork_warnings)
