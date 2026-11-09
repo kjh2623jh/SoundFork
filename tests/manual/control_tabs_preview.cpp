@@ -9,6 +9,12 @@
 namespace {
 constexpr int kTabs=4100, kChannels=4101, kCustom=4102, kPreviewLanguage=4103;
 constexpr wchar_t kCustomClass[]=L"SoundForkPreviewChannelDialog";
+LRESULT preview_control_background(WPARAM wparam, LPARAM lparam) {
+  const auto dc=reinterpret_cast<HDC>(wparam);
+  SetBkColor(dc,GetSysColor(COLOR_WINDOW));
+  SetTextColor(dc,GetSysColor(IsWindowEnabled(reinterpret_cast<HWND>(lparam))?COLOR_WINDOWTEXT:COLOR_GRAYTEXT));
+  return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));
+}
 struct ChannelDialog {
   HWND left=nullptr,right=nullptr;
   soundfork::capture::ChannelPair pair{};
@@ -22,6 +28,7 @@ LRESULT CALLBACK channel_dialog(HWND window,UINT message,WPARAM wparam,LPARAM lp
     SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(state));
   }
   if(!state) return DefWindowProcW(window,message,wparam,lparam);
+  if(message==WM_CTLCOLORSTATIC || message==WM_CTLCOLORBTN) return preview_control_background(wparam,lparam);
   if(message==WM_CREATE) {
     for(int side=0;side<2;++side) {
       HWND label=CreateWindowW(L"STATIC",side==0 ? (state->korean?L"왼쪽 출력":L"Left output")
@@ -124,7 +131,8 @@ void translate(Preview& p,UiLanguage language) {
   const bool ko=language==UiLanguage::korean;
   SetWindowTextW(p.app.window,ko?L"SoundFork — 탭 UI 미리보기":L"SoundFork — tabbed UI preview");
   const wchar_t* names[]={ko?L"오디오":L"Audio",L"OBS",ko?L"설정":L"Settings"};
-  for(int i=0;i<3;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(names[i]); TabCtrl_SetItem(p.tabs,i,&item); }
+  for(int i=0;i<3;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(names[i]);
+    SendMessageW(p.tabs,TCM_SETITEMW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&item)); }
   SetWindowTextW(p.channel_label,ko?L"방송 채널":L"Broadcast channels");
   SetWindowTextW(p.custom,ko?L"변경…":L"Edit…");
   SetWindowTextW(p.obs_title,ko?L"OBS 플러그인":L"OBS plugin");
@@ -168,6 +176,7 @@ LRESULT CALLBACK tabbed_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
     p->app.window=window; SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(p));
   }
   if(!p) return DefWindowProcW(window,message,wparam,lparam);
+  if(message==WM_CTLCOLORSTATIC || message==WM_CTLCOLORBTN) return preview_control_background(wparam,lparam);
   if(message==WM_GETMINMAXINFO) { auto* info=reinterpret_cast<MINMAXINFO*>(lparam); info->ptMinTrackSize={760,750}; return 0; }
   if(message==WM_SIZE) { arrange(*p); return 0; }
   if(message==WM_NOTIFY && p->ready) {
@@ -202,7 +211,8 @@ void initialize(Preview& p) {
   populate_backend_combo(&p.app); populate_endpoint_combo(&p.app); populate_relay_mode_combo(&p.app); update_status(&p.app);
   p.pair=soundfork::capture::load_channels();
   p.tabs=widget(p,WC_TABCONTROLW,L"",kTabs,WS_TABSTOP|TCS_BUTTONS|TCS_FLATBUTTONS);
-  for(int i=0;i<3;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(L" "); TabCtrl_InsertItem(p.tabs,i,&item); }
+  for(int i=0;i<3;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(L" ");
+    SendMessageW(p.tabs,TCM_INSERTITEMW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&item)); }
   p.channel_label=widget(p,L"STATIC",L"",0);
   p.channels=widget(p,L"COMBOBOX",L"",kChannels,WS_TABSTOP|CBS_DROPDOWNLIST|WS_VSCROLL);
   p.custom=widget(p,L"BUTTON",L"",kCustom,WS_TABSTOP);
@@ -236,12 +246,19 @@ int wmain(int argc,wchar_t**) {
     wc.lpfnWndProc=channel_dialog; wc.lpszClassName=kCustomClass; require(RegisterClassExW(&wc)!=0,"channel class");
     wc.lpfnWndProc=diagnostic_proc; wc.lpszClassName=kDiagnosticClass; require(RegisterClassExW(&wc)!=0,"diagnostic class");
     Preview p;
-    HWND window=CreateWindowExW(WS_EX_CONTROLPARENT,L"SoundForkTabbedPreview",L"SoundFork",WS_OVERLAPPEDWINDOW,
+    HWND window=CreateWindowExW(WS_EX_CONTROLPARENT,L"SoundForkTabbedPreview",L"SoundFork",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
         CW_USEDEFAULT,CW_USEDEFAULT,820,780,nullptr,nullptr,wc.hInstance,&p);
     require(window!=nullptr,"main window"); initialize(p);
     if(argc>1) {
       for(int language=0;language<2;++language) {
         translate(p,language==0?UiLanguage::korean:UiLanguage::english);
+        const wchar_t* expected_ko[]={L"오디오",L"OBS",L"설정"};
+        const wchar_t* expected_en[]={L"Audio",L"OBS",L"Settings"};
+        for(int tab=0;tab<3;++tab) {
+          wchar_t title[32]{}; TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=title; item.cchTextMax=32;
+          require(SendMessageW(p.tabs,TCM_GETITEMW,static_cast<WPARAM>(tab),reinterpret_cast<LPARAM>(&item))!=0,"tab label query");
+          require(std::wstring_view(title)==(language==0?expected_ko[tab]:expected_en[tab]),"Unicode tab label corrupted");
+        }
         for(int page=0;page<3;++page) {
           p.page=page; TabCtrl_SetCurSel(p.tabs,page); arrange(p);
           require((GetWindowLongPtrW(p.channels,GWL_STYLE)&WS_VISIBLE)!=0 ? page==0 : page!=0,"audio page visibility");
