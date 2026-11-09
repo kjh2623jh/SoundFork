@@ -98,6 +98,7 @@ class ProxyDriver final : public IASIO {
   bool windows_output_ = false;
   std::array<wchar_t, 128> capture_mapping_name_{};
   long capture_left_index_ = -1;
+  ASIOSampleRate capture_sample_rate_ = 0;
   long capture_right_index_ = -1;
   long callback_buffer_index_ = 0;
   bool in_callback_ = false;

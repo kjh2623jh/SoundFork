@@ -318,9 +318,10 @@ ASIOTime* raw_time(ASIOTime* time, long index, ASIOBool direct) { raw_switch(ind
 
 void test_raw_formats() {
   using namespace soundfork::capture;
+  for (auto sample_rate : kCaptureSampleRates) {
   for (const auto& format : soundfork::test::kPcmCases) {
    for (long block_frames : {32L, 64L, 256L, 4096L}) {
-    soundfork::test::FakeBackendFactory factory({block_frames});
+    soundfork::test::FakeBackendFactory factory({block_frames, static_cast<double>(sample_rate)});
     const auto name = L"Local\\SoundFork.RawProxyTest." + std::to_wstring(GetCurrentProcessId()) +
         L"." + format.name + L"." + std::to_wstring(block_frames);
     auto* proxy = new soundfork::ProxyDriver(factory, name.c_str());
@@ -339,7 +340,8 @@ void test_raw_formats() {
     require(fake->output_bytes(0) == state.plane_bytes && fake->output_bytes(1) == state.plane_bytes,
             "fake buffers do not match advertised sample width");
     SharedRingReader reader;
-    require(reader.open(name.c_str()) && reader.format().sample_format == format.wire, "raw format attach");
+    require(reader.open(name.c_str()) && reader.format().sample_format == format.wire &&
+            reader.format().sample_rate == sample_rate, "raw format/rate attach");
     std::vector<std::byte> captured(state.plane_bytes * 2);
     std::uint32_t frames = 0;
     for (int i = 0; i < 4; ++i) {
@@ -366,7 +368,9 @@ void test_raw_formats() {
     require(fake->getSamplePosition(&position, &timestamp) == ASE_OK &&
             ((static_cast<std::uint64_t>(position.hi) << 32) | position.lo) == state.switches * static_cast<std::uint64_t>(block_frames),
             "fake sample position did not follow configured block size");
-    fake->notify_sample_rate(96000);
+    fake->notify_sample_rate(sample_rate);
+    require(reader.stream_active(), "unchanged rate disabled capture");
+    fake->notify_sample_rate(sample_rate == 96000 ? 48000 : 96000);
     require(!reader.stream_active(), "rate change left capture enabled");
     SharedRingObserver observer; StreamStatus status;
     require(observer.open(name.c_str()) && observer.snapshot(&status) &&
@@ -375,7 +379,7 @@ void test_raw_formats() {
     require(state.switches == 105, "disabled capture stopped game callback");
     require(proxy->disposeBuffers() == ASE_OK, "raw dispose");
     reader.close(); observer.close();
-    fake->notify_sample_rate(48000);
+    fake->notify_sample_rate(sample_rate);
     require(proxy->createBuffers(buffers, 2, block_frames, &host) == ASE_OK && reader.open(name.c_str()), "recreate failed");
     fake->request_reset(); require(!reader.stream_active(), "reset did not disable capture");
     require(proxy->disposeBuffers() == ASE_OK, "reset dispose");
@@ -397,6 +401,7 @@ void test_raw_formats() {
     }
     proxy->Release(); raw_state = nullptr;
    }
+  }
   }
 }
 

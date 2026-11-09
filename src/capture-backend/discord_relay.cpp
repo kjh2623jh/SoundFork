@@ -274,10 +274,11 @@ SessionOutcome run_render_session(
   WAVEFORMATEXTENSIBLE wave_format{};
   wave_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
   wave_format.Format.nChannels = 2;
-  wave_format.Format.nSamplesPerSec = 48000;
+  const auto format = reader->format();
+  wave_format.Format.nSamplesPerSec = format.sample_rate;
   wave_format.Format.wBitsPerSample = 32;
   wave_format.Format.nBlockAlign = 8;
-  wave_format.Format.nAvgBytesPerSec = 48000 * 8;
+  wave_format.Format.nAvgBytesPerSec = format.sample_rate * 8;
   wave_format.Format.cbSize =
       sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
   wave_format.Samples.wValidBitsPerSample = 32;
@@ -358,7 +359,7 @@ SessionOutcome run_render_session(
     std::wcout << L"Associated window: " << matched_title << L'\n';
   }
   std::wcout << L"Source: " << soundfork::capture::sample_format_name(reader->format().sample_format)
-             << L"; WASAPI render: 48000 Hz, stereo Int32LSB\n";
+             << L"; WASAPI render: " << format.sample_rate << L" Hz, stereo Int32LSB\n";
   result = audio_client->Start();
   if (FAILED(result)) {
     succeeded_asio_style(result, L"IAudioClient start");
@@ -367,9 +368,8 @@ SessionOutcome run_render_session(
                : SessionOutcome::fatal;
   }
 
-  const auto format = reader->format();
   diagnostics::log().write(diagnostics::Level::info, "render_session_start",
-      "rate=48000 channels=2 frames_per_block=" + std::to_string(format.frames_per_block) +
+      "rate=" + std::to_string(format.sample_rate) + " channels=2 frames_per_block=" + std::to_string(format.frames_per_block) +
       " endpoint_buffer_frames=" + std::to_string(endpoint_buffer_frames));
   auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
   soundfork::capture::RelayClockController clock(
@@ -643,7 +643,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
     }
     const auto format = reader.format();
     diagnostics::log().write(diagnostics::Level::info, "source_connected");
-    if (format.sample_rate != 48000 || format.channel_count != 2 ||
+    if (!soundfork::capture::supported_sample_rate(format.sample_rate) || format.channel_count != 2 ||
         sample_bytes(format.sample_format) == 0) {
       std::wcerr << L"Unsupported SoundFork capture format\n";
       return 7;
@@ -665,7 +665,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
           continue;
         }
         const auto current_format = reader.format();
-        if (current_format.sample_rate != 48000 ||
+        if (!soundfork::capture::supported_sample_rate(current_format.sample_rate) ||
             current_format.channel_count != 2) {
           reader.close();
           if (WaitForSingleObject(stop_event.value, 250) == WAIT_OBJECT_0) break;

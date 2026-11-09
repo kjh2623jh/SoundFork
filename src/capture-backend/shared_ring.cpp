@@ -76,7 +76,7 @@ bool valid_header(const SharedHeader* value) noexcept {
          value->version == kVersion &&
          value->header_bytes == kHeaderBytes &&
          value->mapping_bytes == kMappingBytes &&
-         value->sample_rate == 48000 &&
+         supported_sample_rate(value->sample_rate) &&
          value->channel_count == kChannelCount &&
          sample_bytes(static_cast<SampleFormat>(value->sample_format)) != 0 &&
          value->bytes_per_sample == sample_bytes(static_cast<SampleFormat>(value->sample_format)) &&
@@ -115,7 +115,7 @@ bool SharedRingPublisher::open(
     std::uint32_t frames_per_block,
     const wchar_t* mapping_name, SampleFormat sample_format, CaptureError status) noexcept {
   close();
-  if (sample_rate != 48000 || sample_bytes(sample_format) == 0 || frames_per_block == 0 ||
+  if (!supported_sample_rate(sample_rate) || sample_bytes(sample_format) == 0 || frames_per_block == 0 ||
       frames_per_block > kMaxPayloadBytes / (2 * sample_bytes(sample_format)) ||
       frames_per_block > kMaxFramesPerBlock || mapping_name == nullptr ||
       mapping_name[0] == L'\0') {

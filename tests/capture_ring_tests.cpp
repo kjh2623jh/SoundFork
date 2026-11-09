@@ -210,6 +210,14 @@ void test_raw_layout_and_validation() {
   }
   reader.close();
   publisher.close();
+  for (auto rate : kCaptureSampleRates) {
+    require(publisher.open(rate,64,name.c_str()), "supported source rate rejected");
+    require(reader.open(name.c_str()) && reader.format().sample_rate==rate, "source rate lost");
+    reader.close(); publisher.close();
+  }
+  for (auto rate : {0U, 1U, 44099U, 48001U, UINT32_MAX}) {
+    require(!publisher.open(rate,64,name.c_str()), "invalid source rate accepted");
+  }
   require(publisher.open_disabled(CaptureError::sample_format, name.c_str()), "disabled diagnostic mapping");
   SharedRingObserver observer; StreamStatus status;
   require(observer.open(name.c_str()) && observer.snapshot(&status) && !status.producer_active &&

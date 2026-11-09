@@ -120,9 +120,10 @@ void capture(Source& state) {
   std::unique_ptr<ObsAudioSource> audio;
   std::unique_ptr<RelayClockController> clock;
   std::unique_ptr<soundfork::obs::AudioBufferPolicy> buffering;
-  constexpr std::uint32_t frames = 480;
-  std::array<std::int32_t, frames * 2> samples{};
-  std::array<float, frames * 2> float_samples{};
+  std::uint32_t sample_rate = 48000;
+  std::uint32_t frames = sample_rate / 100;
+  std::array<std::int32_t, 3840 * 2> samples{};
+  std::array<float, 3840 * 2> float_samples{};
   HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr,
       CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
   if (timer == nullptr) timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
@@ -171,10 +172,12 @@ void capture(Source& state) {
       if (!reader.is_open()) {
         if (reader.open(hub.mapping_name())) {
           const auto format = reader.format();
-          if (format.sample_rate != 48000 || format.channel_count != 2) {
+          if (!supported_sample_rate(format.sample_rate) || format.channel_count != 2) {
             reader.close();
           } else {
-            buffering = std::make_unique<soundfork::obs::AudioBufferPolicy>(format.frames_per_block);
+            sample_rate = format.sample_rate;
+            frames = sample_rate / 100;
+            buffering = std::make_unique<soundfork::obs::AudioBufferPolicy>(format.frames_per_block, sample_rate);
             if (!buffering->supported()) {
               blog(LOG_WARNING, "[SoundFork] %u-frame blocks cannot hold the OBS jitter buffer",
                    format.frames_per_block);
@@ -258,7 +261,7 @@ void capture(Source& state) {
       packet.frames = frames;
       packet.speakers = SPEAKERS_STEREO;
       packet.format = float_output ? AUDIO_FORMAT_FLOAT : AUDIO_FORMAT_32BIT;
-      packet.samples_per_sec = 48000;
+      packet.samples_per_sec = sample_rate;
       packet.timestamp = timeline.timestamp();
       obs_source_output_audio(state.source, &packet);
       timeline.advance();

@@ -28,6 +28,7 @@ struct Observed {
   std::atomic<bool> stereo_pcm{false};
   std::atomic<bool> timestamps_bad{false};
   std::atomic<std::uint64_t> checked_frames{0};
+  std::atomic<std::uint64_t> rising_crossings{0};
   std::atomic<std::uint64_t> discontinuities{0};
   std::atomic<std::uint64_t> silent_runs{0};
   std::atomic<std::uint64_t> bad_stereo_frames{0};
@@ -66,6 +67,7 @@ void capture(void* data, obs_source_t*, const audio_data* audio, bool) {
       }
       // Exclude startup and initial hub attachment, not later dropouts.
       if (check) {
+        if (seen.checking && seen.previous <= 0 && left[frame] > 0) ++seen.rising_crossings;
         if (!std::isfinite(left[frame]) || !std::isfinite(right[frame]) ||
             std::abs(left[frame]) > 0.251F ||
             std::abs(right[frame] + left[frame] * 0.5F) > seen.stereo_tolerance)
@@ -112,13 +114,16 @@ int main(int argc, char** argv) {
   using namespace soundfork::capture;
   if (argc < 3 || argc > 4) return 2;
   const std::string option = argc == 4 ? argv[3] : "";
+  const std::uint32_t source_rate = option == "--rate44100" ? 44100U : option == "--rate96000" ? 96000U : 48000U;
+  const std::uint32_t block_frames = source_rate > 48000 ? 128U : 64U;
   const bool recovery_test = option == "--recovery" || option == "--float-recovery";
   const auto format = option == "--int16" ? SampleFormat::s16le : option == "--int24" ? SampleFormat::s24le :
       option == "--float64" ? SampleFormat::f64le : option == "--float64be" ? SampleFormat::f64be :
       option == "--int32be24" ? SampleFormat::s32be24 :
       (option == "--float32" || option == "--float-recovery") ? SampleFormat::f32le : SampleFormat::s32le;
   if (!option.empty() && !recovery_test && option != "--int16" && option != "--int24" && option != "--float32" &&
-      option != "--float64" && option != "--float64be" && option != "--int32be24") return 2;
+      option != "--float64" && option != "--float64be" && option != "--int32be24" &&
+      option != "--rate44100" && option != "--rate96000") return 2;
   const auto scope = L"obs-test-" + std::to_wstring(GetCurrentProcessId());
   SetEnvironmentVariableW(L"SOUNDFORK_CAPTURE_SCOPE", scope.c_str());
   const HubNames names(scope);
@@ -142,13 +147,13 @@ int main(int argc, char** argv) {
     // Source starts before the game and without WASAPI or a virtual device.
     Sleep(100);
     SharedRingPublisher publisher;
-    require(publisher.open(48000, 64, names.input.c_str(), format), "test publisher failed");
+    require(publisher.open(source_rate, block_frames, names.input.c_str(), format), "test publisher failed");
     HubClient relay_client(HubRole::relay, scope);
     SharedRingReader relay;
-    std::array<std::int32_t, 64> left{};
-    std::array<std::int32_t, 64> right{};
-    std::array<std::int32_t, 128> output{};
-    std::array<std::byte, 512> left_bytes{}, right_bytes{};
+    std::array<std::int32_t, 128> left{};
+    std::array<std::int32_t, 128> right{};
+    std::array<std::int32_t, 256> output{};
+    std::array<std::byte, 1024> left_bytes{}, right_bytes{};
     HANDLE timer = create_periodic_timer(4);
     if (timer == nullptr) throw std::runtime_error("test timer failed");
     struct TimerCloser { HANDLE value; ~TimerCloser() { CloseHandle(value); } } closer{timer};
@@ -199,27 +204,27 @@ int main(int argc, char** argv) {
         if (produced_frames < 96000) last_publication = now.QuadPart;
         elapsed -= frequency.QuadPart / 5;
       }
-      const auto due_frames = static_cast<std::uint64_t>(elapsed * 48000 / frequency.QuadPart);
+      const auto due_frames = static_cast<std::uint64_t>(elapsed * source_rate / frequency.QuadPart);
       // A delayed timer wake must not slow down the simulated ASIO clock.
-      if (produced_frames + 64 <= due_frames) {
+      if (produced_frames + block_frames <= due_frames) {
         maximum_publication_gap = (std::max)(maximum_publication_gap,
                                             now.QuadPart - last_publication);
         last_publication = now.QuadPart;
       }
-      while (produced_frames + 64 <= due_frames) {
-        for (std::uint32_t frame = 0; frame < 64; ++frame) {
+      while (produced_frames + block_frames <= due_frames) {
+        for (std::uint32_t frame = 0; frame < block_frames; ++frame) {
           const double phase = static_cast<double>(produced_frames + frame) *
-                               (2.0 * 3.14159265358979323846 * 110.0 / 48000.0);
+                               (2.0 * 3.14159265358979323846 * 110.0 / source_rate);
           left[frame] = static_cast<std::int32_t>(std::llround(std::sin(phase) * 536870912.0));
           right[frame] = -left[frame] / 2;
         }
         const auto width = sample_bytes(format);
-        for (std::uint32_t frame = 0; frame < 64; ++frame) {
+        for (std::uint32_t frame = 0; frame < block_frames; ++frame) {
           encode_sample(left_bytes.data() + frame * width, format, left[frame]);
           encode_sample(right_bytes.data() + frame * width, format, right[frame]);
         }
         publisher.publish_planar(left_bytes.data(), right_bytes.data());
-        produced_frames += 64;
+        produced_frames += block_frames;
       }
       if (!relay.is_open()) relay.open(relay_client.mapping_name());
       std::uint32_t frames = 0;
@@ -244,6 +249,9 @@ int main(int argc, char** argv) {
               << " max_observed_hub_gap_us=" << maximum_hub_gap * 1000000 / frequency.QuadPart
               << " producer_mmcss=" << (producer_scheduling.handle != nullptr) << '\n';
     require(seen.checked_frames.load() > 48000, "insufficient continuous audio observed");
+    const double measured_hz = static_cast<double>(seen.rising_crossings.load()) * 48000.0 /
+                               static_cast<double>(seen.checked_frames.load());
+    require(std::abs(measured_hz - 110.0) < 5.0, "resampling changed tone pitch or duration");
     require(seen.discontinuities.load() == 0, "OBS waveform had sample discontinuities");
     require(seen.silent_runs.load() == 0, "OBS waveform had unexpected silence");
     require(seen.bad_stereo_frames.load() == 0, "OBS stereo waveform was corrupted");

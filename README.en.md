@@ -25,7 +25,8 @@ The latest stable version is `v1.2.1`. This development branch prepares 32-bit h
 - A game or DAW with ASIO support: stable releases support x64; v1.3.0 development builds also support x86.
 - Vendor ASIO output needs an ASIO driver matching the host's bitness. The Windows output mode in v1.3.0 development builds needs no separate ASIO driver.
 
-Capture supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
+The stable release supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
+v1.3.0 development builds also capture 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz from ASIO drivers. Windows playback mode still exposes 48 kHz ASIO input.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 
 All four PCM formats have automated coverage. Real ASIO driver compatibility beyond the tested FiiO environment needs further verification.

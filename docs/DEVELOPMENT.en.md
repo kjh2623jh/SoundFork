@@ -534,20 +534,24 @@ Float32 limits. OBS float sources avoid Int32; the WASAPI relay retains its exis
 Int32 consumer path. Valid-bit integer containers use sign-extended low bits, ignoring
 upper padding. The mapping does not grow for existing FiiO/Int32 streams.
 
-Capture supports 48 kHz stereo output channels 0/1: Int16/Int24/Int32/Float32/Float64
+Capture supports 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz stereo output channels 0/1: Int16/Int24/Int32/Float32/Float64
 in LSB/MSB order and right-aligned 16/18/20/24 valid-bit Int32 containers (18 types).
-DSD, multichannel and other rates remain excluded.
+DSD, multichannel and rates outside this list remain excluded.
 Unsupported/mismatched formats disable capture, not playback, with a diagnostic
 reason. This is not a guarantee of compatibility with every ASIO driver.
 
 Validate format and cache lengths during `createBuffers`. Preserve backend buffer
 pointers, callback/`outputReady` ordering and publication points. The ASIO callback
 performs one `memcpy` per channel, without conversion, resampling, a new waiting
-queue or logging. A non-48-kHz rate notification or reset request disables capture
+queue or logging. A rate notification differing from the current stream or reset request disables capture
 atomically; only safe buffer recreation reopens it. Silent driver format changes
 without notifications are not detected by querying the driver in callbacks.
 
 ### v3 transport contract
+
+Store the original rate without resizing mappings. Relay opens a source-rate Int32 WASAPI shared stream; Windows converts to the endpoint rate. OBS receives source-rate 10ms packets and converts to the project rate. Existing consumer interpolation handles clock drift. OBS buffering scales to at least 20ms. Keep the existing <=48kHz queue policy; higher rates require a ring holding over 60ms for jitter recovery (e.g. 96kHz/128 frames or 384kHz/512 frames). Smaller blocks retain ASIO playback, raw capture and relay; only OBS attachment is rejected. Windows playback ASIO input remains 48kHz. Recreate buffers to reconnect consumers at a new rate. Update all components together: older consumers reject non-48kHz streams.
+
+Automated coverage: 9 rates x 18 formats x 4 block sizes for raw byte identity and allocation-free callbacks; ring rate validation; real libobs 44.1/96kHz input to a 48kHz project. Non-48kHz DAC playback, Discord reception and extended hardware soak remain manual. No physical latency measurement is implied.
 
 - Input: `Local\SoundFork.Audio.v3`; outputs: `Local\SoundFork.CaptureHub.v2.OBS` and
   `.Relay`. The 18 independent wire IDs use planar

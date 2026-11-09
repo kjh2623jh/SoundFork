@@ -28,7 +28,7 @@ The 1.3.0 development build also offers Windows playback without a vendor ASIO d
 This does not add support for 32-bit Windows or load x64 vendor DLLs in x86 processes.
 
 - Windows 10/11 x64 with x64 or x86 ASIO hosts. The vendor driver must match the host's bitness.
-- 48 kHz stereo output channels 0 and 1; Int16/Int24/Int32/Float32/Float64 in LSB/MSB order,
+- 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz stereo output channels 0 and 1; Int16/Int24/Int32/Float32/Float64 in LSB/MSB order,
   including right-aligned 16/18/20/24 valid-bit Int32 containers.
 - Capture blocks of 1–8192 frames (Float64: up to 4096); hardware must support the chosen buffer size.
 - Only one prepared ASIO stream per process.

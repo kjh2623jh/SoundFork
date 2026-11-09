@@ -23,10 +23,9 @@ void require(bool condition, const char* message) {
   }
 }
 
-void test_four_hour_drift(double producer_ppm) {
-  constexpr std::uint32_t kSampleRate = 48000;
+void test_four_hour_drift(double producer_ppm, std::uint32_t kSampleRate) {
   constexpr std::uint32_t kBlockFrames = 64;
-  constexpr std::uint32_t kEventFrames = 480;
+  const std::uint32_t kEventFrames = kSampleRate / 100;
   constexpr std::uint64_t kEventCount = 4ULL * 60 * 60 * 100;
   soundfork::capture::RelayClockController controller(
       kSampleRate, kBlockFrames);
@@ -164,8 +163,10 @@ int main() {
         "default relay target changed");
     require(soundfork::capture::RelayClockController(48000, 64, 4, 960).target_frames() == 960,
         "explicit frame target ignored");
-    test_four_hour_drift(1500.0);
-    test_four_hour_drift(-1500.0);
+    for (auto rate : soundfork::capture::kCaptureSampleRates) {
+      test_four_hour_drift(1500.0, rate);
+      test_four_hour_drift(-1500.0, rate);
+    }
     test_linear_relay_source();
     test_all_consumer_formats();
     test_reconnect_error_policy();

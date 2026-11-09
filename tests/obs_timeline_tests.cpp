@@ -137,6 +137,15 @@ int main() {
     test_long_stall();
     test_four_hour_jitter();
     test_prebuffer_and_recovery();
+    for (auto rate : soundfork::capture::kCaptureSampleRates) {
+      soundfork::obs::AudioBufferPolicy policy(512, rate);
+      require(policy.supported(), "native rate buffering rejected");
+      require(policy.target_frames() >= rate / 50, "jitter headroom below 20 ms");
+      require(policy.startup_frames() == policy.target_frames() + rate / 100 + 2,
+              "startup packet did not follow source rate");
+    }
+    require(soundfork::obs::AudioBufferPolicy(32,48000).supported(), "existing 48k/32 support regressed");
+    require(!soundfork::obs::AudioBufferPolicy(64,96000).supported(), "high-rate ring without jitter headroom accepted");
     test_four_hour_capture_drift(1500.0);
     test_four_hour_capture_drift(-1500.0);
     std::cout << "OBS timeline: catch-up, bounded recovery and virtual four-hour jitter passed\n";

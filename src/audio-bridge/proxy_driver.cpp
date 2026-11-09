@@ -181,7 +181,11 @@ ASIOError ProxyDriver::getSampleRate(ASIOSampleRate* sample_rate) {
 }
 
 ASIOError ProxyDriver::setSampleRate(ASIOSampleRate sample_rate) {
-  return backend_ == nullptr ? ASE_NotPresent : backend_->setSampleRate(sample_rate);
+  if (backend_ == nullptr) return ASE_NotPresent;
+  const auto result = backend_->setSampleRate(sample_rate);
+  if (result == ASE_OK && sample_rate != capture_sample_rate_)
+    capture_publisher_.disable(capture::CaptureError::format_changed);
+  return result;
 }
 
 ASIOError ProxyDriver::getClockSources(ASIOClockSource* clocks, long* count) {
@@ -315,7 +319,7 @@ void ProxyDriver::on_buffer_switch(long index, ASIOBool direct_process) noexcept
 
 void ProxyDriver::on_sample_rate_changed(ASIOSampleRate sample_rate) noexcept {
   ProxyDriver* driver = active_driver_.load(std::memory_order_acquire);
-  if (driver != nullptr && sample_rate != 48000.0)
+  if (driver != nullptr && sample_rate != driver->capture_sample_rate_)
     driver->capture_publisher_.disable(capture::CaptureError::format_changed);
   if (driver != nullptr && driver->host_callbacks_.sampleRateDidChange != nullptr) {
     driver->host_callbacks_.sampleRateDidChange(sample_rate);
@@ -441,11 +445,12 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
   if (format == capture::SampleFormat::invalid) {
     unsupported(capture::CaptureError::sample_format); return;
   }
-  if (sample_rate != 48000.0) { unsupported(capture::CaptureError::sample_rate); return; }
+  if (!capture::supported_sample_rate(sample_rate)) { unsupported(capture::CaptureError::sample_rate); return; }
   if(static_cast<std::size_t>(buffer_size) > capture::kMaxPayloadBytes / (2 * capture::sample_bytes(format))) {
     unsupported(capture::CaptureError::buffer_size); return;
   }
-  if (!capture_publisher_.open(48000, static_cast<std::uint32_t>(buffer_size),
+  capture_sample_rate_ = sample_rate;
+  if (!capture_publisher_.open(static_cast<std::uint32_t>(sample_rate), static_cast<std::uint32_t>(buffer_size),
                               capture_mapping_name_.data(), format))
     capture_left_index_ = capture_right_index_ = -1;
 }

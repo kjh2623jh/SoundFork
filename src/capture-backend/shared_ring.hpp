@@ -15,6 +15,13 @@ inline constexpr std::uint32_t kCapacityBlocks = 64;
 inline constexpr std::uint32_t kMaxFramesPerBlock = 8192;
 inline constexpr std::size_t kMaxPayloadBytes = kMaxFramesPerBlock * kChannelCount * 4ULL;
 
+inline constexpr std::uint32_t kCaptureSampleRates[] = {
+    32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
+constexpr bool supported_sample_rate(double rate) noexcept {
+  for (auto supported : kCaptureSampleRates) if (rate == supported) return true;
+  return false;
+}
+
 enum class CaptureError : LONG {
   none = 0, buffer_size = 1, channels = 2, sample_format = 3,
   sample_rate = 4, format_changed = 5, backend_query = 6
@@ -24,7 +31,7 @@ constexpr const wchar_t* capture_error_text(CaptureError error, bool korean) noe
     case CaptureError::buffer_size: return korean ? L"복제 미지원 버퍼 크기" : L"Unsupported capture block size";
     case CaptureError::channels: return korean ? L"출력 채널 0/1 필요" : L"Output channels 0/1 required";
     case CaptureError::sample_format: return korean ? L"미지원 또는 좌우 불일치 PCM 형식" : L"Unsupported or mismatched PCM formats";
-    case CaptureError::sample_rate: return korean ? L"방송 복제는 48 kHz 필요" : L"Capture requires 48 kHz";
+    case CaptureError::sample_rate: return korean ? L"지원하지 않는 복제 샘플레이트" : L"Unsupported capture sample rate";
     case CaptureError::format_changed: return korean ? L"스트림 변경: 버퍼 재생성 필요" : L"Stream changed: recreate buffers";
     case CaptureError::backend_query: return korean ? L"ASIO 형식 조회 실패" : L"ASIO format query failed";
     default: return korean ? L"복제 상태 알 수 없음" : L"Unknown capture state";
