@@ -300,6 +300,9 @@ if(BUILD_TESTING)
   add_test(NAME soundfork_release_process_tests COMMAND "${SOUNDFORK_POWERSHELL}"
     -NoLogo -NoProfile -NonInteractive -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/release_process_tests.ps1")
   set_tests_properties(soundfork_release_process_tests PROPERTIES TIMEOUT 45)
+  add_test(NAME soundfork_download_tests COMMAND "${SOUNDFORK_POWERSHELL}"
+    -NoLogo -NoProfile -NonInteractive -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/download_tests.ps1")
+  set_tests_properties(soundfork_download_tests PROPERTIES TIMEOUT 30 LABELS "deployment;security;unit")
   add_executable(soundfork_control_ui_tests
     tests/control_ui_tests.cpp
     src/control-app/update_checker.cpp

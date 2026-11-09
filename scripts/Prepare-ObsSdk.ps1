@@ -3,6 +3,7 @@ param(
     [string]$ObsRuntimeDirectory = 'C:\Program Files\obs-studio\bin\64bit'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Get-VerifiedDownload.ps1')
 $sdk = Join-Path (Split-Path -Parent $PSScriptRoot) 'build\obs-sdk'
 New-Item -ItemType Directory -Path $sdk -Force | Out-Null
 $readyMarker = Join-Path $sdk 'soundfork-sdk-32.2.2.ready'
@@ -26,13 +27,8 @@ function Copy-RuntimeDlls([string]$Directory) {
 
 function Get-CheckedArchive([string]$Name, [string]$Hash) {
     $archive = Join-Path $sdk $Name
-    if (-not (Test-Path -LiteralPath $archive)) {
-        Invoke-WebRequest "https://github.com/obsproject/obs-studio/releases/download/32.2.2/$Name" -OutFile $archive
-    }
-    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $Hash) {
-        throw "OBS archive checksum mismatch: $Name"
-    }
-    return $archive
+    return Get-VerifiedDownload -Uri "https://github.com/obsproject/obs-studio/releases/download/32.2.2/$Name" `
+        -DestinationPath $archive -Sha256 $Hash
 }
 $source = Get-CheckedArchive 'OBS-Studio-32.2.2-Sources.tar.gz' 'ec81fb66b03e75ddb3076b576f62679c39262e0e9960cef3e17a40dc5d68e6b4'
 & tar -xf $source -C $sdk 'obs-studio-32.2.2-sources/libobs' 'obs-studio-32.2.2-sources/COPYING'
