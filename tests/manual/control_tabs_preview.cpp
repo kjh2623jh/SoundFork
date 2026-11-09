@@ -69,6 +69,7 @@ struct Preview {
   AppState app;
   HWND channels=nullptr,channel_label=nullptr,custom=nullptr;
   HWND obs_title=nullptr,obs_status=nullptr,obs_install=nullptr,obs_remove=nullptr,obs_usage=nullptr;
+  HWND obs_version_label=nullptr,obs_bundle_label=nullptr,obs_bundle=nullptr,obs_actions=nullptr,obs_guide=nullptr;
   HWND settings_title=nullptr,language_label=nullptr,language=nullptr,updates=nullptr,settings_note=nullptr;
   HWND footer=nullptr;
   HWND playback_note=nullptr,buffer_group=nullptr,buffer_note=nullptr;
@@ -101,9 +102,12 @@ void arrange(Preview& p) {
   move(p.app.buffer_label,26,48,112,20); move(p.app.relay_buffer,138,44,field,200);
   move(p.channel_label,26,100,112,20); move(p.channels,138,96,field-86,200); move(p.custom,width-100,95,74,26);
   move(p.buffer_note,26,176,width-52,100);
-  move(p.obs_title,26,20,width-52,24); move(p.obs_status,26,58,width-52,46);
-  move(p.obs_install,26,118,180,26); move(p.obs_remove,218,118,90,26);
-  move(p.obs_usage,26,174,width-52,126);
+  move(p.obs_title,12,12,width-24,104);
+  move(p.obs_version_label,26,42,112,20); move(p.obs_status,138,42,field,24);
+  move(p.obs_bundle_label,26,78,112,20); move(p.obs_bundle,138,78,field,20);
+  move(p.obs_actions,12,130,width-24,70);
+  move(p.obs_install,26,158,180,26); move(p.obs_remove,218,158,90,26);
+  move(p.obs_guide,12,214,width-24,96); move(p.obs_usage,26,238,width-52,58);
   move(p.settings_title,12,12,width-24,86);
   move(p.language_label,26,48,112,20); move(p.language,138,44,210,120);
   move(p.update_group,12,112,width-24,100);
@@ -148,39 +152,44 @@ void populate_channels(Preview& p) {
 void translate(Preview& p,UiLanguage language) {
   apply_language(&p.app,language,false);
   const bool ko=language==UiLanguage::korean;
-  HMENU previous=GetMenu(p.app.window), menu=CreateMenu(), help=CreatePopupMenu();
-  if(!menu || !help) {
-    if(menu) DestroyMenu(menu); if(help) DestroyMenu(help);
+  HMENU previous=GetMenu(p.app.window), menu=CreateMenu();
+  if(!menu) {
     throw std::runtime_error("preview navigation creation failed");
   }
   SetWindowTextW(p.app.window,ko?L"SoundFork — 작은 제어판 미리보기":L"SoundFork — compact control preview");
-  const wchar_t* names[]={ko?L"재생":L"Playback",ko?L"방송":L"Broadcast",ko?L"버퍼·채널":L"Buffer / channels",L"OBS",ko?L"설정":L"Settings"};
-  for(int i=0;i<5;++i) AppendMenuW(menu,MF_STRING,kNavigate+i,names[i]);
-  AppendMenuW(help,MF_STRING,kNavigate+5,ko?L"연결 정보":L"Connection information");
-  AppendMenuW(help,MF_STRING,kNavigate+6,ko?L"프로그램 정보":L"About SoundFork");
-  AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(help),ko?L"도움말":L"Help");
+  const wchar_t* names[]={ko?L"재생":L"Playback",ko?L"방송":L"Broadcast",ko?L"버퍼·채널":L"Buffer/ch.",L"OBS",ko?L"설정":L"Settings",
+      ko?L"연결 정보":L"Connection",ko?L"프로그램 정보":L"About"};
+  for(int i=0;i<7;++i) AppendMenuW(menu,MF_STRING,kNavigate+i,names[i]);
   p.app.obs_menu=nullptr;
   SetMenu(p.app.window,menu); if(previous) DestroyMenu(previous);
-  SetMenuDefaultItem(menu,p.page<5?p.page:5,TRUE); DrawMenuBar(p.app.window);
+  SetMenuDefaultItem(menu,p.page,TRUE); DrawMenuBar(p.app.window);
   SetWindowTextW(p.channel_label,ko?L"방송 채널":L"Broadcast channels");
   SetWindowTextW(p.custom,ko?L"변경…":L"Edit…");
   SetWindowTextW(p.playback_info,ko?L"ASIO 연결 상태":L"ASIO stream status");
   SetWindowTextW(p.app.output_group,ko?L"재생 출력":L"Playback output");
   SetWindowTextW(p.buffer_group,ko?L"방송 오디오 설정":L"Broadcast audio settings");
   SetWindowTextW(p.buffer_note,ko?L"버퍼 시간은 방송용 여유량이며 실측 지연이 아닙니다.\r\n\r\n채널 변경은 게임·DAW 재시작 후 적용됩니다.":L"Buffer duration is broadcast headroom, not measured latency.\r\n\r\nRestart the game or DAW to apply channel changes.");
-  SetWindowTextW(p.obs_title,ko?L"OBS 플러그인":L"OBS plugin");
-  const auto obs_version=std::wstring(ko?L"설치된 버전: ":L"Installed version: ")+obs_installed_text(&p.app)+
-      (ko?L"\r\n미리보기 포함 파일: ":L"\r\nPreview bundle: ")+ (p.app.obs_status.bundled?p.app.obs_status.bundled_version:(ko?L"없음":L"None"));
+  SetWindowTextW(p.obs_title,ko?L"플러그인 상태":L"Plugin status");
+  SetWindowTextW(p.obs_version_label,ko?L"설치된 버전":L"Installed version");
+  SetWindowTextW(p.obs_bundle_label,ko?L"포함된 버전":L"Bundled version");
+  auto obs_version=obs_installed_text(&p.app);
+  if(p.app.obs_status.present && p.app.obs_status.complete && !p.app.obs_status.installed_version.empty()) {
+    obs_version=p.app.obs_status.installed_version;
+    if(p.app.obs_status.update_required) obs_version+=ko?L" (업데이트 필요)":L" (update available)";
+  }
   SetWindowTextW(p.obs_status,obs_version.c_str());
+  SetWindowTextW(p.obs_bundle,p.app.obs_status.bundled?p.app.obs_status.bundled_version.c_str():(ko?L"없음":L"None"));
+  SetWindowTextW(p.obs_actions,ko?L"플러그인 관리":L"Plugin management");
+  SetWindowTextW(p.obs_guide,ko?L"사용 방법":L"Getting started");
   SetWindowTextW(p.obs_install,ko?L"설치 / 업데이트…":L"Install / update…");
   SetWindowTextW(p.obs_remove,ko?L"제거…":L"Remove…");
-  SetWindowTextW(p.obs_usage,ko?L"OBS를 다시 시작하고 ‘SoundFork 오디오’ 소스를 추가하세요.\r\n\r\nOBS만 사용한다면 가상 장치나 오디오 전달은 필요하지 않습니다.\r\n\r\n이 비교판에서는 실제 설치·제거를 실행하지 않습니다.":L"Restart OBS and add a SoundFork Audio source.\r\n\r\nOBS-only capture needs no virtual device or audio forwarding.\r\n\r\nThis preview does not install or remove files.");
+  SetWindowTextW(p.obs_usage,ko?L"OBS 재시작 → ‘SoundFork 오디오’ 소스 추가\r\nOBS만 사용하면 가상 장치나 오디오 전달은 필요 없습니다.":L"1. Restart OBS.\r\n2. Add a SoundFork Audio source.\r\nOBS-only capture needs no virtual audio device.");
   SetWindowTextW(p.settings_title,ko?L"표시":L"Appearance");
   SetWindowTextW(p.language_label,ko?L"표시 언어":L"Language");
   SendMessageW(p.language,CB_SETCURSEL,ko?0:1,0);
   SetWindowTextW(p.updates,ko?L"새 버전 자동 알림":L"Notify me about new versions");
   SetWindowTextW(p.update_group,ko?L"업데이트":L"Updates");
-  SetWindowTextW(p.settings_note,ko?L"직접 확인하려면 도움말 → 프로그램 정보를 여세요.":L"Check manually under Help > About SoundFork.");
+  SetWindowTextW(p.settings_note,ko?L"직접 확인하려면 ‘프로그램 정보’를 여세요.":L"Check manually under About.");
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus stream;
   const bool active=observer.open() && observer.snapshot(&stream) && stream.producer_active;
@@ -292,9 +301,12 @@ void initialize(Preview& p) {
   p.channel_label=widget(p,L"STATIC",L"",0);
   p.channels=widget(p,L"COMBOBOX",L"",kChannels,WS_TABSTOP|CBS_DROPDOWNLIST|WS_VSCROLL);
   p.custom=widget(p,L"BUTTON",L"",kCustom,WS_TABSTOP);
-  p.obs_title=widget(p,L"STATIC",L"",0); p.obs_status=widget(p,L"STATIC",L"",0);
+  p.obs_title=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.obs_status=widget(p,L"STATIC",L"",0);
+  p.obs_version_label=widget(p,L"STATIC",L"",0); p.obs_bundle_label=widget(p,L"STATIC",L"",0);
+  p.obs_bundle=widget(p,L"STATIC",L"",0); p.obs_actions=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
   p.obs_install=widget(p,L"BUTTON",L"",kObsInstall,WS_TABSTOP);
-  p.obs_remove=widget(p,L"BUTTON",L"",kObsRemove,WS_TABSTOP); p.obs_usage=widget(p,L"STATIC",L"",0);
+  p.obs_remove=widget(p,L"BUTTON",L"",kObsRemove,WS_TABSTOP);
+  p.obs_guide=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.obs_usage=widget(p,L"STATIC",L"",0);
   p.settings_title=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.language_label=widget(p,L"STATIC",L"",0);
   p.update_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
   p.language=widget(p,L"COMBOBOX",L"",kPreviewLanguage,WS_TABSTOP|CBS_DROPDOWNLIST);
@@ -331,7 +343,7 @@ void initialize(Preview& p) {
       p.app.relay_mode_label,p.app.relay_mode_combo,p.app.relay_enabled,p.app.relay_button,p.app.endpoint_label,
       p.app.endpoint_combo,p.app.startup_checkbox,p.app.vb_cable_button,p.app.note};
   p.tuning={p.buffer_group,p.buffer_note,p.app.buffer_label,p.app.relay_buffer,p.channel_label,p.channels,p.custom};
-  p.obs={p.obs_title,p.obs_status,p.obs_install,p.obs_remove,p.obs_usage};
+  p.obs={p.obs_title,p.obs_status,p.obs_version_label,p.obs_bundle_label,p.obs_bundle,p.obs_actions,p.obs_install,p.obs_remove,p.obs_guide,p.obs_usage};
   p.settings={p.settings_title,p.language_label,p.language,p.update_group,p.updates,p.settings_note};
   p.ready=true; translate(p,UiLanguage::korean);
 }
@@ -355,12 +367,12 @@ int wmain(int argc,wchar_t**) {
       for(int language=0;language<2;++language) {
         translate(p,language==0?UiLanguage::korean:UiLanguage::english);
         SetWindowPos(window,nullptr,0,0,540,410,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
-        const wchar_t* expected_ko[]={L"재생",L"방송",L"버퍼·채널",L"OBS",L"설정"};
-        const wchar_t* expected_en[]={L"Playback",L"Broadcast",L"Buffer / channels",L"OBS",L"Settings"};
-        require(GetMenuItemCount(GetMenu(window))==6,"navigation must share one menu row with Help");
-        require(GetMenuItemCount(GetSubMenu(GetMenu(window),5))==2,"Help must only contain connection and program information");
+        const wchar_t* expected_ko[]={L"재생",L"방송",L"버퍼·채널",L"OBS",L"설정",L"연결 정보",L"프로그램 정보"};
+        const wchar_t* expected_en[]={L"Playback",L"Broadcast",L"Buffer/ch.",L"OBS",L"Settings",L"Connection",L"About"};
+        require(GetMenuItemCount(GetMenu(window))==7,"all seven pages must be top-level navigation");
         require(SendMessageW(p.information,LVM_GETITEMCOUNT,0,0)==6,"connection property rows missing");
-        for(int tab=0;tab<5;++tab) {
+        for(int tab=0;tab<7;++tab) {
+          require(GetSubMenu(GetMenu(window),tab)==nullptr,"unexpected nested navigation");
           wchar_t title[32]{};
           require(GetMenuStringW(GetMenu(window),tab,title,32,MF_BYPOSITION)!=0,"navigation label query");
           require(std::wstring_view(title)==(language==0?expected_ko[tab]:expected_en[tab]),"Unicode navigation label corrupted");
