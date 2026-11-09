@@ -21,9 +21,11 @@ constexpr long kDriverVersion = 0x00010000L;
 ProxyDriver::ProxyDriver(
     IBackendFactory& backend_factory,
     const wchar_t* capture_mapping_name,
-    bool allow_application_relay) noexcept
+    bool allow_application_relay,
+    capture::ChannelPair capture_channels) noexcept
     : backend_factory_(backend_factory),
-      allow_application_relay_(allow_application_relay) {
+      allow_application_relay_(allow_application_relay),
+      capture_channels_(capture_channels) {
   wcsncpy_s(
       capture_mapping_name_.data(),
       capture_mapping_name_.size(),
@@ -384,6 +386,9 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
     capture_left_index_ = capture_right_index_ = -1;
     capture_publisher_.open_disabled(reason, capture_mapping_name_.data());
   };
+  if (!capture::valid_channels(capture_channels_)) {
+    unsupported(capture::CaptureError::channels); return;
+  }
   if (buffer_size <= 0 ||
       buffer_size > static_cast<long>(capture::kMaxFramesPerBlock)) {
     unsupported(capture::CaptureError::buffer_size);
@@ -395,9 +400,10 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
     if (buffer.isInput == ASIOTrue) {
       continue;
     }
-    if (buffer.channelNum == 0) {
+    if (buffer.channelNum == static_cast<long>(capture_channels_.left)) {
       capture_left_index_ = static_cast<long>(index);
-    } else if (buffer.channelNum == 1) {
+    }
+    if (buffer.channelNum == static_cast<long>(capture_channels_.right)) {
       capture_right_index_ = static_cast<long>(index);
     }
   }
@@ -407,10 +413,10 @@ void ProxyDriver::prepare_capture(long buffer_size) noexcept {
   }
 
   ASIOChannelInfo left{};
-  left.channel = 0;
+  left.channel = static_cast<long>(capture_channels_.left);
   left.isInput = ASIOFalse;
   ASIOChannelInfo right{};
-  right.channel = 1;
+  right.channel = static_cast<long>(capture_channels_.right);
   right.isInput = ASIOFalse;
   ASIOSampleRate sample_rate = 0.0;
   if (backend_->getChannelInfo(&left) != ASE_OK ||

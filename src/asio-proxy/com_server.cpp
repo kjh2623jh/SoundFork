@@ -64,7 +64,7 @@ class ClassFactory final : public IClassFactory {
     }
 
     auto* driver = new (std::nothrow) ProxyDriver(
-        g_backend_factory, capture::kDefaultMappingName, true);
+        g_backend_factory, capture::kDefaultMappingName, true, capture::load_channels());
     if (driver == nullptr) {
       return E_OUTOFMEMORY;
     }

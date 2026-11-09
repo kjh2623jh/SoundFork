@@ -30,6 +30,16 @@ int wmain(int argc, wchar_t**) {
   if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 2;
   struct ComEnd { ~ComEnd() { CoUninitialize(); } } com_end;
   try {
+    for(bool korean : {false,true}) {
+      HMENU channels=capture_channel_menu(korean,{63,2});
+      require_ui(channels!=nullptr && GetMenuItemCount(channels)==3,"channel menu missing");
+      const auto left=GetSubMenu(channels,1);
+      const auto right=GetSubMenu(channels,2);
+      require_ui(GetMenuItemCount(left)==4 && GetMenuItemCount(right)==4,"channel ranges missing");
+      require_ui((GetMenuState(GetSubMenu(left,3),kCaptureLeftBase+63,MF_BYCOMMAND)&MF_CHECKED)!=0,"left channel check wrong");
+      require_ui((GetMenuState(GetSubMenu(right,0),kCaptureRightBase+2,MF_BYCOMMAND)&MF_CHECKED)!=0,"right channel check wrong");
+      DestroyMenu(channels);
+    }
     WNDCLASSEXW definition{sizeof(definition)};
     definition.lpfnWndProc = preview_proc;
     definition.hInstance = GetModuleHandleW(nullptr);

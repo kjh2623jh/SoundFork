@@ -534,7 +534,7 @@ Float32 limits. OBS float sources avoid Int32; the WASAPI relay retains its exis
 Int32 consumer path. Valid-bit integer containers use sign-extended low bits, ignoring
 upper padding. The mapping does not grow for existing FiiO/Int32 streams.
 
-Capture supports 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz stereo output channels 0/1: Int16/Int24/Int32/Float32/Float64
+Capture supports 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz stereo capture of two selected outputs: Int16/Int24/Int32/Float32/Float64
 in LSB/MSB order and right-aligned 16/18/20/24 valid-bit Int32 containers (18 types).
 DSD, multichannel and rates outside this list remain excluded.
 Unsupported/mismatched formats disable capture, not playback, with a diagnostic
@@ -548,6 +548,8 @@ atomically; only safe buffer recreation reopens it. Silent driver format changes
 without notifications are not detected by querying the driver in callbacks.
 
 ### v3 transport contract
+
+`HKCU\Software\SoundFork\CaptureChannelPair` stores the zero-based left/right indices in the low/high 16 bits of one DWORD. Both must be 0–63; invalid values fall back to 0/1. UI numbers are 1–64. Read once at COM creation, cache, and restart the game/DAW to apply. `createBuffers` resolves selected output `channelNum` values among the application's opened buffers, excluding inputs. Identical selections duplicate mono; reversed selections swap sides. Missing channels or mismatched PCM formats disable capture only. Callbacks retain two copies with no preference reads, searches or conversion. Hub/OBS/relay still receive stereo; no wire changes. Fake 8/64-channel tests cover reordered non-contiguous buffers, swap/mono/missing/mismatched formats and allocation-free callbacks. Real multichannel interfaces remain manual validation.
 
 Store the original rate without resizing mappings. Relay opens a source-rate Int32 WASAPI shared stream; Windows converts to the endpoint rate. OBS receives source-rate 10ms packets and converts to the project rate. Existing consumer interpolation handles clock drift. OBS buffering scales to at least 20ms. Keep the existing <=48kHz queue policy; higher rates require a ring holding over 60ms for jitter recovery (e.g. 96kHz/128 frames or 384kHz/512 frames). Smaller blocks retain ASIO playback, raw capture and relay; only OBS attachment is rejected. Windows playback ASIO input remains 48kHz. Recreate buffers to reconnect consumers at a new rate. Update all components together: older consumers reject non-48kHz streams.
 

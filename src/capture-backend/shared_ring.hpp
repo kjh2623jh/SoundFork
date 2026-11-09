@@ -29,7 +29,7 @@ enum class CaptureError : LONG {
 constexpr const wchar_t* capture_error_text(CaptureError error, bool korean) noexcept {
   switch (error) {
     case CaptureError::buffer_size: return korean ? L"복제 미지원 버퍼 크기" : L"Unsupported capture block size";
-    case CaptureError::channels: return korean ? L"출력 채널 0/1 필요" : L"Output channels 0/1 required";
+    case CaptureError::channels: return korean ? L"선택한 출력 채널을 애플리케이션이 열지 않았습니다" : L"Selected output channels were not opened by the application";
     case CaptureError::sample_format: return korean ? L"미지원 또는 좌우 불일치 PCM 형식" : L"Unsupported or mismatched PCM formats";
     case CaptureError::sample_rate: return korean ? L"지원하지 않는 복제 샘플레이트" : L"Unsupported capture sample rate";
     case CaptureError::format_changed: return korean ? L"스트림 변경: 버퍼 재생성 필요" : L"Stream changed: recreate buffers";

@@ -21,6 +21,7 @@ struct FakeAsioConfig {
   long frames_per_block = 64;
   ASIOSampleRate sample_rate = 48000.0;
   std::array<ASIOSampleType, 2> channel_types{ASIOSTInt32LSB, ASIOSTInt32LSB};
+  long output_channels = 2;
 };
 
 class FakeAsioDriver final : public IASIO {
@@ -68,7 +69,7 @@ class FakeAsioDriver final : public IASIO {
   const void* output_data(long channel, long index) const noexcept;
   std::size_t output_bytes(long channel) const noexcept;
   long output_ready_calls() const noexcept;
-  void set_channel_type(long channel, ASIOSampleType type) noexcept { if (channel >= 0 && channel < 2) types_[channel] = type; }
+  void set_channel_type(long channel, ASIOSampleType type) noexcept { if (channel >= 0 && channel < config_.output_channels && channel < 64) types_[channel] = type; }
   void notify_sample_rate(ASIOSampleRate rate) noexcept {
     sample_rate_ = rate;
     if (callbacks_ && callbacks_->sampleRateDidChange) callbacks_->sampleRateDidChange(rate);
@@ -81,10 +82,10 @@ class FakeAsioDriver final : public IASIO {
   std::atomic<ULONG> reference_count_{1};
   ASIOCallbacks* callbacks_ = nullptr;
   FakeAsioConfig config_{};
-  std::array<std::array<std::unique_ptr<std::byte[]>, 2>, 2> outputs_{};
-  std::array<std::size_t, 2> output_bytes_{};
+  std::array<std::array<std::unique_ptr<std::byte[]>, 2>, 64> outputs_{};
+  std::array<std::size_t, 64> output_bytes_{};
   ASIOSampleRate sample_rate_ = 48000.0;
-  std::array<ASIOSampleType, 2> types_{ASIOSTInt32LSB, ASIOSTInt32LSB};
+  std::array<ASIOSampleType, 64> types_{};
   std::uint64_t sample_position_ = 0;
   bool initialized_ = false;
   bool prepared_ = false;

@@ -405,6 +405,73 @@ void test_raw_formats() {
   }
 }
 
+std::array<ASIOBufferInfo,4>* mapped_buffers = nullptr;
+void mapped_switch(long index, ASIOBool) {
+  for (auto& buffer : *mapped_buffers) {
+    auto* data = static_cast<std::int32_t*>(buffer.buffers[index]);
+    for (int frame=0; frame<64; ++frame) data[frame]=buffer.channelNum*10000+frame;
+  }
+}
+void test_channel_mapping() {
+  using namespace soundfork::capture;
+  for (DWORD left=0; left<64; ++left) for(DWORD right=0; right<64; ++right) {
+    const auto pair=decode_channels(encode_channels({left,right}));
+    require(pair.left==left && pair.right==right,"channel preference encoding");
+  }
+  require(decode_channels(0xffffffff).left==0 && decode_channels(0xffffffff).right==1,
+          "invalid channel setting did not fall back");
+  for(const auto pair : {ChannelPair{5,3}, ChannelPair{3,5}, ChannelPair{3,3},
+                         ChannelPair{7,3}, ChannelPair{63,3}, ChannelPair{64,0}, ChannelPair{63,62}}) {
+    soundfork::test::FakeAsioConfig config; config.output_channels=8;
+    const bool highest_pair=pair.left==63 && pair.right==62;
+    if(highest_pair) config.output_channels=64;
+    soundfork::test::FakeBackendFactory factory(config);
+    const auto name=L"Local\\SoundFork.MappingTest."+std::to_wstring(GetCurrentProcessId());
+    auto* proxy=new soundfork::ProxyDriver(factory,name.c_str(),false,pair);
+    require(proxy->init(nullptr)==ASIOTrue,"mapped init");
+    auto* fake=factory.last_created();
+    std::array<ASIOBufferInfo,4> buffers{};
+    const long channels[]={highest_pair ? 63L : 3L,0,highest_pair ? 62L : 5L,2};
+    for(std::size_t i=0;i<buffers.size();++i) buffers[i].channelNum=channels[i];
+    mapped_buffers=&buffers;
+    ASIOCallbacks callbacks{mapped_switch,raw_rate,asio_message,nullptr};
+    require(proxy->createBuffers(buffers.data(),4,64,&callbacks)==ASE_OK,"mapped buffers rejected");
+    SharedRingReader reader;
+    const bool supported=highest_pair || (pair.left<6 && pair.right<6);
+    require(reader.open(name.c_str())==supported,"missing selected output was silently remapped");
+    for(int index=0;index<2;++index) {
+      g_track_allocations.store(true);
+      fake->fire_buffer_switch(index);
+      g_track_allocations.store(false);
+      for(const auto& buffer:buffers) {
+        require(buffer.buffers[index]==fake->output_data(buffer.channelNum,index),"mapped playback buffer copied");
+        require(fake->output(buffer.channelNum,index)[63]==buffer.channelNum*10000+63,"playback channel altered");
+      }
+      if(supported) {
+        std::array<std::int32_t,128> stereo{}; std::uint32_t frames=0;
+        require(reader.read_int32_stereo(stereo.data(),stereo.size(),&frames) && frames==64,"mapped capture missing");
+        for(unsigned f=0;f<frames;++f) require(stereo[2*f]==static_cast<std::int32_t>(pair.left*10000+f) &&
+            stereo[2*f+1]==static_cast<std::int32_t>(pair.right*10000+f),"wrong stereo channel mapping");
+      } else {
+        SharedRingObserver observer; StreamStatus status;
+        require(observer.open(name.c_str()) && observer.snapshot(&status) &&
+                status.capture_error==CaptureError::channels,"missing channel diagnostic");
+      }
+    }
+    require(g_callback_allocations.load()==0,"mapped callback allocated");
+    require(proxy->disposeBuffers()==ASE_OK,"mapped dispose");
+    reader.close();
+    // Selected left/right formats must match; other channels may differ.
+    if(supported && pair.left!=pair.right) {
+      fake->set_channel_type(static_cast<long>(pair.left),ASIOSTInt16LSB);
+      require(proxy->createBuffers(buffers.data(),4,64,&callbacks)==ASE_OK,"mismatched playback rejected");
+      require(!reader.open(name.c_str()),"mismatched selected PCM captured");
+      require(proxy->disposeBuffers()==ASE_OK,"mismatched dispose");
+    }
+    proxy->Release(); mapped_buffers=nullptr;
+  }
+}
+
 }  // namespace
 
 _NODISCARD _Ret_notnull_ _Post_writable_byte_size_(size) _VCRT_ALLOCATOR
@@ -444,6 +511,7 @@ int main() {
     test_query_interface();
     test_zero_copy_and_callbacks();
     test_raw_formats();
+    test_channel_mapping();
     test_single_active_stream_guard();
     require(
         soundfork::ProxyDriver::live_instances() == 0,

@@ -26,6 +26,7 @@ The latest stable version is `v1.2.1`. This development branch prepares 32-bit h
 - Vendor ASIO output needs an ASIO driver matching the host's bitness. The Windows output mode in v1.3.0 development builds needs no separate ASIO driver.
 
 The stable release supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
+Development builds offer `Settings → Broadcast output channels`: select output 1–64 for each stereo side (default 1/2), then restart the game/DAW. Only outputs opened by the application can be captured.
 v1.3.0 development builds also capture 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz from ASIO drivers. Windows playback mode still exposes 48 kHz ASIO input.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 

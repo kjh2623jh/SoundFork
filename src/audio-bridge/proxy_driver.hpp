@@ -7,6 +7,7 @@
 #include "audio-bridge/backend_factory.hpp"
 #include "audio-bridge/application_relay.hpp"
 #include "capture-backend/shared_ring.hpp"
+#include "capture-backend/channel_mapping.hpp"
 
 namespace soundfork {
 
@@ -15,7 +16,8 @@ class ProxyDriver final : public IASIO {
   explicit ProxyDriver(
       IBackendFactory& backend_factory,
       const wchar_t* capture_mapping_name = capture::kDefaultMappingName,
-      bool allow_application_relay = false) noexcept;
+      bool allow_application_relay = false,
+      capture::ChannelPair capture_channels = {}) noexcept;
   ~ProxyDriver();
 
   ProxyDriver(const ProxyDriver&) = delete;
@@ -98,6 +100,7 @@ class ProxyDriver final : public IASIO {
   bool windows_output_ = false;
   std::array<wchar_t, 128> capture_mapping_name_{};
   long capture_left_index_ = -1;
+  capture::ChannelPair capture_channels_{};
   ASIOSampleRate capture_sample_rate_ = 0;
   long capture_right_index_ = -1;
   long callback_buffer_index_ = 0;

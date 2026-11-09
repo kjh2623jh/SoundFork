@@ -26,6 +26,7 @@
 
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_preferences.hpp"
+#include "capture-backend/channel_mapping.hpp"
 #include "capture-backend/shared_ring.hpp"
 #include "control-app/resource.h"
 #include "control-app/obs_plugin_manager.hpp"
@@ -75,6 +76,8 @@ constexpr int kStartupRelay = 2003;
 constexpr int kRelayModeCombo = 2004;
 constexpr int kRelayEnabled = 2005;
 constexpr int kRelayBuffer = 2006;
+constexpr int kCaptureLeftBase = 3000;
+constexpr int kCaptureRightBase = 3200;
 constexpr DWORD kRelayBuffers[] = {0, 128, 256, 480, 960, 1920, 3840, 9600};
 constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
@@ -1512,6 +1515,11 @@ void update_status(AppState* state) {
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus stream;
   const bool stream_observed = observer.open() && observer.snapshot(&stream);
+  const auto channel_pair = soundfork::capture::load_channels();
+  text << (state->language == UiLanguage::korean ? L"방송 채널 선택 (재시작 후 적용): 왼쪽 "
+                                                : L"Capture selection (apply on restart): left ")
+       << channel_pair.left + 1 << L", "
+       << (state->language == UiLanguage::korean ? L"오른쪽 " : L"right ") << channel_pair.right + 1 << L"\r\n";
   if (stream_observed && stream.capture_error != soundfork::capture::CaptureError::none) {
     text << strings.format << L": " << soundfork::capture::capture_error_text(
         stream.capture_error, state->language == UiLanguage::korean) << L"\r\n";
@@ -2018,6 +2026,35 @@ void populate_relay_mode_combo(AppState* state) {
       mode == soundfork::control::RelayMode::application ? 1 : 0, 0);
 }
 
+HMENU capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
+  HMENU root = CreatePopupMenu();
+  if (!root) return nullptr;
+  AppendMenuW(root, MF_STRING | MF_GRAYED, 0, korean
+      ? L"게임/DAW 재시작 후 적용 · 열린 출력 채널만 복제"
+      : L"Restart game/DAW to apply; only opened outputs can be captured");
+  for (int side = 0; side < 2; ++side) {
+    HMENU channels = CreatePopupMenu();
+    if (!channels) { DestroyMenu(root); return nullptr; }
+    const auto selected = side == 0 ? pair.left : pair.right;
+    const auto label = std::wstring(side == 0 ? (korean ? L"왼쪽: 출력 " : L"Left: output ")
+                                              : (korean ? L"오른쪽: 출력 " : L"Right: output ")) + std::to_wstring(selected + 1);
+    AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(channels), label.c_str());
+    for (int bank = 0; bank < 4; ++bank) {
+      HMENU group = CreatePopupMenu();
+      if (!group) { DestroyMenu(root); return nullptr; }
+      const auto range = std::to_wstring(bank * 16 + 1) + L"–" + std::to_wstring(bank * 16 + 16);
+      AppendMenuW(channels, MF_POPUP, reinterpret_cast<UINT_PTR>(group), range.c_str());
+      for (int offset = 0; offset < 16; ++offset) {
+        const auto channel = static_cast<DWORD>(bank * 16 + offset);
+        const auto text = std::wstring(korean ? L"출력 " : L"Output ") + std::to_wstring(channel + 1);
+        AppendMenuW(group, MF_STRING | (selected == channel ? MF_CHECKED : 0),
+            static_cast<UINT_PTR>((side == 0 ? kCaptureLeftBase : kCaptureRightBase) + channel), text.c_str());
+      }
+    }
+  }
+  return root;
+}
+
 void rebuild_menu(AppState* state) {
   HMENU previous = GetMenu(state->window);
   HMENU menu = CreateMenu();
@@ -2057,6 +2094,10 @@ void rebuild_menu(AppState* state) {
       reinterpret_cast<UINT_PTR>(language),
       ui_strings(state->language).language_menu);
   const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
+  if (const auto channels = capture_channel_menu(state->language == UiLanguage::korean,
+                                                 soundfork::capture::load_channels()))
+    AppendMenuW(settings, MF_POPUP, reinterpret_cast<UINT_PTR>(channels),
+        state->language == UiLanguage::korean ? L"방송 출력 채널" : L"Broadcast output channels");
   AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsInstalledStatus, L"");
   AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsBundledStatus, L"");
   AppendMenuW(obs, MF_SEPARATOR, 0, nullptr);
@@ -2391,6 +2432,17 @@ LRESULT CALLBACK window_proc(
     }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
+      const bool left_channel = control >= kCaptureLeftBase && control < kCaptureLeftBase + 64;
+      const bool right_channel = control >= kCaptureRightBase && control < kCaptureRightBase + 64;
+      if (left_channel || right_channel) {
+        auto pair = soundfork::capture::load_channels();
+        if (left_channel) pair.left = static_cast<DWORD>(control - kCaptureLeftBase);
+        else pair.right = static_cast<DWORD>(control - kCaptureRightBase);
+        if (soundfork::capture::save_channels(pair) == ERROR_SUCCESS) rebuild_menu(state);
+        else MessageBoxW(window, state->language == UiLanguage::korean
+            ? L"채널 설정을 저장하지 못했습니다." : L"Could not save channel settings.", L"SoundFork", MB_ICONERROR);
+        return 0;
+      }
       if (control == kAutomaticUpdateNotifications) {
         const bool enabled = !state->automatic_updates_enabled;
         if (soundfork::control::save_automatic_updates(enabled) == ERROR_SUCCESS) {
