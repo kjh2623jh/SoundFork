@@ -32,12 +32,21 @@ int wmain(int argc, wchar_t**) {
   try {
     for(bool korean : {false,true}) {
       HMENU channels=capture_channel_menu(korean,{63,2});
-      require_ui(channels!=nullptr && GetMenuItemCount(channels)==3,"channel menu missing");
-      const auto left=GetSubMenu(channels,1);
-      const auto right=GetSubMenu(channels,2);
+      require_ui(channels!=nullptr && GetMenuItemCount(channels)==8,"stereo pair menu missing");
+      const auto more=GetSubMenu(channels,5);
+      require_ui(GetMenuItemCount(more)==28,"additional stereo pairs missing");
+      const auto custom=GetSubMenu(channels,7);
+      require_ui((GetMenuState(channels,7,MF_BYPOSITION)&MF_CHECKED)!=0,"custom mapping not indicated");
+      const auto left=GetSubMenu(custom,1);
+      const auto right=GetSubMenu(custom,2);
       require_ui(GetMenuItemCount(left)==4 && GetMenuItemCount(right)==4,"channel ranges missing");
       require_ui((GetMenuState(GetSubMenu(left,3),kCaptureLeftBase+63,MF_BYCOMMAND)&MF_CHECKED)!=0,"left channel check wrong");
       require_ui((GetMenuState(GetSubMenu(right,0),kCaptureRightBase+2,MF_BYCOMMAND)&MF_CHECKED)!=0,"right channel check wrong");
+      DestroyMenu(channels);
+      channels=capture_channel_menu(korean,{62,63});
+      require_ui((GetMenuState(GetSubMenu(channels,5),kCapturePairBase+31,MF_BYCOMMAND)&MF_CHECKED)!=0,
+                 "last stereo pair not indicated");
+      require_ui((GetMenuState(channels,7,MF_BYPOSITION)&MF_CHECKED)==0,"stereo pair marked custom");
       DestroyMenu(channels);
     }
     WNDCLASSEXW definition{sizeof(definition)};

@@ -78,6 +78,7 @@ constexpr int kRelayEnabled = 2005;
 constexpr int kRelayBuffer = 2006;
 constexpr int kCaptureLeftBase = 3000;
 constexpr int kCaptureRightBase = 3200;
+constexpr int kCapturePairBase = 3400;
 constexpr DWORD kRelayBuffers[] = {0, 128, 256, 480, 960, 1920, 3840, 9600};
 constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
@@ -2026,7 +2027,7 @@ void populate_relay_mode_combo(AppState* state) {
       mode == soundfork::control::RelayMode::application ? 1 : 0, 0);
 }
 
-HMENU capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
+HMENU custom_capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
   HMENU root = CreatePopupMenu();
   if (!root) return nullptr;
   AppendMenuW(root, MF_STRING | MF_GRAYED, 0, korean
@@ -2052,6 +2053,38 @@ HMENU capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
       }
     }
   }
+  return root;
+}
+
+HMENU capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
+  HMENU root = CreatePopupMenu();
+  if (!root) return nullptr;
+  AppendMenuW(root, MF_STRING | MF_GRAYED, 0, korean
+      ? L"게임/DAW 재시작 후 적용 · 열린 출력 채널만 복제"
+      : L"Restart game/DAW to apply; only opened outputs can be captured");
+  const bool standard = pair.left % 2 == 0 && pair.right == pair.left + 1;
+  const auto append_pair = [&](HMENU menu, DWORD index) {
+    const auto left = index * 2;
+    auto text = std::wstring(korean ? L"출력 " : L"Outputs ") +
+        std::to_wstring(left + 1) + L" · " + std::to_wstring(left + 2);
+    if (index == 0) text += korean ? L" (기본)" : L" (default)";
+    AppendMenuW(menu, MF_STRING | (standard && pair.left == left ? MF_CHECKED : 0),
+        kCapturePairBase + index, text.c_str());
+  };
+  for (DWORD index = 0; index < 4; ++index) append_pair(root, index);
+  HMENU more = CreatePopupMenu();
+  if (!more) { DestroyMenu(root); return nullptr; }
+  AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(more),
+      korean ? L"다른 출력 쌍" : L"More output pairs");
+  for (DWORD index = 4; index < 32; ++index) append_pair(more, index);
+  HMENU custom = custom_capture_channel_menu(korean, pair);
+  if (!custom) { DestroyMenu(root); return nullptr; }
+  AppendMenuW(root, MF_SEPARATOR, 0, nullptr);
+  const auto custom_text = std::wstring(korean ? L"사용자 지정 (왼쪽 " : L"Custom (left ") +
+      std::to_wstring(pair.left + 1) + (korean ? L", 오른쪽 " : L", right ") +
+      std::to_wstring(pair.right + 1) + L")";
+  AppendMenuW(root, MF_POPUP | (!standard ? MF_CHECKED : 0),
+      reinterpret_cast<UINT_PTR>(custom), custom_text.c_str());
   return root;
 }
 
@@ -2434,9 +2467,13 @@ LRESULT CALLBACK window_proc(
       const int control = LOWORD(wparam);
       const bool left_channel = control >= kCaptureLeftBase && control < kCaptureLeftBase + 64;
       const bool right_channel = control >= kCaptureRightBase && control < kCaptureRightBase + 64;
-      if (left_channel || right_channel) {
+      const bool channel_pair = control >= kCapturePairBase && control < kCapturePairBase + 32;
+      if (left_channel || right_channel || channel_pair) {
         auto pair = soundfork::capture::load_channels();
-        if (left_channel) pair.left = static_cast<DWORD>(control - kCaptureLeftBase);
+        if (channel_pair) {
+          pair.left = static_cast<DWORD>(control - kCapturePairBase) * 2;
+          pair.right = pair.left + 1;
+        } else if (left_channel) pair.left = static_cast<DWORD>(control - kCaptureLeftBase);
         else pair.right = static_cast<DWORD>(control - kCaptureRightBase);
         if (soundfork::capture::save_channels(pair) == ERROR_SUCCESS) rebuild_menu(state);
         else MessageBoxW(window, state->language == UiLanguage::korean
