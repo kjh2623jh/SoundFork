@@ -7,7 +7,7 @@
 #include <iostream>
 
 namespace {
-constexpr int kTabs=4100, kChannels=4101, kCustom=4102, kPreviewLanguage=4103;
+constexpr int kChannels=4101, kCustom=4102, kPreviewLanguage=4103, kNavigate=4200;
 constexpr wchar_t kCustomClass[]=L"SoundForkPreviewChannelDialog";
 LRESULT preview_control_background(WPARAM wparam, LPARAM lparam) {
   const auto dc=reinterpret_cast<HDC>(wparam);
@@ -67,47 +67,54 @@ LRESULT CALLBACK channel_dialog(HWND window,UINT message,WPARAM wparam,LPARAM lp
 
 struct Preview {
   AppState app;
-  HWND tabs=nullptr,channels=nullptr,channel_label=nullptr,custom=nullptr;
+  HWND channels=nullptr,channel_label=nullptr,custom=nullptr;
   HWND obs_title=nullptr,obs_status=nullptr,obs_install=nullptr,obs_remove=nullptr,obs_usage=nullptr;
   HWND settings_title=nullptr,language_label=nullptr,language=nullptr,updates=nullptr,settings_note=nullptr;
   HWND footer=nullptr;
   HWND playback_note=nullptr,buffer_group=nullptr,buffer_note=nullptr;
+  HWND playback_info=nullptr,information_group=nullptr,information=nullptr,program_group=nullptr,program=nullptr;
+  HWND diagnostic_button=nullptr;
   soundfork::capture::ChannelPair pair{};
-  std::vector<HWND> playback,broadcast,tuning,obs,settings;
+  std::vector<HWND> playback,broadcast,tuning,obs,settings,info,about;
   int page=0;
   bool ready=false;
 };
 void arrange(Preview& p) {
   if(!p.ready) return;
   RECT r{}; GetClientRect(p.app.window,&r);
-  const int width=r.right, field=width-198;
-  MoveWindow(p.tabs,14,12,width-28,30,TRUE);
+  const int width=r.right, field=width-164;
   const auto move=[](HWND h,int x,int y,int w,int height){MoveWindow(h,x,y,w,height,TRUE);};
-  move(p.app.output_group,14,58,width-28,96);
-  move(p.app.backend_combo,30,94,width-170,220); move(p.app.apply_button,width-124,93,94,28);
-  move(p.playback_note,30,178,width-60,92); move(p.app.refresh_button,30,288,150,28);
-  move(p.app.forwarding_group,14,58,width-28,286);
-  move(p.app.relay_enabled,30,84,width-260,26); move(p.app.relay_button,width-220,82,190,30);
-  move(p.app.relay_mode_label,30,142,130,24); move(p.app.relay_mode_combo,168,138,field,180);
-  move(p.app.endpoint_label,30,190,130,24); move(p.app.endpoint_combo,168,186,field,230);
-  move(p.app.startup_checkbox,30,236,width-60,26); move(p.app.vb_cable_button,30,292,174,28);
-  move(p.app.note,30,368,width-60,60);
-  move(p.buffer_group,14,58,width-28,206);
-  move(p.app.buffer_label,30,106,130,24); move(p.app.relay_buffer,168,102,field,230);
-  move(p.channel_label,30,162,130,24); move(p.channels,168,158,field-100,240); move(p.custom,width-122,157,92,28);
-  move(p.buffer_note,30,290,width-60,112);
-  move(p.obs_title,30,72,width-60,28); move(p.obs_status,30,116,width-60,56);
-  move(p.obs_install,30,190,210,30); move(p.obs_remove,252,190,110,30);
-  move(p.obs_usage,30,252,width-60,164);
-  move(p.settings_title,30,72,width-60,28);
-  move(p.language_label,30,130,130,24); move(p.language,168,126,240,140);
-  move(p.updates,30,188,width-60,28); move(p.settings_note,30,252,width-60,112);
-  move(p.footer,18,r.bottom-30,width-36,22);
+  move(p.app.output_group,12,12,width-24,82);
+  move(p.app.backend_combo,26,42,width-146,200); move(p.app.apply_button,width-108,41,82,26);
+  move(p.playback_info,12,108,width-24,110); move(p.playback_note,26,132,width-52,72);
+  move(p.app.refresh_button,26,234,130,26);
+  move(p.app.forwarding_group,12,12,width-24,238);
+  move(p.app.relay_enabled,26,36,width-200,24); move(p.app.relay_button,width-178,34,152,26);
+  move(p.app.relay_mode_label,26,84,112,20); move(p.app.relay_mode_combo,138,80,field,160);
+  move(p.app.endpoint_label,26,126,112,20); move(p.app.endpoint_combo,138,122,field,200);
+  move(p.app.startup_checkbox,26,166,width-52,24); move(p.app.vb_cable_button,26,208,158,24);
+  move(p.app.note,26,266,width-52,44);
+  move(p.buffer_group,12,12,width-24,142);
+  move(p.app.buffer_label,26,48,112,20); move(p.app.relay_buffer,138,44,field,200);
+  move(p.channel_label,26,100,112,20); move(p.channels,138,96,field-86,200); move(p.custom,width-100,95,74,26);
+  move(p.buffer_note,26,176,width-52,100);
+  move(p.obs_title,26,20,width-52,24); move(p.obs_status,26,58,width-52,46);
+  move(p.obs_install,26,118,180,26); move(p.obs_remove,218,118,90,26);
+  move(p.obs_usage,26,174,width-52,126);
+  move(p.settings_title,26,20,width-52,24);
+  move(p.language_label,26,68,112,20); move(p.language,138,64,210,120);
+  move(p.updates,26,116,width-52,24); move(p.settings_note,26,170,width-52,104);
+  move(p.information_group,12,12,width-24,208); move(p.information,26,40,width-52,160);
+  move(p.diagnostic_button,26,238,164,26);
+  move(p.program_group,12,12,width-24,226); move(p.program,26,40,width-52,176);
+  move(p.footer,14,r.bottom-25,width-28,18);
   for(auto h:p.playback) ShowWindow(h,p.page==0?SW_SHOW:SW_HIDE);
   for(auto h:p.broadcast) ShowWindow(h,p.page==1?SW_SHOW:SW_HIDE);
   for(auto h:p.tuning) ShowWindow(h,p.page==2?SW_SHOW:SW_HIDE);
   for(auto h:p.obs) ShowWindow(h,p.page==3?SW_SHOW:SW_HIDE);
   for(auto h:p.settings) ShowWindow(h,p.page==4?SW_SHOW:SW_HIDE);
+  for(auto h:p.info) ShowWindow(h,p.page==5?SW_SHOW:SW_HIDE);
+  for(auto h:p.about) ShowWindow(h,p.page==6?SW_SHOW:SW_HIDE);
   ShowWindow(p.app.backend_label,SW_HIDE);
   ShowWindow(p.app.status,SW_HIDE);
   InvalidateRect(p.app.window,nullptr,TRUE);
@@ -131,19 +138,31 @@ void populate_channels(Preview& p) {
 }
 void translate(Preview& p,UiLanguage language) {
   apply_language(&p.app,language,false);
-  // Reuse the existing Help menu, detach and destroy Settings for this preview.
-  HMENU menu=GetMenu(p.app.window); HMENU settings=GetSubMenu(menu,0);
-  RemoveMenu(menu,0,MF_BYPOSITION); DestroyMenu(settings); p.app.obs_menu=nullptr; DrawMenuBar(p.app.window);
   const bool ko=language==UiLanguage::korean;
-  SetWindowTextW(p.app.window,ko?L"SoundFork — 간결한 탭 UI 미리보기":L"SoundFork — compact tabs preview");
+  HMENU previous=GetMenu(p.app.window), menu=CreateMenu(), help=CreatePopupMenu();
+  if(!menu || !help) {
+    if(menu) DestroyMenu(menu); if(help) DestroyMenu(help);
+    throw std::runtime_error("preview navigation creation failed");
+  }
+  SetWindowTextW(p.app.window,ko?L"SoundFork — 작은 제어판 미리보기":L"SoundFork — compact control preview");
   const wchar_t* names[]={ko?L"재생":L"Playback",ko?L"방송":L"Broadcast",ko?L"버퍼·채널":L"Buffer / channels",L"OBS",ko?L"설정":L"Settings"};
-  for(int i=0;i<5;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(names[i]);
-    SendMessageW(p.tabs,TCM_SETITEMW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&item)); }
+  for(int i=0;i<5;++i) AppendMenuW(menu,MF_STRING,kNavigate+i,names[i]);
+  AppendMenuW(help,MF_STRING,kNavigate+5,ko?L"연결 정보":L"Connection information");
+  AppendMenuW(help,MF_STRING,kNavigate+6,ko?L"프로그램 정보":L"About SoundFork");
+  AppendMenuW(help,MF_SEPARATOR,0,nullptr);
+  AppendMenuW(help,MF_STRING,kShowDiagnostics,ko?L"상세 진단…":L"Detailed diagnostics…");
+  AppendMenuW(help,MF_STRING,kReportBug,ko?L"버그 제보…":L"Report a bug…");
+  AppendMenuW(help,MF_STRING,kOpenLogs,ko?L"로그 폴더…":L"Log folder…");
+  AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(help),ko?L"도움말":L"Help");
+  p.app.obs_menu=nullptr;
+  SetMenu(p.app.window,menu); if(previous) DestroyMenu(previous);
+  SetMenuDefaultItem(menu,p.page<5?p.page:5,TRUE); DrawMenuBar(p.app.window);
   SetWindowTextW(p.channel_label,ko?L"방송 채널":L"Broadcast channels");
   SetWindowTextW(p.custom,ko?L"변경…":L"Edit…");
-  SetWindowTextW(p.playback_note,ko?L"게임·DAW에서 SoundFork ASIO를 선택하세요.\r\n재생 출력 변경은 애플리케이션을 다시 시작하면 적용됩니다.":L"Select SoundFork ASIO in your game or DAW.\r\nRestart the application after changing playback output.");
+  SetWindowTextW(p.playback_info,ko?L"ASIO 연결 상태":L"ASIO stream status");
+  SetWindowTextW(p.app.output_group,ko?L"재생 출력":L"Playback output");
   SetWindowTextW(p.buffer_group,ko?L"방송 오디오 설정":L"Broadcast audio settings");
-  SetWindowTextW(p.buffer_note,ko?L"전달 버퍼는 방송용 오디오의 여유량입니다.\r\n표시 시간은 버퍼 길이이며 실측 지연이 아닙니다.\r\n\r\n방송 채널 변경은 게임·DAW 재시작 후 적용됩니다.":L"The forwarding buffer provides headroom for broadcast audio.\r\nIts duration is not measured output latency.\r\n\r\nRestart your game or DAW to apply channel changes.");
+  SetWindowTextW(p.buffer_note,ko?L"버퍼 시간은 방송용 여유량이며 실측 지연이 아닙니다.\r\n\r\n채널 변경은 게임·DAW 재시작 후 적용됩니다.":L"Buffer duration is broadcast headroom, not measured latency.\r\n\r\nRestart the game or DAW to apply channel changes.");
   SetWindowTextW(p.obs_title,ko?L"OBS 플러그인":L"OBS plugin");
   const auto obs_version=std::wstring(ko?L"설치된 버전: ":L"Installed version: ")+obs_installed_text(&p.app)+
       (ko?L"\r\n미리보기 포함 파일: ":L"\r\nPreview bundle: ")+ (p.app.obs_status.bundled?p.app.obs_status.bundled_version:(ko?L"없음":L"None"));
@@ -155,10 +174,29 @@ void translate(Preview& p,UiLanguage language) {
   SetWindowTextW(p.language_label,ko?L"표시 언어":L"Display language");
   SendMessageW(p.language,CB_SETCURSEL,ko?0:1,0);
   SetWindowTextW(p.updates,ko?L"새 버전 자동 알림":L"Notify me about new versions");
-  SetWindowTextW(p.settings_note,ko?L"로그인 시 자동 시작은 ‘방송’ 탭에서 설정합니다.\r\n\r\n버전 정보와 진단은 도움말에서 확인할 수 있습니다.\r\n이 미리보기에서는 설정을 저장하지 않습니다.":L"Configure login startup on the Broadcast tab.\r\n\r\nVersion information and diagnostics are in Help.\r\nSettings are not saved in this preview.");
+  SetWindowTextW(p.settings_note,ko?L"로그인 시 자동 시작은 ‘방송’에서 설정합니다.\r\n\r\n버전·연결 정보는 도움말에서 확인할 수 있습니다.":L"Configure login startup under Broadcast.\r\n\r\nVersion and connection information are under Help.");
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus stream;
   const bool active=observer.open() && observer.snapshot(&stream) && stream.producer_active;
+  std::wstring stream_text=ko?(active?L"상태: 연결됨":L"상태: 연결 대기"):(active?L"Status: connected":L"Status: waiting");
+  if(active) {
+    stream_text+=L"\r\n"+std::to_wstring(stream.format.sample_rate)+L" Hz · "+std::to_wstring(stream.format.frames_per_block)+L" frames";
+    std::wostringstream format;
+    format<<soundfork::capture::sample_format_name(stream.format.sample_format);
+    stream_text+=L"\r\n"+format.str();
+  } else stream_text+=ko?L"\r\n게임·DAW에서 SoundFork ASIO를 선택하세요.":L"\r\nSelect SoundFork ASIO in your game or DAW.";
+  SetWindowTextW(p.playback_note,stream_text.c_str());
+  SetWindowTextW(p.information_group,ko?L"연결 정보":L"Connection information");
+  const auto registration=query_registration();
+  const auto info=std::wstring(ko?L"드라이버 등록: ":L"Driver registration: ")+
+      (registration.asio_registered?(ko?L"등록됨":L"Registered"):(ko?L"미등록":L"Not registered"))+
+      L"\r\n\r\n"+stream_text+(ko?L"\r\n\r\n선택 채널 (미리보기): ":L"\r\n\r\nSelected channels (preview): ")+
+      std::to_wstring(p.pair.left+1)+L" / "+std::to_wstring(p.pair.right+1);
+  SetWindowTextW(p.information,info.c_str());
+  SetWindowTextW(p.diagnostic_button,ko?L"상세 진단 보기…":L"Detailed diagnostics…");
+  SetWindowTextW(p.program_group,ko?L"프로그램 정보":L"About SoundFork");
+  SetWindowTextW(p.program,ko?L"SoundFork\r\nv" SOUNDFORK_VERSION_WIDE L" · Windows x64\r\n\r\nASIO 재생과 방송용 오디오 복제\r\n라이선스: MIT\r\n\r\n로컬 UI 비교판입니다.\r\n설정 저장·오디오·설치 작업은 실행하지 않습니다.":
+      L"SoundFork\r\nv" SOUNDFORK_VERSION_WIDE L" · Windows x64\r\n\r\nASIO playback and broadcast audio capture\r\nLicense: MIT\r\n\r\nLocal UI preview.\r\nNo settings, audio or installation actions are applied.");
   SetWindowTextW(p.footer,ko?(active?L"미리보기 · ASIO 연결됨 · 설정 저장 안 함":L"미리보기 · ASIO 연결 대기 · 설정 저장 안 함")
       :(active?L"Preview · ASIO connected · Settings not saved":L"Preview · Waiting for ASIO · Settings not saved"));
   populate_channels(p); arrange(p);
@@ -190,16 +228,14 @@ LRESULT CALLBACK tabbed_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
   }
   if(!p) return DefWindowProcW(window,message,wparam,lparam);
   if(message==WM_CTLCOLORSTATIC || message==WM_CTLCOLORBTN) return preview_control_background(wparam,lparam);
-  if(message==WM_GETMINMAXINFO) { auto* info=reinterpret_cast<MINMAXINFO*>(lparam); info->ptMinTrackSize={650,540}; return 0; }
+  if(message==WM_GETMINMAXINFO) { auto* info=reinterpret_cast<MINMAXINFO*>(lparam); info->ptMinTrackSize={540,410}; return 0; }
   if(message==WM_SIZE) { arrange(*p); return 0; }
-  if(message==WM_NOTIFY && p->ready) {
-    const auto* notify=reinterpret_cast<NMHDR*>(lparam);
-    if(notify->hwndFrom==p->tabs && notify->code==TCN_SELCHANGE) {
-      p->page=TabCtrl_GetCurSel(p->tabs); arrange(*p); return 0;
-    }
-  }
   if(message==WM_COMMAND && p->ready) {
     const auto id=LOWORD(wparam);
+    if(id>=kNavigate && id<kNavigate+7) {
+      p->page=id-kNavigate;
+      translate(*p,p->app.language); return 0;
+    }
     if(id==kChannels && HIWORD(wparam)==CBN_SELCHANGE) {
       const auto selected=SendMessageW(p->channels,CB_GETCURSEL,0,0);
       if(selected>=0 && selected<32) { p->pair={static_cast<DWORD>(selected)*2,static_cast<DWORD>(selected)*2+1}; populate_channels(*p); }
@@ -221,11 +257,17 @@ LRESULT CALLBACK tabbed_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
 void initialize(Preview& p) {
   p.app.force_exit=true; p.app.automatic_updates_enabled=false; p.app.language=UiLanguage::korean;
   create_controls(&p.app); refresh_obs_status(&p.app);
+  LOGFONTW font{}; GetObjectW(p.app.font,sizeof(font),&font); font.lfHeight=-14;
+  const auto compact_font=CreateFontIndirectW(&font);
+  if(compact_font) {
+    const auto old=p.app.font; p.app.font=compact_font;
+    EnumChildWindows(p.app.window,[](HWND item,LPARAM value)->BOOL {
+      set_control_font(item,reinterpret_cast<HFONT>(value)); return TRUE;
+    },reinterpret_cast<LPARAM>(compact_font));
+    DeleteObject(old);
+  }
   populate_backend_combo(&p.app); populate_endpoint_combo(&p.app); populate_relay_mode_combo(&p.app); update_status(&p.app);
   p.pair=soundfork::capture::load_channels();
-  p.tabs=widget(p,WC_TABCONTROLW,L"",kTabs,WS_TABSTOP);
-  for(int i=0;i<5;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(L" ");
-    SendMessageW(p.tabs,TCM_INSERTITEMW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&item)); }
   p.channel_label=widget(p,L"STATIC",L"",0);
   p.channels=widget(p,L"COMBOBOX",L"",kChannels,WS_TABSTOP|CBS_DROPDOWNLIST|WS_VSCROLL);
   p.custom=widget(p,L"BUTTON",L"",kCustom,WS_TABSTOP);
@@ -242,7 +284,13 @@ void initialize(Preview& p) {
   p.buffer_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
   SetWindowPos(p.buffer_group,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
   p.buffer_note=widget(p,L"STATIC",L"",0);
-  p.playback={p.app.output_group,p.app.backend_combo,p.app.apply_button,p.app.refresh_button,p.playback_note};
+  p.playback_info=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
+  p.information_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.information=widget(p,L"STATIC",L"",0);
+  p.diagnostic_button=widget(p,L"BUTTON",L"",kShowDiagnostics,WS_TABSTOP);
+  p.program_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.program=widget(p,L"STATIC",L"",0);
+  SetWindowPos(p.playback_info,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+  p.info={p.information_group,p.information,p.diagnostic_button}; p.about={p.program_group,p.program};
+  p.playback={p.app.output_group,p.app.backend_combo,p.app.apply_button,p.app.refresh_button,p.playback_info,p.playback_note};
   p.broadcast={p.app.forwarding_group,
       p.app.relay_mode_label,p.app.relay_mode_combo,p.app.relay_enabled,p.app.relay_button,p.app.endpoint_label,
       p.app.endpoint_combo,p.app.startup_checkbox,p.app.vb_cable_button,p.app.note};
@@ -265,33 +313,37 @@ int wmain(int argc,wchar_t**) {
     wc.lpfnWndProc=diagnostic_proc; wc.lpszClassName=kDiagnosticClass; require(RegisterClassExW(&wc)!=0,"diagnostic class");
     Preview p;
     HWND window=CreateWindowExW(WS_EX_CONTROLPARENT,L"SoundForkTabbedPreview",L"SoundFork",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
-        CW_USEDEFAULT,CW_USEDEFAULT,680,560,nullptr,nullptr,wc.hInstance,&p);
+        CW_USEDEFAULT,CW_USEDEFAULT,540,420,nullptr,nullptr,wc.hInstance,&p);
     require(window!=nullptr,"main window"); initialize(p);
     if(argc>1) {
       for(int language=0;language<2;++language) {
         translate(p,language==0?UiLanguage::korean:UiLanguage::english);
-        SetWindowPos(window,nullptr,0,0,650,540,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(window,nullptr,0,0,540,410,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
         const wchar_t* expected_ko[]={L"재생",L"방송",L"버퍼·채널",L"OBS",L"설정"};
         const wchar_t* expected_en[]={L"Playback",L"Broadcast",L"Buffer / channels",L"OBS",L"Settings"};
+        require(GetMenuItemCount(GetMenu(window))==6,"navigation must share one menu row with Help");
         for(int tab=0;tab<5;++tab) {
-          wchar_t title[32]{}; TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=title; item.cchTextMax=32;
-          require(SendMessageW(p.tabs,TCM_GETITEMW,static_cast<WPARAM>(tab),reinterpret_cast<LPARAM>(&item))!=0,"tab label query");
-          require(std::wstring_view(title)==(language==0?expected_ko[tab]:expected_en[tab]),"Unicode tab label corrupted");
+          wchar_t title[32]{};
+          require(GetMenuStringW(GetMenu(window),tab,title,32,MF_BYPOSITION)!=0,"navigation label query");
+          require(std::wstring_view(title)==(language==0?expected_ko[tab]:expected_en[tab]),"Unicode navigation label corrupted");
         }
-        for(int page=0;page<5;++page) {
-          p.page=page; TabCtrl_SetCurSel(p.tabs,page); arrange(p);
+        for(int page=0;page<7;++page) {
+          SendMessageW(window,WM_COMMAND,kNavigate+page,0);
+          require(p.page==page,"menu navigation did not select the page");
           require((GetWindowLongPtrW(p.app.backend_combo,GWL_STYLE)&WS_VISIBLE)!=0 ? page==0 : page!=0,"playback visibility");
           require((GetWindowLongPtrW(p.app.startup_checkbox,GWL_STYLE)&WS_VISIBLE)!=0 ? page==1 : page!=1,"broadcast visibility");
           require((GetWindowLongPtrW(p.channels,GWL_STYLE)&WS_VISIBLE)!=0 ? page==2 : page!=2,"buffer/channel visibility");
           require((GetWindowLongPtrW(p.obs_install,GWL_STYLE)&WS_VISIBLE)!=0 ? page==3 : page!=3,"OBS page visibility");
           require((GetWindowLongPtrW(p.language,GWL_STYLE)&WS_VISIBLE)!=0 ? page==4 : page!=4,"settings visibility");
+          require((GetWindowLongPtrW(p.information,GWL_STYLE)&WS_VISIBLE)!=0 ? page==5 : page!=5,"connection information visibility");
+          require((GetWindowLongPtrW(p.program,GWL_STYLE)&WS_VISIBLE)!=0 ? page==6 : page!=6,"program information visibility");
           RECT client{}; GetClientRect(window,&client);
-          for(const auto* controls:{&p.playback,&p.broadcast,&p.tuning,&p.obs,&p.settings}) {
+          for(const auto* controls:{&p.playback,&p.broadcast,&p.tuning,&p.obs,&p.settings,&p.info,&p.about}) {
             for(auto control:*controls) {
               if((GetWindowLongPtrW(control,GWL_STYLE)&WS_VISIBLE)==0) continue;
               RECT bounds{}; GetWindowRect(control,&bounds);
               MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
-              require(bounds.left>=0 && bounds.right<=client.right && bounds.top>=50 && bounds.bottom<=client.bottom-32,
+              require(bounds.left>=0 && bounds.right<=client.right && bounds.top>=8 && bounds.bottom<=client.bottom-30,
                       "compact page control clipped or overlaps footer");
             }
           }
@@ -303,7 +355,7 @@ int wmain(int argc,wchar_t**) {
       SendMessageW(data.left,CB_SETCURSEL,63,0); SendMessageW(data.right,CB_SETCURSEL,2,0);
       SendMessageW(dialog,WM_COMMAND,IDOK,0);
       require(data.accepted && data.pair.left==63 && data.pair.right==2,"custom channel selection");
-      DestroyWindow(window); std::cout<<"Tabbed preview: pages, languages and custom channel dialog passed\n";
+      DestroyWindow(window); std::cout<<"Compact menu preview: 7 pages, languages, minimum-size layout and custom channels passed\n";
     } else {
       ShowWindow(window,SW_SHOW); MSG message{};
       while(GetMessageW(&message,nullptr,0,0)>0) {
