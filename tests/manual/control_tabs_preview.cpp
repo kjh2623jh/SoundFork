@@ -73,7 +73,10 @@ struct Preview {
   HWND footer=nullptr;
   HWND playback_note=nullptr,buffer_group=nullptr,buffer_note=nullptr;
   HWND playback_info=nullptr,information_group=nullptr,information=nullptr,program_group=nullptr,program=nullptr;
-  HWND diagnostic_button=nullptr;
+  HWND diagnostic_button=nullptr,logs_button=nullptr,update_group=nullptr;
+  HWND program_name=nullptr,support_group=nullptr,update_button=nullptr,bug_button=nullptr;
+  HFONT heading_font=nullptr;
+  ~Preview() { if(heading_font) DeleteObject(heading_font); }
   soundfork::capture::ChannelPair pair{};
   std::vector<HWND> playback,broadcast,tuning,obs,settings,info,about;
   int page=0;
@@ -101,12 +104,18 @@ void arrange(Preview& p) {
   move(p.obs_title,26,20,width-52,24); move(p.obs_status,26,58,width-52,46);
   move(p.obs_install,26,118,180,26); move(p.obs_remove,218,118,90,26);
   move(p.obs_usage,26,174,width-52,126);
-  move(p.settings_title,26,20,width-52,24);
-  move(p.language_label,26,68,112,20); move(p.language,138,64,210,120);
-  move(p.updates,26,116,width-52,24); move(p.settings_note,26,170,width-52,104);
-  move(p.information_group,12,12,width-24,208); move(p.information,26,40,width-52,160);
-  move(p.diagnostic_button,26,238,164,26);
-  move(p.program_group,12,12,width-24,226); move(p.program,26,40,width-52,176);
+  move(p.settings_title,12,12,width-24,86);
+  move(p.language_label,26,48,112,20); move(p.language,138,44,210,120);
+  move(p.update_group,12,112,width-24,100);
+  move(p.updates,26,140,width-52,24); move(p.settings_note,26,174,width-52,22);
+  move(p.information_group,12,12,width-24,198); move(p.information,26,36,width-52,158);
+  SendMessageW(p.information,LVM_SETCOLUMNWIDTH,0,150);
+  SendMessageW(p.information,LVM_SETCOLUMNWIDTH,1,width-206);
+  move(p.diagnostic_button,26,226,150,26); move(p.logs_button,188,226,150,26);
+  move(p.program_group,12,12,width-24,150);
+  move(p.program_name,26,36,width-52,30); move(p.program,26,80,width-52,64);
+  move(p.support_group,12,176,width-24,70);
+  move(p.update_button,26,204,150,26); move(p.bug_button,188,204,150,26);
   move(p.footer,14,r.bottom-25,width-28,18);
   for(auto h:p.playback) ShowWindow(h,p.page==0?SW_SHOW:SW_HIDE);
   for(auto h:p.broadcast) ShowWindow(h,p.page==1?SW_SHOW:SW_HIDE);
@@ -149,10 +158,6 @@ void translate(Preview& p,UiLanguage language) {
   for(int i=0;i<5;++i) AppendMenuW(menu,MF_STRING,kNavigate+i,names[i]);
   AppendMenuW(help,MF_STRING,kNavigate+5,ko?L"연결 정보":L"Connection information");
   AppendMenuW(help,MF_STRING,kNavigate+6,ko?L"프로그램 정보":L"About SoundFork");
-  AppendMenuW(help,MF_SEPARATOR,0,nullptr);
-  AppendMenuW(help,MF_STRING,kShowDiagnostics,ko?L"상세 진단…":L"Detailed diagnostics…");
-  AppendMenuW(help,MF_STRING,kReportBug,ko?L"버그 제보…":L"Report a bug…");
-  AppendMenuW(help,MF_STRING,kOpenLogs,ko?L"로그 폴더…":L"Log folder…");
   AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(help),ko?L"도움말":L"Help");
   p.app.obs_menu=nullptr;
   SetMenu(p.app.window,menu); if(previous) DestroyMenu(previous);
@@ -170,11 +175,12 @@ void translate(Preview& p,UiLanguage language) {
   SetWindowTextW(p.obs_install,ko?L"설치 / 업데이트…":L"Install / update…");
   SetWindowTextW(p.obs_remove,ko?L"제거…":L"Remove…");
   SetWindowTextW(p.obs_usage,ko?L"OBS를 다시 시작하고 ‘SoundFork 오디오’ 소스를 추가하세요.\r\n\r\nOBS만 사용한다면 가상 장치나 오디오 전달은 필요하지 않습니다.\r\n\r\n이 비교판에서는 실제 설치·제거를 실행하지 않습니다.":L"Restart OBS and add a SoundFork Audio source.\r\n\r\nOBS-only capture needs no virtual device or audio forwarding.\r\n\r\nThis preview does not install or remove files.");
-  SetWindowTextW(p.settings_title,ko?L"일반 설정":L"General settings");
-  SetWindowTextW(p.language_label,ko?L"표시 언어":L"Display language");
+  SetWindowTextW(p.settings_title,ko?L"표시":L"Appearance");
+  SetWindowTextW(p.language_label,ko?L"표시 언어":L"Language");
   SendMessageW(p.language,CB_SETCURSEL,ko?0:1,0);
   SetWindowTextW(p.updates,ko?L"새 버전 자동 알림":L"Notify me about new versions");
-  SetWindowTextW(p.settings_note,ko?L"로그인 시 자동 시작은 ‘방송’에서 설정합니다.\r\n\r\n버전·연결 정보는 도움말에서 확인할 수 있습니다.":L"Configure login startup under Broadcast.\r\n\r\nVersion and connection information are under Help.");
+  SetWindowTextW(p.update_group,ko?L"업데이트":L"Updates");
+  SetWindowTextW(p.settings_note,ko?L"직접 확인하려면 도움말 → 프로그램 정보를 여세요.":L"Check manually under Help > About SoundFork.");
   soundfork::capture::SharedRingObserver observer;
   soundfork::capture::StreamStatus stream;
   const bool active=observer.open() && observer.snapshot(&stream) && stream.producer_active;
@@ -188,15 +194,30 @@ void translate(Preview& p,UiLanguage language) {
   SetWindowTextW(p.playback_note,stream_text.c_str());
   SetWindowTextW(p.information_group,ko?L"연결 정보":L"Connection information");
   const auto registration=query_registration();
-  const auto info=std::wstring(ko?L"드라이버 등록: ":L"Driver registration: ")+
-      (registration.asio_registered?(ko?L"등록됨":L"Registered"):(ko?L"미등록":L"Not registered"))+
-      L"\r\n\r\n"+stream_text+(ko?L"\r\n\r\n선택 채널 (미리보기): ":L"\r\n\r\nSelected channels (preview): ")+
-      std::to_wstring(p.pair.left+1)+L" / "+std::to_wstring(p.pair.right+1);
-  SetWindowTextW(p.information,info.c_str());
+  SendMessageW(p.information,LVM_DELETEALLITEMS,0,0);
+  const auto add_property=[&](const wchar_t* label,const std::wstring& value) {
+    LVITEMW item{}; item.mask=LVIF_TEXT; item.iItem=static_cast<int>(SendMessageW(p.information,LVM_GETITEMCOUNT,0,0));
+    item.pszText=const_cast<wchar_t*>(label);
+    const auto index=SendMessageW(p.information,LVM_INSERTITEMW,0,reinterpret_cast<LPARAM>(&item));
+    item.iItem=static_cast<int>(index); item.iSubItem=1; item.pszText=const_cast<wchar_t*>(value.c_str());
+    SendMessageW(p.information,LVM_SETITEMTEXTW,static_cast<WPARAM>(index),reinterpret_cast<LPARAM>(&item));
+  };
+  add_property(ko?L"드라이버 등록":L"Driver registration",registration.asio_registered?(ko?L"등록됨":L"Registered"):(ko?L"미등록":L"Not registered"));
+  add_property(ko?L"ASIO 연결":L"ASIO stream",active?(ko?L"연결됨":L"Connected"):(ko?L"대기 중":L"Waiting"));
+  add_property(ko?L"샘플레이트":L"Sample rate",active?std::to_wstring(stream.format.sample_rate)+L" Hz":L"—");
+  add_property(ko?L"버퍼 크기":L"Block size",active?std::to_wstring(stream.format.frames_per_block)+L" frames":L"—");
+  std::wostringstream format_name; if(active) format_name<<soundfork::capture::sample_format_name(stream.format.sample_format);
+  add_property(ko?L"샘플 형식":L"Sample format",active?format_name.str():L"—");
+  add_property(ko?L"선택 채널 (미리보기)":L"Channels (preview)",std::to_wstring(p.pair.left+1)+L" / "+std::to_wstring(p.pair.right+1));
   SetWindowTextW(p.diagnostic_button,ko?L"상세 진단 보기…":L"Detailed diagnostics…");
+  SetWindowTextW(p.logs_button,ko?L"로그 폴더 열기…":L"Open log folder…");
   SetWindowTextW(p.program_group,ko?L"프로그램 정보":L"About SoundFork");
-  SetWindowTextW(p.program,ko?L"SoundFork\r\nv" SOUNDFORK_VERSION_WIDE L" · Windows x64\r\n\r\nASIO 재생과 방송용 오디오 복제\r\n라이선스: MIT\r\n\r\n로컬 UI 비교판입니다.\r\n설정 저장·오디오·설치 작업은 실행하지 않습니다.":
-      L"SoundFork\r\nv" SOUNDFORK_VERSION_WIDE L" · Windows x64\r\n\r\nASIO playback and broadcast audio capture\r\nLicense: MIT\r\n\r\nLocal UI preview.\r\nNo settings, audio or installation actions are applied.");
+  SetWindowTextW(p.program_name,L"SoundFork");
+  SetWindowTextW(p.program,ko?L"버전  " SOUNDFORK_VERSION_WIDE L"\r\nWindows x64 · MIT 라이선스\r\nASIO 재생과 방송용 오디오 복제":
+      L"Version  " SOUNDFORK_VERSION_WIDE L"\r\nWindows x64 · MIT license\r\nASIO playback and broadcast audio capture");
+  SetWindowTextW(p.support_group,ko?L"지원 및 업데이트":L"Support and updates");
+  SetWindowTextW(p.update_button,ko?L"업데이트 확인…":L"Check for updates…");
+  SetWindowTextW(p.bug_button,ko?L"버그 제보…":L"Report a bug…");
   SetWindowTextW(p.footer,ko?(active?L"미리보기 · ASIO 연결됨 · 설정 저장 안 함":L"미리보기 · ASIO 연결 대기 · 설정 저장 안 함")
       :(active?L"Preview · ASIO connected · Settings not saved":L"Preview · Waiting for ASIO · Settings not saved"));
   populate_channels(p); arrange(p);
@@ -274,7 +295,8 @@ void initialize(Preview& p) {
   p.obs_title=widget(p,L"STATIC",L"",0); p.obs_status=widget(p,L"STATIC",L"",0);
   p.obs_install=widget(p,L"BUTTON",L"",kObsInstall,WS_TABSTOP);
   p.obs_remove=widget(p,L"BUTTON",L"",kObsRemove,WS_TABSTOP); p.obs_usage=widget(p,L"STATIC",L"",0);
-  p.settings_title=widget(p,L"STATIC",L"",0); p.language_label=widget(p,L"STATIC",L"",0);
+  p.settings_title=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.language_label=widget(p,L"STATIC",L"",0);
+  p.update_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
   p.language=widget(p,L"COMBOBOX",L"",kPreviewLanguage,WS_TABSTOP|CBS_DROPDOWNLIST);
   for(const auto* text:{L"한국어",L"English"}) SendMessageW(p.language,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));
   p.updates=widget(p,L"BUTTON",L"",kAutomaticUpdateNotifications,WS_TABSTOP|BS_AUTOCHECKBOX);
@@ -285,18 +307,32 @@ void initialize(Preview& p) {
   SetWindowPos(p.buffer_group,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
   p.buffer_note=widget(p,L"STATIC",L"",0);
   p.playback_info=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
-  p.information_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.information=widget(p,L"STATIC",L"",0);
+  p.information_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
+  p.information=widget(p,WC_LISTVIEWW,L"",0,LVS_REPORT|LVS_NOCOLUMNHEADER|LVS_SINGLESEL);
+  SendMessageW(p.information,LVM_SETEXTENDEDLISTVIEWSTYLE,0,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);
+  for(int i=0;i<2;++i) {
+    LVCOLUMNW column{}; column.mask=LVCF_WIDTH; column.cx=i==0?150:300;
+    SendMessageW(p.information,LVM_INSERTCOLUMNW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&column));
+  }
   p.diagnostic_button=widget(p,L"BUTTON",L"",kShowDiagnostics,WS_TABSTOP);
+  p.logs_button=widget(p,L"BUTTON",L"",kOpenLogs,WS_TABSTOP);
   p.program_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX); p.program=widget(p,L"STATIC",L"",0);
+  p.program_name=widget(p,L"STATIC",L"",0);
+  font.lfHeight=-20; font.lfWeight=FW_SEMIBOLD; p.heading_font=CreateFontIndirectW(&font);
+  if(p.heading_font) set_control_font(p.program_name,p.heading_font);
+  p.support_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
+  p.update_button=widget(p,L"BUTTON",L"",kCheckForUpdates,WS_TABSTOP);
+  p.bug_button=widget(p,L"BUTTON",L"",kReportBug,WS_TABSTOP);
   SetWindowPos(p.playback_info,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-  p.info={p.information_group,p.information,p.diagnostic_button}; p.about={p.program_group,p.program};
+  p.info={p.information_group,p.information,p.diagnostic_button,p.logs_button};
+  p.about={p.program_group,p.program_name,p.program,p.support_group,p.update_button,p.bug_button};
   p.playback={p.app.output_group,p.app.backend_combo,p.app.apply_button,p.app.refresh_button,p.playback_info,p.playback_note};
   p.broadcast={p.app.forwarding_group,
       p.app.relay_mode_label,p.app.relay_mode_combo,p.app.relay_enabled,p.app.relay_button,p.app.endpoint_label,
       p.app.endpoint_combo,p.app.startup_checkbox,p.app.vb_cable_button,p.app.note};
   p.tuning={p.buffer_group,p.buffer_note,p.app.buffer_label,p.app.relay_buffer,p.channel_label,p.channels,p.custom};
   p.obs={p.obs_title,p.obs_status,p.obs_install,p.obs_remove,p.obs_usage};
-  p.settings={p.settings_title,p.language_label,p.language,p.updates,p.settings_note};
+  p.settings={p.settings_title,p.language_label,p.language,p.update_group,p.updates,p.settings_note};
   p.ready=true; translate(p,UiLanguage::korean);
 }
 void require(bool condition,const char* why) { if(!condition) throw std::runtime_error(why); }
@@ -305,7 +341,7 @@ int wmain(int argc,wchar_t**) {
   if(FAILED(CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED))) return 2;
   struct End { ~End(){CoUninitialize();} } end;
   try {
-    INITCOMMONCONTROLSEX common{sizeof(common),ICC_TAB_CLASSES}; InitCommonControlsEx(&common);
+    INITCOMMONCONTROLSEX common{sizeof(common),ICC_TAB_CLASSES|ICC_LISTVIEW_CLASSES}; InitCommonControlsEx(&common);
     WNDCLASSEXW wc{sizeof(wc)}; wc.hInstance=GetModuleHandleW(nullptr); wc.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));
     wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1); wc.lpfnWndProc=tabbed_proc; wc.lpszClassName=L"SoundForkTabbedPreview";
     require(RegisterClassExW(&wc)!=0,"main class");
@@ -322,6 +358,8 @@ int wmain(int argc,wchar_t**) {
         const wchar_t* expected_ko[]={L"재생",L"방송",L"버퍼·채널",L"OBS",L"설정"};
         const wchar_t* expected_en[]={L"Playback",L"Broadcast",L"Buffer / channels",L"OBS",L"Settings"};
         require(GetMenuItemCount(GetMenu(window))==6,"navigation must share one menu row with Help");
+        require(GetMenuItemCount(GetSubMenu(GetMenu(window),5))==2,"Help must only contain connection and program information");
+        require(SendMessageW(p.information,LVM_GETITEMCOUNT,0,0)==6,"connection property rows missing");
         for(int tab=0;tab<5;++tab) {
           wchar_t title[32]{};
           require(GetMenuStringW(GetMenu(window),tab,title,32,MF_BYPOSITION)!=0,"navigation label query");
