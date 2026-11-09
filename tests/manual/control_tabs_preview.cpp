@@ -71,39 +71,45 @@ struct Preview {
   HWND obs_title=nullptr,obs_status=nullptr,obs_install=nullptr,obs_remove=nullptr,obs_usage=nullptr;
   HWND settings_title=nullptr,language_label=nullptr,language=nullptr,updates=nullptr,settings_note=nullptr;
   HWND footer=nullptr;
+  HWND playback_note=nullptr,buffer_group=nullptr,buffer_note=nullptr;
   soundfork::capture::ChannelPair pair{};
-  std::vector<HWND> audio,obs,settings;
+  std::vector<HWND> playback,broadcast,tuning,obs,settings;
   int page=0;
   bool ready=false;
 };
 void arrange(Preview& p) {
   if(!p.ready) return;
   RECT r{}; GetClientRect(p.app.window,&r);
-  const int width=r.right, field=width-252;
-  MoveWindow(p.tabs,18,16,width-36,32,TRUE);
+  const int width=r.right, field=width-198;
+  MoveWindow(p.tabs,14,12,width-28,30,TRUE);
   const auto move=[](HWND h,int x,int y,int w,int height){MoveWindow(h,x,y,w,height,TRUE);};
-  move(p.app.output_group,18,62,width-36,88);
-  move(p.app.backend_combo,38,96,width-190,220); move(p.app.apply_button,width-138,95,96,28);
-  move(p.app.forwarding_group,18,166,width-36,336);
-  move(p.app.relay_enabled,38,190,width-300,26); move(p.app.relay_button,width-242,188,200,30);
-  move(p.app.relay_mode_label,38,242,174,24); move(p.app.relay_mode_combo,210,238,field,180);
-  move(p.app.endpoint_label,38,286,174,24); move(p.app.endpoint_combo,210,282,field,230);
-  move(p.app.buffer_label,38,330,174,24); move(p.app.relay_buffer,210,326,field,230);
-  move(p.channel_label,38,374,174,24); move(p.channels,210,370,field-100,240); move(p.custom,width-134,369,92,28);
-  move(p.app.startup_checkbox,38,415,width-80,26);
-  move(p.app.refresh_button,38,458,145,28); move(p.app.vb_cable_button,196,458,174,28);
-  move(p.app.status,38,522,width-76,64); move(p.app.note,38,590,width-76,46);
-  move(p.obs_title,38,82,width-76,30); move(p.obs_status,38,126,width-76,72);
-  move(p.obs_install,38,212,210,32); move(p.obs_remove,262,212,110,32);
-  move(p.obs_usage,38,276,width-76,280);
-  move(p.settings_title,38,82,width-76,30);
-  move(p.language_label,38,136,160,24); move(p.language,210,132,260,140);
-  move(p.updates,38,194,width-76,28); move(p.settings_note,38,250,width-76,110);
-  move(p.footer,22,r.bottom-35,width-44,25);
-  for(auto h:p.audio) ShowWindow(h,p.page==0?SW_SHOW:SW_HIDE);
-  for(auto h:p.obs) ShowWindow(h,p.page==1?SW_SHOW:SW_HIDE);
-  for(auto h:p.settings) ShowWindow(h,p.page==2?SW_SHOW:SW_HIDE);
+  move(p.app.output_group,14,58,width-28,96);
+  move(p.app.backend_combo,30,94,width-170,220); move(p.app.apply_button,width-124,93,94,28);
+  move(p.playback_note,30,178,width-60,92); move(p.app.refresh_button,30,288,150,28);
+  move(p.app.forwarding_group,14,58,width-28,286);
+  move(p.app.relay_enabled,30,84,width-260,26); move(p.app.relay_button,width-220,82,190,30);
+  move(p.app.relay_mode_label,30,142,130,24); move(p.app.relay_mode_combo,168,138,field,180);
+  move(p.app.endpoint_label,30,190,130,24); move(p.app.endpoint_combo,168,186,field,230);
+  move(p.app.startup_checkbox,30,236,width-60,26); move(p.app.vb_cable_button,30,292,174,28);
+  move(p.app.note,30,368,width-60,60);
+  move(p.buffer_group,14,58,width-28,206);
+  move(p.app.buffer_label,30,106,130,24); move(p.app.relay_buffer,168,102,field,230);
+  move(p.channel_label,30,162,130,24); move(p.channels,168,158,field-100,240); move(p.custom,width-122,157,92,28);
+  move(p.buffer_note,30,290,width-60,112);
+  move(p.obs_title,30,72,width-60,28); move(p.obs_status,30,116,width-60,56);
+  move(p.obs_install,30,190,210,30); move(p.obs_remove,252,190,110,30);
+  move(p.obs_usage,30,252,width-60,164);
+  move(p.settings_title,30,72,width-60,28);
+  move(p.language_label,30,130,130,24); move(p.language,168,126,240,140);
+  move(p.updates,30,188,width-60,28); move(p.settings_note,30,252,width-60,112);
+  move(p.footer,18,r.bottom-30,width-36,22);
+  for(auto h:p.playback) ShowWindow(h,p.page==0?SW_SHOW:SW_HIDE);
+  for(auto h:p.broadcast) ShowWindow(h,p.page==1?SW_SHOW:SW_HIDE);
+  for(auto h:p.tuning) ShowWindow(h,p.page==2?SW_SHOW:SW_HIDE);
+  for(auto h:p.obs) ShowWindow(h,p.page==3?SW_SHOW:SW_HIDE);
+  for(auto h:p.settings) ShowWindow(h,p.page==4?SW_SHOW:SW_HIDE);
   ShowWindow(p.app.backend_label,SW_HIDE);
+  ShowWindow(p.app.status,SW_HIDE);
   InvalidateRect(p.app.window,nullptr,TRUE);
 }
 HWND widget(Preview& p,const wchar_t* kind,const wchar_t* text,int id,DWORD style=0) {
@@ -129,25 +135,32 @@ void translate(Preview& p,UiLanguage language) {
   HMENU menu=GetMenu(p.app.window); HMENU settings=GetSubMenu(menu,0);
   RemoveMenu(menu,0,MF_BYPOSITION); DestroyMenu(settings); p.app.obs_menu=nullptr; DrawMenuBar(p.app.window);
   const bool ko=language==UiLanguage::korean;
-  SetWindowTextW(p.app.window,ko?L"SoundFork — 탭 UI 미리보기":L"SoundFork — tabbed UI preview");
-  const wchar_t* names[]={ko?L"오디오":L"Audio",L"OBS",ko?L"설정":L"Settings"};
-  for(int i=0;i<3;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(names[i]);
+  SetWindowTextW(p.app.window,ko?L"SoundFork — 간결한 탭 UI 미리보기":L"SoundFork — compact tabs preview");
+  const wchar_t* names[]={ko?L"재생":L"Playback",ko?L"방송":L"Broadcast",ko?L"버퍼·채널":L"Buffer / channels",L"OBS",ko?L"설정":L"Settings"};
+  for(int i=0;i<5;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(names[i]);
     SendMessageW(p.tabs,TCM_SETITEMW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&item)); }
   SetWindowTextW(p.channel_label,ko?L"방송 채널":L"Broadcast channels");
   SetWindowTextW(p.custom,ko?L"변경…":L"Edit…");
+  SetWindowTextW(p.playback_note,ko?L"게임·DAW에서 SoundFork ASIO를 선택하세요.\r\n재생 출력 변경은 애플리케이션을 다시 시작하면 적용됩니다.":L"Select SoundFork ASIO in your game or DAW.\r\nRestart the application after changing playback output.");
+  SetWindowTextW(p.buffer_group,ko?L"방송 오디오 설정":L"Broadcast audio settings");
+  SetWindowTextW(p.buffer_note,ko?L"전달 버퍼는 방송용 오디오의 여유량입니다.\r\n표시 시간은 버퍼 길이이며 실측 지연이 아닙니다.\r\n\r\n방송 채널 변경은 게임·DAW 재시작 후 적용됩니다.":L"The forwarding buffer provides headroom for broadcast audio.\r\nIts duration is not measured output latency.\r\n\r\nRestart your game or DAW to apply channel changes.");
   SetWindowTextW(p.obs_title,ko?L"OBS 플러그인":L"OBS plugin");
   const auto obs_version=std::wstring(ko?L"설치된 버전: ":L"Installed version: ")+obs_installed_text(&p.app)+
       (ko?L"\r\n미리보기 포함 파일: ":L"\r\nPreview bundle: ")+ (p.app.obs_status.bundled?p.app.obs_status.bundled_version:(ko?L"없음":L"None"));
   SetWindowTextW(p.obs_status,obs_version.c_str());
   SetWindowTextW(p.obs_install,ko?L"설치 / 업데이트…":L"Install / update…");
   SetWindowTextW(p.obs_remove,ko?L"제거…":L"Remove…");
-  SetWindowTextW(p.obs_usage,ko?L"사용 방법\r\n\r\n1. SoundFork 플러그인을 설치합니다.\r\n2. OBS를 다시 시작합니다.\r\n3. 소스에서 ‘SoundFork 오디오’를 추가합니다.\r\n\r\nOBS만 사용한다면 가상 장치나 오디오 전달은 필요하지 않습니다.\r\n같은 소리를 CABLE Input으로 함께 캡처하면 중복될 수 있습니다.\r\n\r\n이 비교판의 버튼은 실제 파일을 설치하거나 제거하지 않습니다.":L"Getting started\r\n\r\n1. Install the SoundFork plugin.\r\n2. Restart OBS.\r\n3. Add a SoundFork Audio source.\r\n\r\nOBS-only capture needs no virtual device or audio forwarding.\r\nAvoid also capturing CABLE Input to prevent duplicate audio.\r\n\r\nButtons in this preview do not install or remove files.");
+  SetWindowTextW(p.obs_usage,ko?L"OBS를 다시 시작하고 ‘SoundFork 오디오’ 소스를 추가하세요.\r\n\r\nOBS만 사용한다면 가상 장치나 오디오 전달은 필요하지 않습니다.\r\n\r\n이 비교판에서는 실제 설치·제거를 실행하지 않습니다.":L"Restart OBS and add a SoundFork Audio source.\r\n\r\nOBS-only capture needs no virtual device or audio forwarding.\r\n\r\nThis preview does not install or remove files.");
   SetWindowTextW(p.settings_title,ko?L"일반 설정":L"General settings");
   SetWindowTextW(p.language_label,ko?L"표시 언어":L"Display language");
   SendMessageW(p.language,CB_SETCURSEL,ko?0:1,0);
   SetWindowTextW(p.updates,ko?L"새 버전 자동 알림":L"Notify me about new versions");
-  SetWindowTextW(p.settings_note,ko?L"언어와 알림 선택은 이 미리보기에만 적용됩니다.\r\n\r\n‘로그인 시 오디오 전달 시작’은 오디오 탭에 있습니다.\r\n버전 정보, 진단과 버그 제보는 도움말에서 확인할 수 있습니다.":L"Language and notification choices apply to this preview only.\r\n\r\nLogin audio forwarding stays on the Audio tab.\r\nVersion information, diagnostics and bug reporting are in Help.");
-  SetWindowTextW(p.footer,ko?L"로컬 비교용 · 설정 저장 및 오디오/설치 작업은 실행하지 않습니다.":L"Local preview · No settings are saved; no audio or installation actions run.");
+  SetWindowTextW(p.settings_note,ko?L"로그인 시 자동 시작은 ‘방송’ 탭에서 설정합니다.\r\n\r\n버전 정보와 진단은 도움말에서 확인할 수 있습니다.\r\n이 미리보기에서는 설정을 저장하지 않습니다.":L"Configure login startup on the Broadcast tab.\r\n\r\nVersion information and diagnostics are in Help.\r\nSettings are not saved in this preview.");
+  soundfork::capture::SharedRingObserver observer;
+  soundfork::capture::StreamStatus stream;
+  const bool active=observer.open() && observer.snapshot(&stream) && stream.producer_active;
+  SetWindowTextW(p.footer,ko?(active?L"미리보기 · ASIO 연결됨 · 설정 저장 안 함":L"미리보기 · ASIO 연결 대기 · 설정 저장 안 함")
+      :(active?L"Preview · ASIO connected · Settings not saved":L"Preview · Waiting for ASIO · Settings not saved"));
   populate_channels(p); arrange(p);
 }
 void edit_channels(Preview& p) {
@@ -177,7 +190,7 @@ LRESULT CALLBACK tabbed_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
   }
   if(!p) return DefWindowProcW(window,message,wparam,lparam);
   if(message==WM_CTLCOLORSTATIC || message==WM_CTLCOLORBTN) return preview_control_background(wparam,lparam);
-  if(message==WM_GETMINMAXINFO) { auto* info=reinterpret_cast<MINMAXINFO*>(lparam); info->ptMinTrackSize={760,750}; return 0; }
+  if(message==WM_GETMINMAXINFO) { auto* info=reinterpret_cast<MINMAXINFO*>(lparam); info->ptMinTrackSize={650,540}; return 0; }
   if(message==WM_SIZE) { arrange(*p); return 0; }
   if(message==WM_NOTIFY && p->ready) {
     const auto* notify=reinterpret_cast<NMHDR*>(lparam);
@@ -210,8 +223,8 @@ void initialize(Preview& p) {
   create_controls(&p.app); refresh_obs_status(&p.app);
   populate_backend_combo(&p.app); populate_endpoint_combo(&p.app); populate_relay_mode_combo(&p.app); update_status(&p.app);
   p.pair=soundfork::capture::load_channels();
-  p.tabs=widget(p,WC_TABCONTROLW,L"",kTabs,WS_TABSTOP|TCS_BUTTONS|TCS_FLATBUTTONS);
-  for(int i=0;i<3;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(L" ");
+  p.tabs=widget(p,WC_TABCONTROLW,L"",kTabs,WS_TABSTOP);
+  for(int i=0;i<5;++i) { TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=const_cast<wchar_t*>(L" ");
     SendMessageW(p.tabs,TCM_INSERTITEMW,static_cast<WPARAM>(i),reinterpret_cast<LPARAM>(&item)); }
   p.channel_label=widget(p,L"STATIC",L"",0);
   p.channels=widget(p,L"COMBOBOX",L"",kChannels,WS_TABSTOP|CBS_DROPDOWNLIST|WS_VSCROLL);
@@ -225,10 +238,15 @@ void initialize(Preview& p) {
   p.updates=widget(p,L"BUTTON",L"",kAutomaticUpdateNotifications,WS_TABSTOP|BS_AUTOCHECKBOX);
   SendMessageW(p.updates,BM_SETCHECK,BST_CHECKED,0);
   p.settings_note=widget(p,L"STATIC",L"",0); p.footer=widget(p,L"STATIC",L"",0);
-  p.audio={p.app.output_group,p.app.forwarding_group,p.app.buffer_label,p.app.backend_combo,p.app.apply_button,
+  p.playback_note=widget(p,L"STATIC",L"",0);
+  p.buffer_group=widget(p,L"BUTTON",L"",0,BS_GROUPBOX);
+  SetWindowPos(p.buffer_group,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+  p.buffer_note=widget(p,L"STATIC",L"",0);
+  p.playback={p.app.output_group,p.app.backend_combo,p.app.apply_button,p.app.refresh_button,p.playback_note};
+  p.broadcast={p.app.forwarding_group,
       p.app.relay_mode_label,p.app.relay_mode_combo,p.app.relay_enabled,p.app.relay_button,p.app.endpoint_label,
-      p.app.endpoint_combo,p.app.relay_buffer,p.app.startup_checkbox,p.app.refresh_button,p.app.vb_cable_button,
-      p.app.status,p.app.note,p.channel_label,p.channels,p.custom};
+      p.app.endpoint_combo,p.app.startup_checkbox,p.app.vb_cable_button,p.app.note};
+  p.tuning={p.buffer_group,p.buffer_note,p.app.buffer_label,p.app.relay_buffer,p.channel_label,p.channels,p.custom};
   p.obs={p.obs_title,p.obs_status,p.obs_install,p.obs_remove,p.obs_usage};
   p.settings={p.settings_title,p.language_label,p.language,p.updates,p.settings_note};
   p.ready=true; translate(p,UiLanguage::korean);
@@ -247,23 +265,36 @@ int wmain(int argc,wchar_t**) {
     wc.lpfnWndProc=diagnostic_proc; wc.lpszClassName=kDiagnosticClass; require(RegisterClassExW(&wc)!=0,"diagnostic class");
     Preview p;
     HWND window=CreateWindowExW(WS_EX_CONTROLPARENT,L"SoundForkTabbedPreview",L"SoundFork",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
-        CW_USEDEFAULT,CW_USEDEFAULT,820,780,nullptr,nullptr,wc.hInstance,&p);
+        CW_USEDEFAULT,CW_USEDEFAULT,680,560,nullptr,nullptr,wc.hInstance,&p);
     require(window!=nullptr,"main window"); initialize(p);
     if(argc>1) {
       for(int language=0;language<2;++language) {
         translate(p,language==0?UiLanguage::korean:UiLanguage::english);
-        const wchar_t* expected_ko[]={L"오디오",L"OBS",L"설정"};
-        const wchar_t* expected_en[]={L"Audio",L"OBS",L"Settings"};
-        for(int tab=0;tab<3;++tab) {
+        SetWindowPos(window,nullptr,0,0,650,540,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+        const wchar_t* expected_ko[]={L"재생",L"방송",L"버퍼·채널",L"OBS",L"설정"};
+        const wchar_t* expected_en[]={L"Playback",L"Broadcast",L"Buffer / channels",L"OBS",L"Settings"};
+        for(int tab=0;tab<5;++tab) {
           wchar_t title[32]{}; TCITEMW item{}; item.mask=TCIF_TEXT; item.pszText=title; item.cchTextMax=32;
           require(SendMessageW(p.tabs,TCM_GETITEMW,static_cast<WPARAM>(tab),reinterpret_cast<LPARAM>(&item))!=0,"tab label query");
           require(std::wstring_view(title)==(language==0?expected_ko[tab]:expected_en[tab]),"Unicode tab label corrupted");
         }
-        for(int page=0;page<3;++page) {
+        for(int page=0;page<5;++page) {
           p.page=page; TabCtrl_SetCurSel(p.tabs,page); arrange(p);
-          require((GetWindowLongPtrW(p.channels,GWL_STYLE)&WS_VISIBLE)!=0 ? page==0 : page!=0,"audio page visibility");
-          require((GetWindowLongPtrW(p.obs_install,GWL_STYLE)&WS_VISIBLE)!=0 ? page==1 : page!=1,"OBS page visibility");
-          require((GetWindowLongPtrW(p.language,GWL_STYLE)&WS_VISIBLE)!=0 ? page==2 : page!=2,"settings visibility");
+          require((GetWindowLongPtrW(p.app.backend_combo,GWL_STYLE)&WS_VISIBLE)!=0 ? page==0 : page!=0,"playback visibility");
+          require((GetWindowLongPtrW(p.app.startup_checkbox,GWL_STYLE)&WS_VISIBLE)!=0 ? page==1 : page!=1,"broadcast visibility");
+          require((GetWindowLongPtrW(p.channels,GWL_STYLE)&WS_VISIBLE)!=0 ? page==2 : page!=2,"buffer/channel visibility");
+          require((GetWindowLongPtrW(p.obs_install,GWL_STYLE)&WS_VISIBLE)!=0 ? page==3 : page!=3,"OBS page visibility");
+          require((GetWindowLongPtrW(p.language,GWL_STYLE)&WS_VISIBLE)!=0 ? page==4 : page!=4,"settings visibility");
+          RECT client{}; GetClientRect(window,&client);
+          for(const auto* controls:{&p.playback,&p.broadcast,&p.tuning,&p.obs,&p.settings}) {
+            for(auto control:*controls) {
+              if((GetWindowLongPtrW(control,GWL_STYLE)&WS_VISIBLE)==0) continue;
+              RECT bounds{}; GetWindowRect(control,&bounds);
+              MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
+              require(bounds.left>=0 && bounds.right<=client.right && bounds.top>=50 && bounds.bottom<=client.bottom-32,
+                      "compact page control clipped or overlaps footer");
+            }
+          }
         }
       }
       ChannelDialog data; data.font=p.app.font;
