@@ -30,7 +30,8 @@ void check(bool korean) {
   status.startup_error = L"test error 5";
   text = control_status_text(status, korean);
   require(text.find(korean ? L"자동 전달 시작 실패" : L"Automatic forwarding failed") != text.npos, "startup error hidden");
-  require(text.find(korean ? L"진단 정보" : L"Diagnostics") != text.npos, "error guidance missing");
+  require(text.find(korean ? L"연결 정보 → 상세 진단 보기" : L"Connection > Detailed diagnostics") != text.npos,
+      "error guidance does not point to the current diagnostics action");
   status.forwarding_running = false;
   require(control_status_text(status, korean).find(korean ? L"중지됨" : L"Stopped") != text.npos, "stop status missing");
   const auto& strings = soundfork::control::diagnostic_strings(korean);

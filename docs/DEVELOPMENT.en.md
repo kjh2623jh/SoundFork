@@ -417,10 +417,12 @@ installation/registration tests on a working audio setup.
 `control_status_tests` covers Korean/English summaries for missing configuration,
 late devices, input waiting, stopping and errors, without claiming successful
 delivery from process existence. `control_ui_tests --test` creates hidden real
-Win32 controls and verifies diagnostics creation, language refresh, close and
-recreation. Without arguments it opens a read-only UI preview. It does not use the
-installed GUI mutex or tray; preference writes, online actions and audio start/stop
-commands are blocked. Actual copying is excluded to preserve the user's clipboard.
+Win32 controls and checks all seven pages, bilingual menu labels, minimum-size layout,
+diagnostics creation, language refresh, close and recreation. Real language, update
+notification and channel-selection writes use a process-private HKCU override that is
+removed afterward. It does not use live preferences, the installed GUI mutex or tray;
+online actions, audio start/stop and plugin installation commands are blocked.
+There is no separate preview executable. Actual copying is excluded to preserve the user's clipboard.
 Other DPI settings, clipboard success/contention and real sign-in remain manual checks.
 The main checkbox is checked for an off default, preference refresh, translations
 and absence from the menu. `installer_policy_tests.ps1` only reads files to verify
@@ -488,7 +490,7 @@ quality guarantee before the user's recording checks.
 ### Diagnostic logs
 
 Available starting with v1.0.1; existing installations need an update.
-Open **Help > Open log folder** or
+Open **Connection > Open log folder** or
 `%LOCALAPPDATA%\SoundFork\Logs`. Each of `control.log`, `relay.log`, `hub.log`
 retains a current file and `.1`/`.2` backups, capped at 1 MiB each (9 MiB total
 under normal self-generated logging). Rotation replaces older history. Logs

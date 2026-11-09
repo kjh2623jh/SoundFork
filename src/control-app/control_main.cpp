@@ -10,6 +10,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cwchar>
@@ -76,9 +77,12 @@ constexpr int kStartupRelay = 2003;
 constexpr int kRelayModeCombo = 2004;
 constexpr int kRelayEnabled = 2005;
 constexpr int kRelayBuffer = 2006;
-constexpr int kCaptureLeftBase = 3000;
-constexpr int kCaptureRightBase = 3200;
-constexpr int kCapturePairBase = 3400;
+constexpr int kChannels = 4101;
+constexpr int kCustomChannels = 4102;
+constexpr int kDisplayLanguage = 4103;
+constexpr int kNavigate = 4200;
+constexpr int kPageCount = 7;
+constexpr wchar_t kChannelDialogClass[] = L"SoundForkChannelDialog";
 constexpr DWORD kRelayBuffers[] = {0, 128, 256, 480, 960, 1920, 3840, 9600};
 constexpr int kCheckForUpdates = 2101;
 constexpr int kOpenProject = 2102;
@@ -356,7 +360,31 @@ struct RegistrationStatus {
   std::wstring driver_dll;
 };
 
+struct PanelControls {
+  HWND channels = nullptr, channel_label = nullptr, custom = nullptr;
+  HWND obs_title = nullptr, obs_status = nullptr, obs_install = nullptr, obs_remove = nullptr,
+       obs_usage = nullptr;
+  HWND obs_version_label = nullptr, obs_bundle_label = nullptr, obs_bundle = nullptr,
+       obs_actions = nullptr, obs_guide = nullptr;
+  HWND obs_details = nullptr;
+  HWND settings_title = nullptr, language_label = nullptr, language = nullptr, updates = nullptr,
+       settings_note = nullptr;
+  HWND playback_note = nullptr, buffer_group = nullptr, buffer_note = nullptr,
+       playback_info = nullptr;
+  HWND information_group = nullptr, information = nullptr, diagnostic_button = nullptr,
+       logs_button = nullptr;
+  HWND program_group = nullptr, program = nullptr, program_name = nullptr, support_group = nullptr;
+  HWND update_group = nullptr, update_button = nullptr, bug_button = nullptr,
+       project_button = nullptr;
+  HFONT heading_font = nullptr;
+  soundfork::capture::ChannelPair pair{};
+  std::array<std::vector<HWND>, kPageCount> pages;
+  int page = 0;
+  bool ready = false;
+};
+
 struct AppState {
+  PanelControls panel;
   HWND window = nullptr;
   HWND backend_combo = nullptr;
   HWND endpoint_combo = nullptr;
@@ -376,7 +404,6 @@ struct AppState {
   HWND diagnostic_copy = nullptr;
   HWND diagnostic_close = nullptr;
   std::wstring diagnostic_snapshot;
-  HWND backend_label = nullptr;
   HWND apply_button = nullptr;
   HWND endpoint_label = nullptr;
   HWND refresh_button = nullptr;
@@ -395,7 +422,6 @@ struct AppState {
   soundfork::control::UpdateResult update_result;
   std::thread update_thread;
   obs_plugin::Status obs_status;
-  HMENU obs_menu = nullptr;
   bool obs_operation_in_progress = false;
   bool obs_operation_install = false;
   std::atomic<DWORD> obs_result{0};
@@ -436,7 +462,7 @@ const RelayModeStrings& relay_mode_strings(UiLanguage language) {
       L"Audio forwarding mode",
       L"External relay — entire-screen sharing",
       L"Internal relay — application-window sharing supported",
-      L"Starts on ASIO connection",
+      L"Starts with ASIO",
       L"The internal relay will start the next time the application initializes SoundFork ASIO.",
       L"In Discord, share the application window or the entire screen. The OBS plugin can be used simultaneously."};
   static constexpr RelayModeStrings ko{
@@ -1127,28 +1153,34 @@ std::wstring obs_installed_text(const AppState* state) {
   return result;
 }
 
-void update_obs_menu(AppState* state) {
-  if (state->obs_menu == nullptr) return;
-  const auto& text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
-  const auto installed = std::wstring(text.installed_version) + obs_installed_text(state);
-  const auto bundled = std::wstring(text.bundled_version) +
-      (state->obs_status.bundled ? state->obs_status.bundled_version : text.not_bundled);
-  ModifyMenuW(state->obs_menu, kObsInstalledStatus, MF_BYCOMMAND | MF_STRING | MF_GRAYED,
-              kObsInstalledStatus, installed.c_str());
-  ModifyMenuW(state->obs_menu, kObsBundledStatus, MF_BYCOMMAND | MF_STRING | MF_GRAYED,
-              kObsBundledStatus, bundled.c_str());
-  const UINT install_flags = MF_BYCOMMAND | MF_STRING |
-      (state->obs_operation_in_progress || !state->obs_status.bundled || !state->obs_status.safe ? MF_GRAYED : 0);
-  ModifyMenuW(state->obs_menu, kObsInstall, install_flags, kObsInstall,
-      state->obs_operation_in_progress ? text.working :
-      (state->obs_status.present ? text.update : text.install));
-  EnableMenuItem(state->obs_menu, kObsRemove, MF_BYCOMMAND |
-      (state->obs_operation_in_progress || !state->obs_status.present || !state->obs_status.safe ? MF_GRAYED : MF_ENABLED));
+void update_obs_controls(AppState* state) {
+  auto& panel = state->panel;
+  if (!panel.obs_status) return;
+  const bool korean = state->language == UiLanguage::korean;
+  const auto& text = soundfork::control::obs_plugin_strings(korean);
+  auto installed = obs_installed_text(state);
+  if (state->obs_status.present && state->obs_status.complete) {
+    installed = state->obs_status.installed_version.empty() ? text.unknown
+                                                            : state->obs_status.installed_version;
+    if (state->obs_status.update_required)
+      installed += korean ? L" (업데이트 필요)" : L" (update available)";
+  }
+  SetWindowTextW(panel.obs_status, installed.c_str());
+  SetWindowTextW(panel.obs_bundle, state->obs_status.bundled
+                                       ? state->obs_status.bundled_version.c_str()
+                                       : text.not_bundled);
+  SetWindowTextW(panel.obs_install, state->obs_operation_in_progress
+                                        ? text.working
+                                        : (state->obs_status.present ? text.update : text.install));
+  EnableWindow(panel.obs_install, !state->obs_operation_in_progress && state->obs_status.bundled &&
+                                      state->obs_status.safe);
+  EnableWindow(panel.obs_remove, !state->obs_operation_in_progress && state->obs_status.present &&
+                                     state->obs_status.safe);
 }
 
 void refresh_obs_status(AppState* state) {
   state->obs_status = obs_plugin::inspect(obs_plugin::locate(executable_directory()));
-  update_obs_menu(state);
+  update_obs_controls(state);
 }
 
 void start_obs_operation(AppState* state, bool install) {
@@ -1159,11 +1191,12 @@ void start_obs_operation(AppState* state, bool install) {
     return;
   }
   if (!install && MessageBoxW(state->window, text.remove_question, text.menu,
-                             MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return;
+                              MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
+    return;
   if (state->obs_thread.joinable()) state->obs_thread.join();
   state->obs_operation_in_progress = true;
   state->obs_operation_install = install;
-  update_obs_menu(state);
+  update_obs_controls(state);
   try {
     const auto executable = executable_path();
     state->obs_thread = std::thread([state, executable, install] {
@@ -1196,7 +1229,7 @@ void start_obs_operation(AppState* state, bool install) {
     });
   } catch (...) {
     state->obs_operation_in_progress = false;
-    update_obs_menu(state);
+    update_obs_controls(state);
     MessageBoxW(state->window, text.failed, text.menu, MB_ICONERROR);
   }
 }
@@ -1494,6 +1527,9 @@ void show_tray_menu(AppState* state) {
   }
 }
 
+void update_panel_status(AppState* state, const RegistrationStatus& registration,
+    const soundfork::capture::StreamStatus& stream, bool active);
+
 void update_status(AppState* state) {
   const UiStrings& strings = ui_strings(state->language);
   const RegistrationStatus registration = query_registration();
@@ -1624,8 +1660,16 @@ void update_status(AppState* state) {
         "relay=" + std::to_string(relay_running) + " asio_stream=" +
         std::to_string(stream.producer_active) + " device_available=" + std::to_string(summary.device_available));
   }
-  SetWindowTextW(state->status, soundfork::control::control_status_text(
-      summary, state->language == UiLanguage::korean).c_str());
+  const bool korean = state->language == UiLanguage::korean;
+  std::wstring footer = ready ? (korean ? L"재생 설정 준비됨" : L"Playback configured")
+      : (korean ? L"재생 설정 확인 필요" : L"Check playback settings");
+  footer += relay_running ? (korean ? L" · 오디오 전달 실행 중" : L" · Forwarding running")
+      : (korean ? L" · 오디오 전달 중지됨" : L" · Forwarding stopped");
+  if (!state->startup_error.empty()) footer = korean
+      ? L"자동 전달 시작 실패 · 연결 정보에서 진단을 확인하세요."
+      : L"Automatic forwarding failed · See Connection diagnostics.";
+  SetWindowTextW(state->status, footer.c_str());
+  update_panel_status(state, registration, stream, stream_observed && stream.producer_active);
   SendMessageW(state->startup_checkbox, BM_SETCHECK,
       startup_preferred ? BST_CHECKED : BST_UNCHECKED, 0);
   SetWindowTextW(
@@ -1767,414 +1811,515 @@ void show_diagnostics(AppState* state) {
   const auto& text = soundfork::control::diagnostic_strings(state->language == UiLanguage::korean);
   const auto title = std::wstring(L"SoundFork — ") + text.title;
   HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, kDiagnosticClass, title.c_str(),
-      WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 740, 480,
-      state->window, nullptr, GetModuleHandleW(nullptr), state);
-  if (window == nullptr) { MessageBoxW(state->window, text.open_failed, L"SoundFork", MB_ICONERROR); return; }
+                                WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 740, 480,
+                                state->window, nullptr, GetModuleHandleW(nullptr), state);
+  if (window == nullptr) {
+    MessageBoxW(state->window, text.open_failed, L"SoundFork", MB_ICONERROR);
+    return;
+  }
   ShowWindow(window, SW_SHOWNORMAL);
   SetFocus(state->diagnostic_text);
 }
 
-void layout_controls(AppState* state, int width) {
-  constexpr int margin = 30, button_width = 140;
-  const int content = (std::max)(400, width - 2 * margin);
-  const int combo_width = content - button_width - 12;
-  MoveWindow(state->output_group, 14, 10, width - 28, 88, TRUE);
-  ShowWindow(state->backend_label, SW_HIDE); // The group title names this selector.
-  MoveWindow(state->backend_combo, margin, 45, combo_width, 220, TRUE);
-  MoveWindow(state->apply_button, margin + combo_width + 12, 44, button_width, 28, TRUE);
-  MoveWindow(state->forwarding_group, 14, 110, width - 28, 284, TRUE);
-  MoveWindow(state->relay_enabled, margin, 138, content - 222, 26, TRUE);
-  MoveWindow(state->relay_button, margin + content - 210, 136, 210, 28, TRUE);
-  constexpr int label_width = 180;
-  const int field_x = margin + label_width;
-  const int field_width = content - label_width;
-  MoveWindow(state->relay_mode_label, margin, 184, label_width - 8, 22, TRUE);
-  MoveWindow(state->relay_mode_combo, field_x, 180, field_width, 160, TRUE);
-  MoveWindow(state->endpoint_label, margin, 226, label_width - 8, 22, TRUE);
-  MoveWindow(state->endpoint_combo, field_x, 222, field_width, 240, TRUE);
-  MoveWindow(state->buffer_label, margin, 268, label_width - 8, 22, TRUE);
-  MoveWindow(state->relay_buffer, field_x, 264, field_width, 260, TRUE);
-  MoveWindow(state->startup_checkbox, margin, 307, content, 26, TRUE);
-  MoveWindow(state->refresh_button, margin, 349, 140, 28, TRUE);
-  MoveWindow(state->vb_cable_button, margin + 152, 349, 170, 28, TRUE);
-  MoveWindow(state->status, margin, 410, content, 62, TRUE);
-  MoveWindow(state->note, margin, 484, content, 44, TRUE);
+LRESULT control_background(WPARAM wparam, LPARAM lparam) {
+  const auto dc = reinterpret_cast<HDC>(wparam);
+  SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+  SetTextColor(dc, GetSysColor(IsWindowEnabled(reinterpret_cast<HWND>(lparam)) ? COLOR_WINDOWTEXT
+                                                                               : COLOR_GRAYTEXT));
+  return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));
+}
+struct ChannelDialog {
+  HWND left = nullptr, right = nullptr;
+  soundfork::capture::ChannelPair pair{};
+  bool accepted = false, korean = true;
+  HFONT font = nullptr;
+};
+LRESULT CALLBACK channel_dialog(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+  auto* state = reinterpret_cast<ChannelDialog*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+  if (message == WM_NCCREATE) {
+    state = static_cast<ChannelDialog*>(reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
+    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+  }
+  if (!state) return DefWindowProcW(window, message, wparam, lparam);
+  if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN)
+    return control_background(wparam, lparam);
+  if (message == WM_CREATE) {
+    for (int side = 0; side < 2; ++side) {
+      HWND label = CreateWindowW(L"STATIC",
+                                 side == 0 ? (state->korean ? L"왼쪽 출력" : L"Left output")
+                                           : (state->korean ? L"오른쪽 출력" : L"Right output"),
+                                 WS_CHILD | WS_VISIBLE, 24, 24 + side * 44, 110, 24, window,
+                                 nullptr, nullptr, nullptr);
+      HWND combo = CreateWindowW(L"COMBOBOX", nullptr,
+                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                 146, 20 + side * 44, 220, 240, window, nullptr, nullptr, nullptr);
+      for (unsigned index = 0; index < 64; ++index) {
+        const auto text =
+            std::wstring(state->korean ? L"출력 " : L"Output ") + std::to_wstring(index + 1);
+        SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+      }
+      SendMessageW(combo, CB_SETCURSEL, side == 0 ? state->pair.left : state->pair.right, 0);
+      if (side == 0)
+        state->left = combo;
+      else
+        state->right = combo;
+      set_control_font(label, state->font);
+      set_control_font(combo, state->font);
+    }
+    HWND note = CreateWindowW(
+        L"STATIC",
+        state->korean ? L"게임·DAW 재시작 후 적용됩니다." : L"Restart the game or DAW to apply.",
+        WS_CHILD | WS_VISIBLE, 24, 110, 350, 24, window, nullptr, nullptr, nullptr);
+    HWND ok = CreateWindowW(L"BUTTON", state->korean ? L"확인" : L"OK",
+                            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 164, 150, 94, 30,
+                            window, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+    HWND cancel = CreateWindowW(L"BUTTON", state->korean ? L"취소" : L"Cancel",
+                                WS_CHILD | WS_VISIBLE | WS_TABSTOP, 270, 150, 94, 30, window,
+                                reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+    for (auto item : {note, ok, cancel}) set_control_font(item, state->font);
+    SetFocus(state->left);
+    return 0;
+  }
+  if (message == WM_COMMAND && LOWORD(wparam) == IDOK) {
+    const auto left = SendMessageW(state->left, CB_GETCURSEL, 0, 0);
+    const auto right = SendMessageW(state->right, CB_GETCURSEL, 0, 0);
+    if (left >= 0 && right >= 0 && left < 64 && right < 64) {
+      state->pair = {static_cast<DWORD>(left), static_cast<DWORD>(right)};
+      state->accepted = true;
+      DestroyWindow(window);
+    }
+    return 0;
+  }
+  if (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wparam) == IDCANCEL)) {
+    DestroyWindow(window);
+    return 0;
+  }
+  return DefWindowProcW(window, message, wparam, lparam);
 }
 
-void create_controls(AppState* state) {
-  const UiStrings& strings = ui_strings(state->language);
-  state->font = CreateFontW(
-      -16,
-      0,
-      0,
-      0,
-      FW_NORMAL,
-      FALSE,
-      FALSE,
-      FALSE,
-      DEFAULT_CHARSET,
-      OUT_DEFAULT_PRECIS,
-      CLIP_DEFAULT_PRECIS,
-      CLEARTYPE_QUALITY,
-      DEFAULT_PITCH,
-      L"Segoe UI");
-  const bool korean = state->language == UiLanguage::korean;
-  state->output_group = CreateWindowExW(0, L"BUTTON", korean ? L"재생 출력 (ASIO 권장)" : L"Playback output (ASIO recommended)",
-      WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
-  state->forwarding_group = CreateWindowExW(0, L"BUTTON", korean ? L"방송 오디오 전달" : L"Broadcast audio forwarding",
-      WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
-  state->buffer_label = CreateWindowExW(0, L"STATIC", korean ? L"전달 버퍼" : L"Forwarding buffer",
-      WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, state->window, nullptr, nullptr, nullptr);
-  for (const auto control : {state->output_group, state->forwarding_group, state->buffer_label})
-    set_control_font(control, state->font);
-  state->backend_label = CreateWindowExW(
-      0,
-      L"STATIC",
-      strings.backend_label,
-      WS_CHILD | WS_VISIBLE,
-      18,
-      14,
-      180,
-      22,
-      state->window,
-      nullptr,
-      nullptr,
-      nullptr);
-  state->backend_combo = CreateWindowExW(
-      0,
-      L"COMBOBOX",
-      nullptr,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-      18,
-      37,
-      470,
-      220,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackendCombo)),
-      nullptr,
-      nullptr);
-  state->apply_button = CreateWindowExW(
-      0,
-      L"BUTTON",
-      strings.apply,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-      500,
-      36,
-      100,
-      28,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApplyBackend)),
-      nullptr,
-      nullptr);
-  state->endpoint_label = CreateWindowExW(
-      0,
-      L"STATIC",
-      strings.endpoint_label,
-      WS_CHILD | WS_VISIBLE,
-      18,
-      75,
-      440,
-      22,
-      state->window,
-      nullptr,
-      nullptr,
-      nullptr);
-  state->endpoint_combo = CreateWindowExW(
-      0,
-      L"COMBOBOX",
-      nullptr,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-      18,
-      98,
-      470,
-      240,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEndpointCombo)),
-      nullptr,
-      nullptr);
-  state->relay_button = CreateWindowExW(
-      0,
-      L"BUTTON",
-      strings.start_relay,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-      500,
-      97,
-      100,
-      28,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kToggleRelay)),
-      nullptr,
-      nullptr);
-  state->relay_mode_label = CreateWindowExW(
-      0, L"STATIC", relay_mode_strings(state->language).label,
-      WS_CHILD | WS_VISIBLE, 18, 139, 652, 22, state->window,
-      nullptr, nullptr, nullptr);
-  state->relay_mode_combo = CreateWindowExW(
-      0, L"COMBOBOX", nullptr,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
-      18, 162, 652, 160, state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRelayModeCombo)),
-      nullptr, nullptr);
-  state->relay_enabled = CreateWindowExW(0, L"BUTTON",
-      state->language == UiLanguage::korean ? L"오디오 전달 사용" : L"Enable audio forwarding",
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-      318, 204, 350, 28, state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRelayEnabled)), nullptr, nullptr);
-  state->relay_buffer = CreateWindowExW(0, L"COMBOBOX", nullptr,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
-      442, 162, 228, 260, state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRelayBuffer)), nullptr, nullptr);
+void layout_controls(AppState* state, int) {
+  auto& p = state->panel;
+  if (!p.ready) return;
+  RECT r{};
+  GetClientRect(state->window, &r);
+  const int width = r.right, field = width - 164;
+  const auto move = [](HWND h, int x, int y, int w, int height) {
+    MoveWindow(h, x, y, w, height, TRUE);
+  };
+  move(state->output_group, 12, 12, width - 24, 82);
+  move(state->backend_combo, 26, 42, width - 146, 200);
+  move(state->apply_button, width - 108, 41, 82, 26);
+  move(p.playback_info, 12, 108, width - 24, 110);
+  move(p.playback_note, 26, 132, width - 52, 72);
+  move(state->refresh_button, 26, 234, 130, 26);
+  move(state->forwarding_group, 12, 12, width - 24, 238);
+  move(state->relay_enabled, 26, 36, width - 200, 24);
+  move(state->relay_button, width - 178, 34, 152, 26);
+  move(state->relay_mode_label, 26, 84, 112, 20);
+  move(state->relay_mode_combo, 138, 80, field, 160);
+  move(state->endpoint_label, 26, 126, 112, 20);
+  move(state->endpoint_combo, 138, 122, field, 200);
+  move(state->startup_checkbox, 26, 166, width - 52, 24);
+  move(state->vb_cable_button, 26, 208, 158, 24);
+  move(state->note, 26, 266, width - 52, 44);
+  move(p.buffer_group, 12, 12, width - 24, 142);
+  move(state->buffer_label, 26, 48, 112, 20);
+  move(state->relay_buffer, 138, 44, field, 200);
+  move(p.channel_label, 26, 100, 112, 20);
+  move(p.channels, 138, 96, field - 86, 200);
+  move(p.custom, width - 100, 95, 74, 26);
+  move(p.buffer_note, 26, 176, width - 52, 100);
+  move(p.obs_title, 12, 12, width - 24, 104);
+  move(p.obs_version_label, 26, 42, 112, 20);
+  move(p.obs_status, 138, 42, field, 24);
+  move(p.obs_bundle_label, 26, 78, 112, 20);
+  move(p.obs_bundle, 138, 78, field, 20);
+  move(p.obs_actions, 12, 130, width - 24, 70);
+  move(p.obs_install, 26, 158, 180, 26);
+  move(p.obs_remove, 218, 158, 90, 26);
+  move(p.obs_details, 320, 158, width - 346, 26);
+  move(p.obs_guide, 12, 214, width - 24, 96);
+  move(p.obs_usage, 26, 238, width - 52, 58);
+  move(p.settings_title, 12, 12, width - 24, 86);
+  move(p.language_label, 26, 48, 112, 20);
+  move(p.language, 138, 44, 210, 120);
+  move(p.update_group, 12, 112, width - 24, 100);
+  move(p.updates, 26, 140, width - 52, 24);
+  move(p.settings_note, 26, 174, width - 52, 22);
+  move(p.information_group, 12, 12, width - 24, 198);
+  move(p.information, 26, 36, width - 52, 158);
+  SendMessageW(p.information, LVM_SETCOLUMNWIDTH, 0, 150);
+  SendMessageW(p.information, LVM_SETCOLUMNWIDTH, 1, width - 206);
+  move(p.diagnostic_button, 26, 226, 150, 26);
+  move(p.logs_button, 188, 226, 150, 26);
+  move(p.program_group, 12, 12, width - 24, 150);
+  move(p.program_name, 26, 36, width - 52, 30);
+  move(p.program, 26, 80, width - 52, 64);
+  move(p.support_group, 12, 176, width - 24, 70);
+  move(p.update_button, 26, 204, 150, 26);
+  move(p.bug_button, 188, 204, 138, 26);
+  move(p.project_button, 338, 204, width - 364, 26);
+  move(state->status, 14, r.bottom - 25, width - 28, 18);
+  for (int page = 0; page < kPageCount; ++page)
+    for (auto control : p.pages[page]) ShowWindow(control, p.page == page ? SW_SHOW : SW_HIDE);
+  if (const auto focus = GetFocus();
+      focus && IsChild(state->window, focus) && !IsWindowVisible(focus))
+    SetFocus(GetNextDlgTabItem(state->window, nullptr, FALSE));
+  InvalidateRect(state->window, nullptr, TRUE);
+}
+
+HWND panel_widget(AppState* state, const wchar_t* kind, const wchar_t* text, int id,
+                  DWORD style = 0) {
+  HWND control =
+      CreateWindowExW(0, kind, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 10, 10, state->window,
+                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
+  set_control_font(control, state->font);
+  return control;
+}
+
+void populate_channels(AppState* state) {
+  auto& p = state->panel;
+  if (SendMessageW(p.channels, CB_GETDROPPEDSTATE, 0, 0)) return;
+  SendMessageW(p.channels, CB_RESETCONTENT, 0, 0);
+  const bool ko = state->language == UiLanguage::korean;
+  for (unsigned index = 0; index < 32; ++index) {
+    const auto text = std::wstring(ko ? L"출력 " : L"Outputs ") + std::to_wstring(index * 2 + 1) +
+                      L" · " + std::to_wstring(index * 2 + 2);
+    SendMessageW(p.channels, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+  }
+  const auto custom = std::wstring(ko ? L"사용자 지정 — " : L"Custom — ") +
+                      std::to_wstring(p.pair.left + 1) + L" / " + std::to_wstring(p.pair.right + 1);
+  SendMessageW(p.channels, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(custom.c_str()));
+  SendMessageW(p.channels, CB_SETCURSEL,
+               p.pair.left % 2 == 0 && p.pair.right == p.pair.left + 1 ? p.pair.left / 2 : 32, 0);
+}
+void translate_panel(AppState* state) {
+  auto& p = state->panel;
+  const bool ko = state->language == UiLanguage::korean;
+  SetWindowTextW(p.channel_label, ko ? L"방송 채널" : L"Channels");
+  SetWindowTextW(state->relay_mode_label, ko ? L"오디오 전달 방식" : L"Mode");
+  SetWindowTextW(state->endpoint_label, ko ? L"전달 장치" : L"Device");
+  SetWindowTextW(state->buffer_label, ko ? L"전달 버퍼" : L"Buffer");
+  SetWindowTextW(p.custom, ko ? L"변경…" : L"Edit…");
+  SetWindowTextW(p.playback_info, ko ? L"ASIO 연결 상태" : L"ASIO stream status");
+  SetWindowTextW(state->output_group, ko ? L"재생 출력" : L"Playback output");
+  SetWindowTextW(p.buffer_group, ko ? L"방송 오디오 설정" : L"Broadcast audio settings");
+  SetWindowTextW(p.buffer_note,
+                 ko ? L"버퍼 시간은 방송용 여유량이며 실측 지연이 아닙니다.\r\n\r\n채널 변경은 "
+                      L"게임·DAW 재시작 후 적용됩니다."
+                    : L"Buffer duration is broadcast headroom, not measured "
+                      L"latency.\r\n\r\nRestart the game or DAW to apply channel changes.");
+  SetWindowTextW(p.obs_title, ko ? L"플러그인 상태" : L"Plugin status");
+  SetWindowTextW(p.obs_version_label, ko ? L"설치된 버전" : L"Installed version");
+  SetWindowTextW(p.obs_bundle_label, ko ? L"포함된 버전" : L"Bundled version");
+  SetWindowTextW(p.obs_actions, ko ? L"플러그인 관리" : L"Plugin management");
+  SetWindowTextW(p.obs_guide, ko ? L"사용 방법" : L"Getting started");
+  SetWindowTextW(p.obs_install, ko ? L"설치 / 업데이트…" : L"Install / update…");
+  SetWindowTextW(p.obs_remove, ko ? L"제거…" : L"Remove…");
+  SetWindowTextW(p.obs_details, ko ? L"자세히…" : L"Details…");
+  SetWindowTextW(p.obs_usage, ko ? L"OBS 재시작 → ‘SoundFork 오디오’ 소스 추가\r\nOBS만 사용하면 "
+                                   L"가상 장치나 오디오 전달은 필요 없습니다."
+                                 : L"1. Restart OBS.\r\n2. Add a SoundFork Audio "
+                                   L"source.\r\nOBS-only capture needs no virtual audio device.");
+  SetWindowTextW(p.settings_title, ko ? L"표시" : L"Appearance");
+  SetWindowTextW(p.language_label, ko ? L"표시 언어" : L"Language");
+  SendMessageW(p.language, CB_SETCURSEL, ko ? 0 : 1, 0);
+  SetWindowTextW(p.updates, ko ? L"새 버전 자동 알림" : L"Notify me about new versions");
+  SetWindowTextW(p.update_group, ko ? L"업데이트" : L"Updates");
+  SetWindowTextW(p.settings_note, ko ? L"직접 확인하려면 ‘프로그램 정보’를 여세요."
+                                     : L"Check manually under About.");
+  SetWindowTextW(p.diagnostic_button, ko ? L"상세 진단 보기…" : L"Detailed diagnostics…");
+  SetWindowTextW(p.logs_button, ko ? L"로그 폴더 열기…" : L"Open log folder…");
+  SetWindowTextW(p.program_group, ko ? L"프로그램 정보" : L"About SoundFork");
+  SetWindowTextW(p.program_name, L"SoundFork");
+  SetWindowTextW(p.program,ko?L"버전  " SOUNDFORK_VERSION_WIDE L"\r\nWindows x64 · MIT 라이선스\r\nASIO 재생과 방송용 오디오 복제":
+      L"Version  " SOUNDFORK_VERSION_WIDE L"\r\nWindows x64 · MIT license\r\nASIO playback and broadcast audio capture");
+  SetWindowTextW(p.support_group, ko ? L"지원 및 업데이트" : L"Support and updates");
+  SetWindowTextW(p.update_button, ko ? L"업데이트 확인…" : L"Check for updates…");
+  SetWindowTextW(p.bug_button, ko ? L"버그 제보…" : L"Report a bug…");
+  SetWindowTextW(p.project_button, ko ? L"프로젝트…" : L"Project…");
+  populate_channels(state);
+  update_obs_controls(state);
+  SendMessageW(p.updates, BM_SETCHECK,
+               state->automatic_updates_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+  EnableWindow(p.update_button, !state->update_check_in_progress);
+}
+
+void update_panel_status(AppState* state, const RegistrationStatus& registration,
+                         const soundfork::capture::StreamStatus& stream, bool active) {
+  auto& p = state->panel;
+  if (!p.ready) return;
+  const bool ko = state->language == UiLanguage::korean;
+  const auto pair = soundfork::capture::load_channels();
+  if (pair.left != p.pair.left || pair.right != p.pair.right) {
+    p.pair = pair;
+    populate_channels(state);
+  }
+  std::wstring stream_text = ko ? (active ? L"상태: 연결됨" : L"상태: 연결 대기")
+                                : (active ? L"Status: connected" : L"Status: waiting");
+  if (active) {
+    stream_text += L"\r\n" + std::to_wstring(stream.format.sample_rate) + L" Hz · " +
+                   std::to_wstring(stream.format.frames_per_block) + L" frames";
+    std::wostringstream format;
+    format << soundfork::capture::sample_format_name(stream.format.sample_format);
+    stream_text += L"\r\n" + format.str();
+  } else
+    stream_text += ko ? L"\r\n게임·DAW에서 SoundFork ASIO를 선택하세요."
+                      : L"\r\nSelect SoundFork ASIO in your game or DAW.";
+  SetWindowTextW(p.playback_note, stream_text.c_str());
+  SetWindowTextW(p.information_group, ko ? L"연결 정보" : L"Connection information");
+  SendMessageW(p.information, LVM_DELETEALLITEMS, 0, 0);
+  const auto add_property = [&](const wchar_t* label, const std::wstring& value) {
+    LVITEMW item{};
+    item.mask = LVIF_TEXT;
+    item.iItem = static_cast<int>(SendMessageW(p.information, LVM_GETITEMCOUNT, 0, 0));
+    item.pszText = const_cast<wchar_t*>(label);
+    const auto index =
+        SendMessageW(p.information, LVM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&item));
+    item.iItem = static_cast<int>(index);
+    item.iSubItem = 1;
+    item.pszText = const_cast<wchar_t*>(value.c_str());
+    SendMessageW(p.information, LVM_SETITEMTEXTW, static_cast<WPARAM>(index),
+                 reinterpret_cast<LPARAM>(&item));
+  };
+  add_property(ko ? L"드라이버 등록" : L"Driver registration",
+               registration.asio_registered ? (ko ? L"등록됨" : L"Registered")
+                                            : (ko ? L"미등록" : L"Not registered"));
+  add_property(ko ? L"ASIO 연결" : L"ASIO stream",
+               active ? (ko ? L"연결됨" : L"Connected") : (ko ? L"대기 중" : L"Waiting"));
+  add_property(ko ? L"샘플레이트" : L"Sample rate",
+               active ? std::to_wstring(stream.format.sample_rate) + L" Hz" : L"—");
+  add_property(ko ? L"버퍼 크기" : L"Block size",
+               active ? std::to_wstring(stream.format.frames_per_block) + L" frames" : L"—");
+  std::wostringstream format_name;
+  if (active) format_name << soundfork::capture::sample_format_name(stream.format.sample_format);
+  add_property(ko ? L"샘플 형식" : L"Sample format", active ? format_name.str() : L"—");
+  add_property(ko ? L"선택 채널" : L"Selected channels",
+               std::to_wstring(pair.left + 1) + L" / " + std::to_wstring(pair.right + 1));
+}
+
+bool create_controls(AppState* state) {
+  auto& p = state->panel;
+  state->font =
+      CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                  CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+  const auto group = [&](const wchar_t* text) {
+    return panel_widget(state, L"BUTTON", text, 0, BS_GROUPBOX);
+  };
+  const auto combo = [&](int id) {
+    return panel_widget(state, L"COMBOBOX", L"", id, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL);
+  };
+  const auto label = [&]() { return panel_widget(state, L"STATIC", L"", 0); };
+  const auto button = [&](int id, DWORD style = BS_PUSHBUTTON) {
+    return panel_widget(state, L"BUTTON", L"", id, WS_TABSTOP | style);
+  };
+  state->output_group = group(L"");
+  state->backend_combo = combo(kBackendCombo);
+  state->apply_button = button(kApplyBackend);
+  state->forwarding_group = group(L"");
+  state->relay_enabled = button(kRelayEnabled, BS_AUTOCHECKBOX);
+  state->relay_button = button(kToggleRelay);
+  state->relay_mode_label = label();
+  state->relay_mode_combo = combo(kRelayModeCombo);
+  state->endpoint_label = label();
+  state->endpoint_combo = combo(kEndpointCombo);
+  state->buffer_label = label();
+  state->relay_buffer = combo(kRelayBuffer);
   const DWORD saved_buffer = soundfork::capture::relay_preference(L"RelayBufferFrames", 0);
-  int buffer_selection = 0;
   for (int index = 0; index < static_cast<int>(std::size(kRelayBuffers)); ++index) {
     const auto frames = kRelayBuffers[index];
-    const auto text = frames == 0
-        ? (state->language == UiLanguage::korean ? std::wstring(L"자동 — ASIO 연결 대기") : std::wstring(L"Auto — waiting for ASIO"))
-        : std::to_wstring(frames) + L" frames";
+    const auto text = frames == 0 ? (state->language == UiLanguage::korean
+                                         ? std::wstring(L"자동 — ASIO 연결 대기")
+                                         : std::wstring(L"Auto — waiting for ASIO"))
+                                  : std::to_wstring(frames) + L" frames";
     SendMessageW(state->relay_buffer, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
-    if (saved_buffer == frames) buffer_selection = index;
+    if (saved_buffer == frames) SendMessageW(state->relay_buffer, CB_SETCURSEL, index, 0);
   }
-  SendMessageW(state->relay_buffer, CB_SETCURSEL, buffer_selection, 0);
-  set_control_font(state->relay_enabled, state->font);
-  set_control_font(state->relay_buffer, state->font);
-  state->refresh_button = CreateWindowExW(
-      0,
-      L"BUTTON",
-      strings.refresh_devices,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-      18,
-      139,
-      130,
-      28,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRefresh)),
-      nullptr,
-      nullptr);
-  state->vb_cable_button = CreateWindowExW(
-      0,
-      L"BUTTON",
-      strings.get_vb_cable,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-      160,
-      139,
-      145,
-      28,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGetVbCable)),
-      nullptr,
-      nullptr);
-  state->note = CreateWindowExW(
-      0,
-      L"STATIC",
-      strings.note,
-      WS_CHILD | WS_VISIBLE,
-      317,
-      144,
-      353,
-      42,
-      state->window,
-      nullptr,
-      nullptr,
-      nullptr);
-  state->startup_checkbox = CreateWindowExW(0, L"BUTTON", startup_strings(state->language).menu,
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-      18, 177, 652, 26, state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartupRelay)), nullptr, nullptr);
-  state->status = CreateWindowExW(
-      0,
-      L"STATIC",
-      nullptr,
-      WS_CHILD | WS_VISIBLE | SS_LEFT,
-      18,
-      189,
-      652,
-      261,
-      state->window,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStatus)),
-      nullptr,
-      nullptr);
-  for (HWND control : {state->backend_label,
-                       state->backend_combo,
-                       state->apply_button,
-                       state->endpoint_label,
-                       state->endpoint_combo,
-                       state->relay_button,
-                       state->relay_mode_label,
-                       state->relay_mode_combo,
-                       state->refresh_button,
-                       state->vb_cable_button,
-                       state->note,
-                       state->startup_checkbox,
-                       state->status}) {
-    set_control_font(control, state->font);
+  if (SendMessageW(state->relay_buffer, CB_GETCURSEL, 0, 0) < 0)
+    SendMessageW(state->relay_buffer, CB_SETCURSEL, 0, 0);
+  state->refresh_button = button(kRefresh);
+  state->vb_cable_button = button(kGetVbCable);
+  state->startup_checkbox = button(kStartupRelay, BS_AUTOCHECKBOX);
+  state->note = label();
+  state->status = panel_widget(state, L"STATIC", L"", kStatus, SS_LEFT);
+  p.pair = soundfork::capture::load_channels();
+  p.channel_label = panel_widget(state, L"STATIC", L"", 0);
+  p.channels =
+      panel_widget(state, L"COMBOBOX", L"", kChannels, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL);
+  p.custom = panel_widget(state, L"BUTTON", L"", kCustomChannels, WS_TABSTOP);
+  p.obs_title = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.obs_status = panel_widget(state, L"STATIC", L"", 0);
+  p.obs_version_label = panel_widget(state, L"STATIC", L"", 0);
+  p.obs_bundle_label = panel_widget(state, L"STATIC", L"", 0);
+  p.obs_bundle = panel_widget(state, L"STATIC", L"", 0);
+  p.obs_actions = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.obs_install = panel_widget(state, L"BUTTON", L"", kObsInstall, WS_TABSTOP);
+  p.obs_remove = panel_widget(state, L"BUTTON", L"", kObsRemove, WS_TABSTOP);
+  p.obs_details = panel_widget(state, L"BUTTON", L"", kObsInformation, WS_TABSTOP);
+  p.obs_guide = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.obs_usage = panel_widget(state, L"STATIC", L"", 0);
+  p.settings_title = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.language_label = panel_widget(state, L"STATIC", L"", 0);
+  p.update_group = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.language =
+      panel_widget(state, L"COMBOBOX", L"", kDisplayLanguage, WS_TABSTOP | CBS_DROPDOWNLIST);
+  for (const auto* text : {L"한국어", L"English"})
+    SendMessageW(p.language, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+  p.updates = panel_widget(state, L"BUTTON", L"", kAutomaticUpdateNotifications,
+                           WS_TABSTOP | BS_AUTOCHECKBOX);
+  SendMessageW(p.updates, BM_SETCHECK, BST_CHECKED, 0);
+  p.settings_note = panel_widget(state, L"STATIC", L"", 0);
+  p.playback_note = panel_widget(state, L"STATIC", L"", 0);
+  p.buffer_group = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  SetWindowPos(p.buffer_group, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  p.buffer_note = panel_widget(state, L"STATIC", L"", 0);
+  p.playback_info = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.information_group = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.information =
+      panel_widget(state, WC_LISTVIEWW, L"", 0, LVS_REPORT | LVS_NOCOLUMNHEADER | LVS_SINGLESEL);
+  SendMessageW(p.information, LVM_SETEXTENDEDLISTVIEWSTYLE, 0,
+               LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+  for (int i = 0; i < 2; ++i) {
+    LVCOLUMNW column{};
+    column.mask = LVCF_WIDTH;
+    column.cx = i == 0 ? 150 : 300;
+    SendMessageW(p.information, LVM_INSERTCOLUMNW, static_cast<WPARAM>(i),
+                 reinterpret_cast<LPARAM>(&column));
   }
-  RECT client{};
-  GetClientRect(state->window, &client);
-  SetWindowTextW(state->endpoint_label, korean ? L"전달 장치" : L"Forwarding device");
+  p.diagnostic_button = panel_widget(state, L"BUTTON", L"", kShowDiagnostics, WS_TABSTOP);
+  p.logs_button = panel_widget(state, L"BUTTON", L"", kOpenLogs, WS_TABSTOP);
+  p.program_group = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.program = panel_widget(state, L"STATIC", L"", 0);
+  p.program_name = panel_widget(state, L"STATIC", L"", 0);
+  LOGFONTW font{};
+  GetObjectW(state->font, sizeof(font), &font);
+  font.lfHeight = -20;
+  font.lfWeight = FW_SEMIBOLD;
+  p.heading_font = CreateFontIndirectW(&font);
+  if (p.heading_font) set_control_font(p.program_name, p.heading_font);
+  p.support_group = panel_widget(state, L"BUTTON", L"", 0, BS_GROUPBOX);
+  p.update_button = panel_widget(state, L"BUTTON", L"", kCheckForUpdates, WS_TABSTOP);
+  p.bug_button = panel_widget(state, L"BUTTON", L"", kReportBug, WS_TABSTOP);
+  SetWindowPos(p.playback_info, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  p.project_button = button(kOpenProject);
+  p.pages[5] = {p.information_group, p.information, p.diagnostic_button, p.logs_button};
+  p.pages[6] = {p.program_group, p.program_name, p.program,       p.support_group,
+                p.update_button, p.bug_button,   p.project_button};
+  p.pages[0] = {state->output_group,   state->backend_combo, state->apply_button,
+                state->refresh_button, p.playback_info,      p.playback_note};
+  p.pages[1] = {state->forwarding_group, state->relay_mode_label,
+                state->relay_mode_combo, state->relay_enabled,
+                state->relay_button,     state->endpoint_label,
+                state->endpoint_combo,   state->startup_checkbox,
+                state->vb_cable_button,  state->note};
+  p.pages[2] = {
+      p.buffer_group, p.buffer_note, state->buffer_label, state->relay_buffer, p.channel_label,
+      p.channels,     p.custom};
+  p.pages[3] = {p.obs_title,   p.obs_status,  p.obs_version_label, p.obs_bundle_label,
+                p.obs_bundle,  p.obs_actions, p.obs_install,       p.obs_remove,
+                p.obs_details, p.obs_guide,   p.obs_usage};
+  p.pages[4] = {p.settings_title, p.language_label, p.language,
+                p.update_group,   p.updates,        p.settings_note};
+  for (const auto& page : p.pages)
+    if (std::any_of(page.begin(), page.end(), [](HWND control) { return control == nullptr; }))
+      return false;
+  if (!state->font || !state->status) return false;
+  p.ready = true;
+  const auto& text = ui_strings(state->language);
+  SetWindowTextW(state->apply_button, text.apply);
+  SetWindowTextW(state->refresh_button, text.refresh_devices);
+  SetWindowTextW(state->startup_checkbox, startup_strings(state->language).menu);
+  SetWindowTextW(state->relay_enabled, state->language == UiLanguage::korean
+                                           ? L"오디오 전달 사용"
+                                           : L"Enable audio forwarding");
+  SetWindowTextW(state->forwarding_group, state->language == UiLanguage::korean
+                                              ? L"방송 오디오 전달"
+                                              : L"Broadcast audio forwarding");
+  SetWindowTextW(state->buffer_label,
+                 state->language == UiLanguage::korean ? L"전달 버퍼" : L"Forwarding buffer");
+  SetWindowTextW(state->endpoint_label,
+                 state->language == UiLanguage::korean ? L"전달 장치" : L"Forwarding device");
   SetWindowTextW(state->relay_mode_label, relay_mode_strings(state->language).label);
-  layout_controls(state, client.right);
+  translate_panel(state);
+  layout_controls(state, 0);
+  return true;
+}
+
+bool choose_channels(AppState* state, soundfork::capture::ChannelPair* result) {
+  auto& p = state->panel;
+  ChannelDialog data;
+  data.pair = p.pair;
+  data.korean = state->language == UiLanguage::korean;
+  data.font = state->font;
+  RECT owner{};
+  GetWindowRect(state->window, &owner);
+  HWND dialog =
+      CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT, kChannelDialogClass,
+                      data.korean ? L"방송 채널 사용자 지정" : L"Custom broadcast channels",
+                      WS_POPUP | WS_CAPTION | WS_SYSMENU, owner.left + 100, owner.top + 130, 412,
+                      234, state->window, nullptr, GetModuleHandleW(nullptr), &data);
+  if (!dialog) return false;
+  EnableWindow(state->window, FALSE);
+  ShowWindow(dialog, SW_SHOW);
+  MSG message{};
+  while (IsWindow(dialog)) {
+    const auto message_result = GetMessageW(&message, nullptr, 0, 0);
+    if (message_result <= 0) {
+      if (message_result == 0) PostQuitMessage(static_cast<int>(message.wParam));
+      break;
+    }
+    if (!IsDialogMessageW(dialog, &message)) {
+      TranslateMessage(&message);
+      DispatchMessageW(&message);
+    }
+  }
+  if (IsWindow(dialog)) DestroyWindow(dialog);
+  EnableWindow(state->window, TRUE);
+  SetActiveWindow(state->window);
+  if (data.accepted) *result = data.pair;
+  return data.accepted;
+}
+void save_channel_selection(AppState* state, soundfork::capture::ChannelPair pair) {
+  if (soundfork::capture::save_channels(pair) == ERROR_SUCCESS) {
+    state->panel.pair = pair;
+    update_status(state);
+  } else
+    MessageBoxW(state->window,
+                state->language == UiLanguage::korean ? L"채널 설정을 저장하지 못했습니다."
+                                                      : L"Could not save channel settings.",
+                L"SoundFork", MB_ICONERROR);
+  populate_channels(state);
 }
 
 void populate_relay_mode_combo(AppState* state) {
   const auto& strings = relay_mode_strings(state->language);
   SendMessageW(state->relay_mode_combo, CB_RESETCONTENT, 0, 0);
   SendMessageW(state->relay_mode_combo, CB_ADDSTRING, 0,
-      reinterpret_cast<LPARAM>(strings.entire_screen));
+               reinterpret_cast<LPARAM>(strings.entire_screen));
   SendMessageW(state->relay_mode_combo, CB_ADDSTRING, 0,
-      reinterpret_cast<LPARAM>(strings.application));
+               reinterpret_cast<LPARAM>(strings.application));
   const auto mode = soundfork::control::RelaySettings{}.mode();
   SendMessageW(state->relay_mode_combo, CB_SETCURSEL,
-      mode == soundfork::control::RelayMode::application ? 1 : 0, 0);
-}
-
-HMENU custom_capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
-  HMENU root = CreatePopupMenu();
-  if (!root) return nullptr;
-  AppendMenuW(root, MF_STRING | MF_GRAYED, 0, korean
-      ? L"게임/DAW 재시작 후 적용 · 열린 출력 채널만 복제"
-      : L"Restart game/DAW to apply; only opened outputs can be captured");
-  for (int side = 0; side < 2; ++side) {
-    HMENU channels = CreatePopupMenu();
-    if (!channels) { DestroyMenu(root); return nullptr; }
-    const auto selected = side == 0 ? pair.left : pair.right;
-    const auto label = std::wstring(side == 0 ? (korean ? L"왼쪽: 출력 " : L"Left: output ")
-                                              : (korean ? L"오른쪽: 출력 " : L"Right: output ")) + std::to_wstring(selected + 1);
-    AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(channels), label.c_str());
-    for (int bank = 0; bank < 4; ++bank) {
-      HMENU group = CreatePopupMenu();
-      if (!group) { DestroyMenu(root); return nullptr; }
-      const auto range = std::to_wstring(bank * 16 + 1) + L"–" + std::to_wstring(bank * 16 + 16);
-      AppendMenuW(channels, MF_POPUP, reinterpret_cast<UINT_PTR>(group), range.c_str());
-      for (int offset = 0; offset < 16; ++offset) {
-        const auto channel = static_cast<DWORD>(bank * 16 + offset);
-        const auto text = std::wstring(korean ? L"출력 " : L"Output ") + std::to_wstring(channel + 1);
-        AppendMenuW(group, MF_STRING | (selected == channel ? MF_CHECKED : 0),
-            static_cast<UINT_PTR>((side == 0 ? kCaptureLeftBase : kCaptureRightBase) + channel), text.c_str());
-      }
-    }
-  }
-  return root;
-}
-
-HMENU capture_channel_menu(bool korean, soundfork::capture::ChannelPair pair) {
-  HMENU root = CreatePopupMenu();
-  if (!root) return nullptr;
-  AppendMenuW(root, MF_STRING | MF_GRAYED, 0, korean
-      ? L"게임/DAW 재시작 후 적용 · 열린 출력 채널만 복제"
-      : L"Restart game/DAW to apply; only opened outputs can be captured");
-  const bool standard = pair.left % 2 == 0 && pair.right == pair.left + 1;
-  const auto append_pair = [&](HMENU menu, DWORD index) {
-    const auto left = index * 2;
-    auto text = std::wstring(korean ? L"출력 " : L"Outputs ") +
-        std::to_wstring(left + 1) + L" · " + std::to_wstring(left + 2);
-    if (index == 0) text += korean ? L" (기본)" : L" (default)";
-    AppendMenuW(menu, MF_STRING | (standard && pair.left == left ? MF_CHECKED : 0),
-        kCapturePairBase + index, text.c_str());
-  };
-  for (DWORD index = 0; index < 4; ++index) append_pair(root, index);
-  HMENU more = CreatePopupMenu();
-  if (!more) { DestroyMenu(root); return nullptr; }
-  AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(more),
-      korean ? L"다른 출력 쌍" : L"More output pairs");
-  for (DWORD index = 4; index < 32; ++index) append_pair(more, index);
-  HMENU custom = custom_capture_channel_menu(korean, pair);
-  if (!custom) { DestroyMenu(root); return nullptr; }
-  AppendMenuW(root, MF_SEPARATOR, 0, nullptr);
-  const auto custom_text = std::wstring(korean ? L"사용자 지정 (왼쪽 " : L"Custom (left ") +
-      std::to_wstring(pair.left + 1) + (korean ? L", 오른쪽 " : L", right ") +
-      std::to_wstring(pair.right + 1) + L")";
-  AppendMenuW(root, MF_POPUP | (!standard ? MF_CHECKED : 0),
-      reinterpret_cast<UINT_PTR>(custom), custom_text.c_str());
-  return root;
+               mode == soundfork::control::RelayMode::application ? 1 : 0, 0);
 }
 
 void rebuild_menu(AppState* state) {
-  HMENU previous = GetMenu(state->window);
+  const auto previous = GetMenu(state->window);
   HMENU menu = CreateMenu();
-  HMENU settings = CreatePopupMenu();
-  HMENU language = CreatePopupMenu();
-  HMENU help = CreatePopupMenu();
-  HMENU obs = CreatePopupMenu();
-  if (menu == nullptr || settings == nullptr || language == nullptr ||
-      help == nullptr || obs == nullptr) {
-    if (menu != nullptr) {
-      DestroyMenu(menu);
-    }
-    if (settings != nullptr) {
-      DestroyMenu(settings);
-    }
-    if (language != nullptr) {
-      DestroyMenu(language);
-    }
-    if (help != nullptr) {
-      DestroyMenu(help);
-    }
-    if (obs != nullptr) DestroyMenu(obs);
-    return;
-  }
-  AppendMenuW(language, MF_STRING, kLanguageEnglish, L"English");
-  AppendMenuW(language, MF_STRING, kLanguageKorean, L"한국어");
-  CheckMenuRadioItem(
-      language,
-      kLanguageEnglish,
-      kLanguageKorean,
-      state->language == UiLanguage::korean ? kLanguageKorean
-                                            : kLanguageEnglish,
-      MF_BYCOMMAND);
-  AppendMenuW(
-      settings,
-      MF_POPUP,
-      reinterpret_cast<UINT_PTR>(language),
-      ui_strings(state->language).language_menu);
-  const auto& obs_text = soundfork::control::obs_plugin_strings(state->language == UiLanguage::korean);
-  if (const auto channels = capture_channel_menu(state->language == UiLanguage::korean,
-                                                 soundfork::capture::load_channels()))
-    AppendMenuW(settings, MF_POPUP, reinterpret_cast<UINT_PTR>(channels),
-        state->language == UiLanguage::korean ? L"방송 출력 채널" : L"Broadcast output channels");
-  AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsInstalledStatus, L"");
-  AppendMenuW(obs, MF_STRING | MF_GRAYED, kObsBundledStatus, L"");
-  AppendMenuW(obs, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(obs, MF_STRING, kObsInstall, obs_text.install);
-  AppendMenuW(obs, MF_STRING, kObsRemove, obs_text.remove);
-  AppendMenuW(obs, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(obs, MF_STRING, kObsInformation, obs_text.information);
-  state->obs_menu = obs;
-  update_obs_menu(state);
-  AppendMenuW(settings, MF_POPUP, reinterpret_cast<UINT_PTR>(obs), obs_text.menu);
-  AppendMenuW(settings, MF_STRING | (state->automatic_updates_enabled ? MF_CHECKED : MF_UNCHECKED),
-      kAutomaticUpdateNotifications, state->language == UiLanguage::korean
-          ? L"새 버전 자동 알림" : L"Notify me about new versions");
-  AppendMenuW(
-      menu,
-      MF_POPUP,
-      reinterpret_cast<UINT_PTR>(settings),
-      ui_strings(state->language).settings_menu);
-  AppendMenuW(
-      help,
-      MF_STRING | (state->update_check_in_progress ? MF_GRAYED : 0),
-      kCheckForUpdates,
-      ui_strings(state->language).check_for_updates);
-  AppendMenuW(help, MF_STRING, kOpenProject, ui_strings(state->language).open_project);
-  AppendMenuW(help, MF_STRING, kReportBug,
-      state->language == UiLanguage::korean ? L"버그 제보..." : L"Report a bug...");
-  AppendMenuW(help, MF_STRING, kCopyReport,
-      state->language == UiLanguage::korean ? L"진단 정보 복사" : L"Copy diagnostic information");
-  AppendMenuW(help, MF_STRING, kShowDiagnostics,
-      soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).title);
-  AppendMenuW(help, MF_STRING, kOpenLogs,
-      soundfork::control::diagnostic_strings(state->language == UiLanguage::korean).logs);
-  AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(help, MF_STRING, kShowAbout, ui_strings(state->language).about);
-  AppendMenuW(
-      menu,
-      MF_POPUP,
-      reinterpret_cast<UINT_PTR>(help),
-      ui_strings(state->language).help_menu);
+  if (!menu) return;
+  const bool ko = state->language == UiLanguage::korean;
+  const wchar_t* names[] = {ko ? L"재생" : L"Playback",        ko ? L"방송" : L"Broadcast",
+                            ko ? L"버퍼·채널" : L"Buffer/ch.", L"OBS",
+                            ko ? L"설정" : L"Settings",        ko ? L"연결 정보" : L"Connection",
+                            ko ? L"프로그램 정보" : L"About"};
+  for (int page = 0; page < kPageCount; ++page)
+    AppendMenuW(menu, MF_STRING, kNavigate + page, names[page]);
+  SetMenuDefaultItem(menu, static_cast<UINT>(state->panel.page), TRUE);
   SetMenu(state->window, menu);
+  if (previous) DestroyMenu(previous);
   DrawMenuBar(state->window);
-  if (previous != nullptr) {
-    DestroyMenu(previous);
-  }
+  SendMessageW(state->panel.updates, BM_SETCHECK, state->automatic_updates_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+  EnableWindow(state->panel.update_button, !state->update_check_in_progress);
 }
 
 void apply_language(AppState* state, UiLanguage language, bool persist) {
@@ -2192,7 +2337,6 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
   }
   const UiStrings& strings = ui_strings(language);
   SetWindowTextW(state->window, strings.window_title);
-  SetWindowTextW(state->backend_label, strings.backend_label);
   SetWindowTextW(state->apply_button, strings.apply);
   SetWindowTextW(state->endpoint_label, language == UiLanguage::korean ? L"전달 장치" : L"Forwarding device");
   SetWindowTextW(state->relay_mode_label, relay_mode_strings(language).label);
@@ -2211,6 +2355,7 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
     SetWindowTextW(state->diagnostic_copy, diagnostic.copy);
     SetWindowTextW(state->diagnostic_close, diagnostic.close);
   }
+  translate_panel(state);
   rebuild_menu(state);
   populate_backend_combo(state, true);
   populate_endpoint_combo(state);
@@ -2284,6 +2429,9 @@ LRESULT CALLBACK window_proc(
   }
 
   switch (message) {
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN:
+      return control_background(wparam, lparam);
     case WM_SHOWWINDOW:
       if (wparam) PostMessageW(window, kAutomaticUpdateMessage, 0, 0);
       break;
@@ -2303,7 +2451,7 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_CREATE:
       refresh_obs_status(state);
-      create_controls(state);
+      if (!create_controls(state)) return -1;
       rebuild_menu(state);
       populate_backend_combo(state);
       populate_endpoint_combo(state);
@@ -2317,7 +2465,7 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_GETMINMAXINFO: {
       auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
-      size->ptMinTrackSize = {720, 600};
+      size->ptMinTrackSize = {540, 410};
       return 0;
     }
     case WM_SIZE: {
@@ -2465,19 +2613,29 @@ LRESULT CALLBACK window_proc(
     }
     case WM_COMMAND: {
       const int control = LOWORD(wparam);
-      const bool left_channel = control >= kCaptureLeftBase && control < kCaptureLeftBase + 64;
-      const bool right_channel = control >= kCaptureRightBase && control < kCaptureRightBase + 64;
-      const bool channel_pair = control >= kCapturePairBase && control < kCapturePairBase + 32;
-      if (left_channel || right_channel || channel_pair) {
-        auto pair = soundfork::capture::load_channels();
-        if (channel_pair) {
-          pair.left = static_cast<DWORD>(control - kCapturePairBase) * 2;
-          pair.right = pair.left + 1;
-        } else if (left_channel) pair.left = static_cast<DWORD>(control - kCaptureLeftBase);
-        else pair.right = static_cast<DWORD>(control - kCaptureRightBase);
-        if (soundfork::capture::save_channels(pair) == ERROR_SUCCESS) rebuild_menu(state);
-        else MessageBoxW(window, state->language == UiLanguage::korean
-            ? L"채널 설정을 저장하지 못했습니다." : L"Could not save channel settings.", L"SoundFork", MB_ICONERROR);
+      if (control >= kNavigate && control < kNavigate + kPageCount) {
+        state->panel.page = control - kNavigate;
+        SetMenuDefaultItem(GetMenu(window), static_cast<UINT>(state->panel.page), TRUE);
+        DrawMenuBar(window);
+        if (state->panel.page == 3 && !state->obs_operation_in_progress) refresh_obs_status(state);
+        layout_controls(state, 0);
+        return 0;
+      }
+      if (control == kDisplayLanguage && HIWORD(wparam) == CBN_SELCHANGE) {
+        apply_language(state, SendMessageW(state->panel.language, CB_GETCURSEL, 0, 0) == 0
+            ? UiLanguage::korean : UiLanguage::english, true);
+        return 0;
+      }
+      if (control == kCustomChannels || (control == kChannels && HIWORD(wparam) == CBN_SELCHANGE)) {
+        auto pair = state->panel.pair;
+        const auto selected = SendMessageW(state->panel.channels, CB_GETCURSEL, 0, 0);
+        if (control == kChannels && selected >= 0 && selected < 32) {
+          pair = {static_cast<DWORD>(selected) * 2, static_cast<DWORD>(selected) * 2 + 1};
+          save_channel_selection(state, pair);
+        } else if (control == kCustomChannels || selected == 32) {
+          if (choose_channels(state, &pair)) save_channel_selection(state, pair);
+          else populate_channels(state);
+        }
         return 0;
       }
       if (control == kAutomaticUpdateNotifications) {
@@ -2827,6 +2985,10 @@ LRESULT CALLBACK window_proc(
       state->shutting_down.store(true, std::memory_order_release);
       KillTimer(window, kRefreshTimer);
       remove_tray_icon(state);
+      if (state->panel.heading_font != nullptr) {
+        DeleteObject(state->panel.heading_font);
+        state->panel.heading_font = nullptr;
+      }
       if (state->font != nullptr) {
         DeleteObject(state->font);
         state->font = nullptr;
@@ -2840,6 +3002,8 @@ LRESULT CALLBACK window_proc(
 }
 
 int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
+  INITCOMMONCONTROLSEX common{sizeof(common), ICC_LISTVIEW_CLASSES};
+  if (!InitCommonControlsEx(&common)) return 2;
   soundfork::control::ControlInstance singleton(L"Local\\SoundFork.Control.v1");
   if (!singleton.valid()) return 2;
   if (!singleton.primary()) {
@@ -2893,15 +3057,19 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
   diagnostic_class.lpfnWndProc = &diagnostic_proc;
   diagnostic_class.lpszClassName = kDiagnosticClass;
   if (RegisterClassExW(&diagnostic_class) == 0) return 2;
+  auto channel_class = window_class;
+  channel_class.lpfnWndProc = &channel_dialog;
+  channel_class.lpszClassName = kChannelDialogClass;
+  if (RegisterClassExW(&channel_class) == 0) return 2;
   HWND window = CreateWindowExW(
-      0,
+      WS_EX_CONTROLPARENT,
       kWindowClass,
       ui_strings(state.language).window_title,
-      WS_OVERLAPPEDWINDOW,
+      WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
       CW_USEDEFAULT,
       CW_USEDEFAULT,
-      760,
-      620,
+      540,
+      420,
       nullptr,
       nullptr,
       instance,
@@ -2917,6 +3085,7 @@ int run_control_app(HINSTANCE instance, int show_command, bool startup_launch) {
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {
     if (state.diagnostic_window != nullptr && IsDialogMessageW(state.diagnostic_window, &message)) continue;
+    if (IsDialogMessageW(window, &message)) continue;
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }

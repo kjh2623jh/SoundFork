@@ -24,8 +24,8 @@ inline std::wstring control_status_text(const ControlStatus& status, bool korean
   else text += korean ? L"프로그램 실행 중" : L"Process running";
 
   if (!status.startup_error.empty()) {
-    text += korean ? L"\r\n자동 전달 시작 실패. 도움말 → 진단 정보를 확인하세요."
-                   : L"\r\nAutomatic forwarding failed. Open Help > Diagnostics for details.";
+    text += korean ? L"\r\n자동 전달 시작 실패. 연결 정보 → 상세 진단 보기를 확인하세요."
+                   : L"\r\nAutomatic forwarding failed. Open Connection > Detailed diagnostics.";
   } else if (!status.asio_configured) {
     text += korean ? L"\r\n재생 출력 설정을 확인하세요." : L"\r\nCheck the playback output configuration.";
   } else if (!status.device_available && !status.forwarding_running) {

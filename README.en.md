@@ -26,7 +26,7 @@ The latest stable version is `v1.2.1`. This development branch prepares 32-bit h
 - Vendor ASIO output needs an ASIO driver matching the host's bitness. The Windows output mode in v1.3.0 development builds needs no separate ASIO driver.
 
 The stable release supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
-Development builds offer `Settings → Broadcast output channels`: select output 1–64 for each stereo side (default 1/2), then restart the game/DAW. Only outputs opened by the application can be captured.
+Development builds offer `Buffer/ch. → Channels`: select output 1–64 for each stereo side (default 1/2), then restart the game/DAW. Only outputs opened by the application can be captured.
 v1.3.0 development builds also capture 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz from ASIO drivers. Windows playback mode still exposes 48 kHz ASIO input.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 
@@ -77,7 +77,7 @@ exit** from the tray menu.
 Requires OBS Studio **32.2.2 or later, x64**.
 
 1. Close OBS and select **Install the OBS audio source plugin** during SoundFork Setup.
-   If SoundFork is already installed, use **Settings → OBS plugin → Install** in the control panel.
+   If SoundFork is already installed, use **OBS → Install** in the control panel.
 2. Start OBS and add a **SoundFork Audio** source.
 3. Reuse that existing SoundFork source in other scenes rather than creating another.
 
@@ -101,14 +101,14 @@ Close games/DAWs and OBS and stop audio forwarding before updating or uninstalli
 
 - **Updates:** SoundFork checks for new versions when you first open the control panel.
   Disable notifications in the notice or under **Settings → Notify me about new versions**.
-  **Help → Check for updates** remains available. Download and run the new Setup.
+  **About → Check for updates** remains available. Download and run the new Setup.
   If you use the OBS plugin, select its installation option to update it at the same time.
 - **Language:** Choose English or Korean under **Settings → Language** in the control panel.
-- **Automatic startup:** Device selection is saved automatically. Check **Start audio forwarding at Windows sign-in** in the main window
+- **Automatic startup:** Device selection is saved automatically. Check **Start audio forwarding at Windows sign-in** on the **Broadcast** page
   to start with the saved virtual device at your next sign-in. This is off for new installations; updates preserve your choice.
-- **Detailed status:** Open **Help → Diagnostics** to inspect and copy connection information and counters.
-  For troubleshooting, use **Help → Open log folder** to view diagnostic logs.
-- **OBS plugin management:** Install, update or remove it under **Settings → OBS plugin**.
+- **Detailed status:** Open **Connection → Detailed diagnostics** to inspect and copy connection information and counters.
+  For troubleshooting, use **Connection → Open log folder** to view diagnostic logs.
+- **OBS plugin management:** Install, update or remove it on the **OBS** page.
   Close OBS first; these operations require administrator approval.
 - **Removal:** Uninstall SoundFork from **Windows Settings → Apps** or run
   **Uninstall SoundFork** from the Start menu. Your selected ASIO driver and virtual audio devices are kept.

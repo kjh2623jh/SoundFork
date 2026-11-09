@@ -104,7 +104,7 @@ The main window shows ASIO configuration, virtual-device forwarding state and
 actionable errors/waiting messages. Registry/file checks are not confirmation of
 DAC playback. A running process and copy connection do not prove nonzero PCM or
 remote reception. Unsupported copy formats may show a waiting connection while
-the game still plays. **Help → Diagnostics** shows and copies PIDs, DLL paths,
+the game still plays. **Connection → Detailed diagnostics** shows and copies PIDs, DLL paths,
 format/block counters, startup registration and OBS plugin status. Closing that
 window does not stop playback or forwarding.
 
@@ -205,7 +205,7 @@ DLL and hub EXE in `obs-plugins\64bit`, and plugin `data` contents in
 
 ## Diagnostic logs
 
-Starting with v1.0.1, **Help > Open log folder** is available.
+Starting with v1.0.1, log-folder access is available, now under **Connection > Open log folder**.
 `%LOCALAPPDATA%\SoundFork\Logs` holds control/relay/hub lifecycle, errors,
 connection changes and metrics, with a 1 MiB current file and two backups each.
 No recorded audio or endpoint IDs are saved. Audio never waits for file writes;
