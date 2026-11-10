@@ -328,6 +328,17 @@ rendering, drift correction and the ASIO playback path are unchanged.
 
 ## Testing and diagnostics
 
+The WASAPI relay's `RelayRenderClock` feeds back only the reserve after the pending batch.
+Its proportional gain keeps maximum-correction error within half of even a small reserve.
+OBS retains its existing residual-queue feedback and gain. Insufficient complete batches
+trigger rebuffering without discarding pending PCM; added silence is counted separately.
+`relay_clock_tests` uses real shared rings and PCM for 64-frame supply, 480/960-frame
+consumption, 128/256/960-frame targets, ±1,500 ppm, variable batches and starvation recovery.
+The batch-consumption regression fails with the old policy; it does not replace live Discord listening.
+On a PC with a live game relay, exclude the existing Stop-export lifecycle test with
+`ctest -E '^soundfork_app_relay_tests$'`: it can signal the shared stop event.
+Keep the full suite in isolated CI. This exclusion does not verify live stop/restart behavior.
+
 ### Automated regression and analysis
 
 The build script runs CTest by default: currently 28 tests with OBS, 21 without it. Coverage

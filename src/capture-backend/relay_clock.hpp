@@ -14,7 +14,8 @@ class RelayClockController final {
       std::uint32_t sample_rate,
       std::uint32_t frames_per_block,
       std::uint32_t target_blocks = 4,
-      std::uint32_t target_frames = 0) noexcept;
+      std::uint32_t target_frames = 0,
+      double proportional_ppm_per_frame = 6.0) noexcept;
 
   void reset() noexcept;
   double update(
@@ -28,11 +29,34 @@ class RelayClockController final {
   std::uint64_t target_frames_ = 0;
   double integral_ppm_ = 0.0;
   double correction_ppm_ = 0.0;
+  double proportional_ppm_per_frame_ = 6.0;
 };
 
 struct RelaySourceMetrics {
   std::uint64_t source_frames = 0;
   std::uint64_t silent_frames = 0;
+};
+
+struct RelayRenderDecision {
+  bool render = false;
+  bool rebuffered = false;
+  double ratio = 1.0;
+};
+
+// WASAPI relay only. The requested batch is committed output, not spare source
+// audio. OBS already accounts for pending packets and uses RelayClockController
+// directly. This class never runs on the ASIO playback callback.
+class RelayRenderClock final {
+ public:
+  RelayRenderClock(std::uint32_t rate, std::uint32_t block, std::uint32_t target) noexcept;
+  std::uint64_t prefill_frames(std::uint32_t output) const noexcept;
+  RelayRenderDecision prepare(std::uint64_t queued, std::uint32_t output) noexcept;
+  void reset() noexcept { prepared_ = false; controller_.reset(); }
+  std::uint64_t target_frames() const noexcept { return controller_.target_frames(); }
+  double correction_ppm() const noexcept { return controller_.correction_ppm(); }
+ private:
+  RelayClockController controller_;
+  bool prepared_ = false;
 };
 
 template <typename Sample>

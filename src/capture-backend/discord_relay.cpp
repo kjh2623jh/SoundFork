@@ -218,17 +218,19 @@ struct RelayMetrics {
   std::uint64_t resync_count = 0;
   std::uint64_t discarded_blocks = 0;
   std::uint64_t reconnect_count = 0;
+  std::uint64_t rebuffer_count = 0;
   double maximum_correction_ppm = 0.0;
+  double last_correction_ppm = 0.0;
   std::uint64_t underflow_frames = 0, prebuffer_frames = 0, last_queue_frames = 0;
 };
 
 void log_metrics(const soundfork::capture::SharedRingReader& reader, const RelayMetrics& metrics,
                  std::uint64_t current_underflow = 0, std::uint64_t current_prebuffer = 0) {
-  char detail[448]{};
+  char detail[512]{};
   _snprintf_s(detail, sizeof(detail), _TRUNCATE,
       "rendered_frames=%llu queue_frames=%llu queue_min=%llu queue_max=%llu underflow_frames=%llu "
-      "prebuffer_frames=%llu resyncs=%llu discarded_blocks=%llu session_reconnects=%llu "
-      "hub_output_drops=%llu max_correction_ppm=%.2f",
+      "prebuffer_frames=%llu resyncs=%llu discarded_blocks=%llu session_reconnects=%llu rebuffers=%llu "
+      "hub_output_drops=%llu correction_ppm=%.2f max_correction_ppm=%.2f",
       static_cast<unsigned long long>(metrics.rendered_frames),
       static_cast<unsigned long long>(metrics.last_queue_frames),
       static_cast<unsigned long long>(metrics.minimum_queue_frames == (std::numeric_limits<std::uint64_t>::max)()
@@ -239,7 +241,9 @@ void log_metrics(const soundfork::capture::SharedRingReader& reader, const Relay
       static_cast<unsigned long long>(metrics.resync_count),
       static_cast<unsigned long long>(metrics.discarded_blocks),
       static_cast<unsigned long long>(metrics.reconnect_count),
-      static_cast<unsigned long long>(reader.stats().dropped_blocks), metrics.maximum_correction_ppm);
+      static_cast<unsigned long long>(metrics.rebuffer_count),
+      static_cast<unsigned long long>(reader.stats().dropped_blocks),
+      metrics.last_correction_ppm, metrics.maximum_correction_ppm);
   diagnostics::log().write(diagnostics::Level::info, "relay_metrics", detail);
 }
 
@@ -368,15 +372,16 @@ SessionOutcome run_render_session(
                : SessionOutcome::fatal;
   }
 
+  const auto reserve_frames = soundfork::capture::relay_target_frames(format.frames_per_block,
+      soundfork::capture::relay_preference(L"RelayBufferFrames", 0));
   diagnostics::log().write(diagnostics::Level::info, "render_session_start",
       "rate=" + std::to_string(format.sample_rate) + " channels=2 frames_per_block=" + std::to_string(format.frames_per_block) +
-      " endpoint_buffer_frames=" + std::to_string(endpoint_buffer_frames));
+      " endpoint_buffer_frames=" + std::to_string(endpoint_buffer_frames) +
+      " reserve_frames=" + std::to_string(reserve_frames));
   auto source = std::make_unique<soundfork::capture::RelayAudioSource>(format);
-  soundfork::capture::RelayClockController clock(
-      format.sample_rate, format.frames_per_block, 4,
-      soundfork::capture::relay_target_frames(format.frames_per_block,
-          soundfork::capture::relay_preference(L"RelayBufferFrames", 0)));
-  bool prebuffered = false;
+  soundfork::capture::RelayRenderClock clock(
+      format.sample_rate, format.frames_per_block,
+      reserve_frames);
   std::uint64_t prebuffer_silent_frames = 0;
   const HANDLE wait_handles[] = {audio_event.value, stop_event};
   SessionOutcome outcome = SessionOutcome::complete;
@@ -444,7 +449,8 @@ SessionOutcome run_render_session(
     if (queue_frames > (std::max)(clock.target_frames() * 2,
         static_cast<std::uint64_t>(format.frames_per_block) * 48U)) {
       metrics->discarded_blocks += reader->discard_oldest(
-          static_cast<std::uint32_t>(clock.target_frames() / format.frames_per_block));
+          static_cast<std::uint32_t>((clock.prefill_frames(available) +
+              format.frames_per_block - 1) / format.frames_per_block));
       source->reset();
       clock.reset();
       ++metrics->resync_count;
@@ -455,16 +461,17 @@ SessionOutcome run_render_session(
     metrics->maximum_queue_frames =
         (std::max)(metrics->maximum_queue_frames, queue_frames);
     metrics->last_queue_frames = queue_frames;
-    if (!prebuffered && queue_frames >= clock.target_frames()) {
-      prebuffered = true;
+    const auto decision = clock.prepare(queue_frames, available);
+    metrics->last_correction_ppm = clock.correction_ppm();
+    if (decision.rebuffered) {
+      ++metrics->rebuffer_count;
     }
-
     bool any_audio = false;
-    if (prebuffered) {
-      const double ratio = clock.update(queue_frames, available);
+    if (decision.render) {
       metrics->maximum_correction_ppm = (std::max)(
           metrics->maximum_correction_ppm, std::abs(clock.correction_ppm()));
-      any_audio = source->render(*reader, destination, available, ratio);
+      any_audio = source->render(*reader, destination, available, decision.ratio);
+      if (source->metrics().silent_frames != underflow_before) clock.reset();
     } else {
       std::fill_n(destination, static_cast<std::size_t>(available) * 2, 0);
       prebuffer_silent_frames += available;
@@ -479,12 +486,15 @@ SessionOutcome run_render_session(
     }
     metrics->rendered_frames += available;
     const auto now = GetTickCount64();
-    if ((source->metrics().silent_frames != underflow_before || metrics->resync_count != resync_before) &&
+    if ((decision.rebuffered || source->metrics().silent_frames != underflow_before || metrics->resync_count != resync_before) &&
         now >= next_gap_log_at) {
       next_gap_log_at = now + 1000;
       diagnostics::log().write(diagnostics::Level::warning, "relay_audio_gap",
           "underflow_frames=" + std::to_string(metrics->underflow_frames + source->metrics().silent_frames) +
-          " resyncs=" + std::to_string(metrics->resync_count));
+          " resyncs=" + std::to_string(metrics->resync_count) +
+          " rebuffers=" + std::to_string(metrics->rebuffer_count) +
+          " queue_frames=" + std::to_string(queue_frames) +
+          " requested_frames=" + std::to_string(available));
     }
     if (GetTickCount64() >= next_metrics_at) {
       next_metrics_at = GetTickCount64() + 30000;

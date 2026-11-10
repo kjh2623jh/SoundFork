@@ -128,9 +128,14 @@ time. These are synthetic wall-clock results on that PC, not measured FiiO laten
 ### Broadcast delay and isolation
 
 Hardware ASIO and virtual WASAPI devices have independent clocks. Only the relay
-path uses adaptive resampling, a four-block target queue and ±2,000 ppm correction.
-At 48 kHz / 64 samples, four blocks represent about 5.33 ms by calculation, before
-WASAPI and capture-app buffering. This queue and resampling do not affect game playback.
+path uses adaptive resampling, the selected reserve (four blocks in Auto), and ±2,000 ppm correction.
+The reserve is source audio remaining after the pending WASAPI output batch is consumed.
+Startup, starvation recovery and resynchronization retain both the batch and this reserve.
+At 48 kHz / 64 samples, Auto represents about 5.33 ms of reserve by calculation;
+the pending batch, WASAPI and capture-app buffering also contribute to actual latency.
+This queue and resampling do not affect game playback. Relay logs report `rebuffers`
+and cumulative startup/recovery silence as `prebuffer_frames`. `correction_ppm` is the
+current value; `max_correction_ppm` is a cumulative maximum.
 
 The OBS plugin delivers 480-frame / 10 ms packets and uses a residual queue and
 clock correction. OBS buffering and video sync remain, so bypassing a virtual

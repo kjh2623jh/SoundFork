@@ -7,7 +7,8 @@
 namespace soundfork::capture {
 namespace {
 
-constexpr double kMaximumCorrectionPpm = 2000.0;
+constexpr std::uint64_t kMaximumCorrectionPpmUnits = 2000;
+constexpr double kMaximumCorrectionPpm = static_cast<double>(kMaximumCorrectionPpmUnits);
 constexpr double kProportionalPpmPerFrame = 6.0;
 constexpr double kIntegralPpmPerFrameSecond = 0.05;
 
@@ -31,11 +32,13 @@ RelayClockController::RelayClockController(
     std::uint32_t sample_rate,
     std::uint32_t frames_per_block,
     std::uint32_t target_blocks,
-    std::uint32_t target_frames) noexcept
+    std::uint32_t target_frames,
+    double proportional_ppm_per_frame) noexcept
     : sample_rate_(sample_rate),
       target_frames_(
           target_frames != 0 ? target_frames :
-          static_cast<std::uint64_t>(frames_per_block) * target_blocks) {}
+          static_cast<std::uint64_t>(frames_per_block) * target_blocks),
+      proportional_ppm_per_frame_(proportional_ppm_per_frame) {}
 
 void RelayClockController::reset() noexcept {
   integral_ppm_ = 0.0;
@@ -57,7 +60,7 @@ double RelayClockController::update(
   integral_ppm_ = (std::clamp)(
       integral_ppm_, -kMaximumCorrectionPpm, kMaximumCorrectionPpm);
   correction_ppm_ = (std::clamp)(
-      error * kProportionalPpmPerFrame + integral_ppm_,
+      error * proportional_ppm_per_frame_ + integral_ppm_,
       -kMaximumCorrectionPpm,
       kMaximumCorrectionPpm);
   return 1.0 + correction_ppm_ * 0.000001;
@@ -69,6 +72,40 @@ std::uint64_t RelayClockController::target_frames() const noexcept {
 
 double RelayClockController::correction_ppm() const noexcept {
   return correction_ppm_;
+}
+
+RelayRenderClock::RelayRenderClock(
+    std::uint32_t rate, std::uint32_t block, std::uint32_t target) noexcept
+    : controller_(rate, block, 4, target,
+          (std::max)(kProportionalPpmPerFrame, 2.0 * kMaximumCorrectionPpm /
+              (std::max)(1.0, static_cast<double>(target ? target :
+                  static_cast<std::uint64_t>(block) * 4)))) {
+  // At maximum correction, proportional error must consume at most half the
+  // reserve. Otherwise the legacy gain needs ~333 frames of error even when
+  // the entire configured reserve is only 128 or 256 frames.
+}
+
+std::uint64_t RelayRenderClock::prefill_frames(std::uint32_t output) const noexcept {
+  // Include maximum positive clock correction and the interpolation lookahead.
+  return controller_.target_frames() + output +
+      (static_cast<std::uint64_t>(output) * kMaximumCorrectionPpmUnits + 999999) / 1000000 + 2;
+}
+
+RelayRenderDecision RelayRenderClock::prepare(
+    std::uint64_t queued, std::uint32_t output) noexcept {
+  if (output == 0) return {};
+  const auto prefill = prefill_frames(output);
+  const auto required = prefill - controller_.target_frames();
+  if (!prepared_) {
+    if (queued < prefill) return {};
+    prepared_ = true;
+  }
+  if (queued < required) {
+    reset();
+    return {false, true, 1.0};
+  }
+  // Feedback measures the reserve after this batch, not the batch itself.
+  return {true, false, controller_.update(queued - output, output)};
 }
 
 template <typename Sample>
