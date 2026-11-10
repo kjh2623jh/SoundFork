@@ -5,7 +5,7 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.3.0-dev raw Int16/Int24/Int32/Float32 PCM capture and
+This document describes 1.3.0 raw Int16/Int24/Int32/Float32/Float64 PCM capture and
 the optional in-application Discord relay.
 
 ## Compatibility and scope
@@ -23,7 +23,7 @@ virtual driver's own buffering latency is not removed.
 
 Broadcast capture has additional constraints:
 
-The 1.3.0 development build also offers Windows playback without a vendor ASIO driver:
+Version 1.3.0 also offers Windows playback without a vendor ASIO driver:
 48 kHz stereo Float32 shared-mode WASAPI, with separate playback/broadcast selections.
 This does not add support for 32-bit Windows or load x64 vendor DLLs in x86 processes.
 
@@ -447,6 +447,11 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   existing mapping/slot allocation. Boundary, NaN/Inf, unaligned/endian, padding,
   saturation and full-slot wrap tests are covered. These results do not verify
   new formats on actual vendor hardware or establish measured physical latency.
+
+- 2026-11-10 1.2.2 update selection: automatic and manual checks now accept only stable releases.
+  Self-tests cover prerelease/invalid-tag rejection and version comparisons. OBS-enabled Release
+  CTest passed 29/29, as did `/analyze /WX`, CFG/NX/ASLR/static-runtime checks and a live API request.
+  Local installer compilation and self-test passed; installation/removal and remote release CI were not run.
 
 The following are not claimed complete:
 

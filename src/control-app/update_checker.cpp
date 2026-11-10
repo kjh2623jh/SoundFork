@@ -17,7 +17,10 @@ namespace {
 
 constexpr wchar_t kReleaseApiHost[] = L"api.github.com";
 constexpr wchar_t kReleaseApiPath[] =
-    L"/repos/kjh2623jh/SoundFork/releases?per_page=10";
+    L"/repos/kjh2623jh/SoundFork/releases/latest";
+// GitHub's latest-release endpoint excludes drafts and prereleases, including
+// when recent development releases would otherwise fill an entire list page.
+constexpr int kStableStage = 4;
 
 class InternetHandle final {
  public:
@@ -81,7 +84,7 @@ SemanticVersion parse_semantic_version(std::string_view text) noexcept {
     return version;
   }
   if (offset == text.size()) {
-    version.stage = 4;
+    version.stage = kStableStage;
     version.valid = true;
     return version;
   }
@@ -161,7 +164,9 @@ std::string latest_release_tag(std::string_view json) {
     }
     const std::string tag(json.substr(quote + 1, end - quote - 1));
     const SemanticVersion parsed = parse_semantic_version(tag);
-    if (parsed.valid && (!best.valid || version_is_newer(parsed, best))) {
+    // Also reject prerelease tag suffixes if a release was mislabeled on GitHub.
+    if (parsed.valid && parsed.stage == kStableStage &&
+        (!best.valid || version_is_newer(parsed, best))) {
       best = parsed;
       best_tag = tag;
     }
@@ -269,6 +274,14 @@ UpdateResult check_for_updates() noexcept {
 
 bool update_parser_self_test() noexcept {
   try {
+    constexpr std::string_view excluded[] = {
+        "v9.0.0-dev", "v9.0.0-alpha.1", "v9.0.0-beta.1", "v9.0.0-rc.1",
+        "v9.0.0-preview.1", "not-a-version", "v1.2.3/other",
+        "v18446744073709551616.0.0"};
+    for (const auto tag : excluded) {
+      const auto json = std::string("{\"tag_name\":\"") + std::string(tag) + "\"}";
+      if (!latest_release_tag(json).empty()) return false;
+    }
     return version_is_newer(
                parse_semantic_version("v0.1.0-beta.1"),
                parse_semantic_version("0.1.0-alpha.4")) &&
@@ -276,8 +289,15 @@ bool update_parser_self_test() noexcept {
                parse_semantic_version("v0.1.0"),
                parse_semantic_version("0.1.0-rc.1")) &&
            latest_release_tag(
-               R"([{"tag_name":"v0.1.0-alpha.4"},{"tag_name":"v0.1.0-beta.1"}])") ==
-               "v0.1.0-beta.1";
+               R"({"tag_name":"v1.2.2","draft":false,"prerelease":false})") == "v1.2.2" &&
+           latest_release_tag(
+               R"([{"tag_name":"v1.3.0-alpha.8"},{"tag_name":"v1.2.1"},{"tag_name":"v1.3.0-beta.1"},{"tag_name":"v1.3.0-rc.1"},{"tag_name":"v1.2.2"}])") == "v1.2.2" &&
+           latest_release_tag(
+               R"([{"tag_name":"v1.3.0-alpha.8"},{"tag_name":"v1.3.0-beta.1"},{"tag_name":"v1.3.0-rc.1"}])").empty() &&
+           !version_is_newer(parse_semantic_version("v1.2.1"), parse_semantic_version("1.2.2")) &&
+           !version_is_newer(parse_semantic_version("v1.2.2"), parse_semantic_version("1.2.2")) &&
+           version_is_newer(parse_semantic_version("v1.2.3"), parse_semantic_version("1.2.2")) &&
+           version_is_newer(parse_semantic_version("v1.3.0"), parse_semantic_version("1.3.0-beta.1"));
   } catch (...) {
     return false;
   }

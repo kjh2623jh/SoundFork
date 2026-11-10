@@ -14,34 +14,33 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.2.1/SoundFork-Setup-v1.2.1.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.3.0/SoundFork-Setup-v1.3.0.exe) ·
 [View all releases](../../releases)
 
-The latest stable version is `v1.2.1`. This development branch prepares 32-bit hosts and Windows playback device output for `v1.3.0-dev`. Executables are not code-signed, so Windows SmartScreen may show a warning.
+Version: `v1.3.0`. One installer includes both 64-bit and 32-bit ASIO components.
+Executables are not code-signed, so Windows SmartScreen may show a warning.
 
 ## Requirements
 
 - Windows 10/11 x64
-- A game or DAW with ASIO support: stable releases support x64; v1.3.0 development builds also support x86.
-- Vendor ASIO output needs an ASIO driver matching the host's bitness. The Windows output mode in v1.3.0 development builds needs no separate ASIO driver.
+- A 64-bit or 32-bit game or DAW with ASIO support
+- Vendor ASIO output needs an ASIO driver matching the game or DAW's bitness. Windows output mode needs no separate ASIO driver.
 
-The stable release supports **48 kHz stereo Int16, Int24, Int32 and Float32 ASIO output (LSB)**.
-Development builds offer `Buffer/ch. → Channels`: select output 1–64 for each stereo side (default 1/2), then restart the game/DAW. Only outputs opened by the application can be captured.
-v1.3.0 development builds also capture 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz from ASIO drivers. Windows playback mode still exposes 48 kHz ASIO input.
+Broadcast capture supports **supported sample rates from 32 to 384 kHz and Int16, Int24, Int32, Float32 and Float64 formats**.
+MSB and valid-bit formats are also supported; see [Program details](docs/DETAILS.en.md) for the exact list and limits.
+Broadcast audio uses two selected outputs as stereo. Change them under **Buffer/ch. → Channels**
+(default: outputs 1/2), then restart the game/DAW. Only outputs opened by the application can be captured.
+Windows output mode exposes **48 kHz stereo ASIO input**.
 Real-use testing has been with DJMAX RESPECT V and the FiiO K11 R2R.
 
-All four PCM formats have automated coverage. Real ASIO driver compatibility beyond the tested FiiO environment needs further verification.
-
-The v1.3.0 development build also captures Float64, MSB and right-aligned
-16/18/20/24 valid-bit Int32 containers. Float64 capture is limited to 4096 frames;
-real-device compatibility for the additional formats still needs verification.
+PCM formats and sample-rate handling have automated coverage. Other vendor drivers and additional formats still need real-device compatibility testing.
 
 ## Installation and playback
 
-1. Run Setup and select the **ASIO driver to use** with SoundFork.
-2. Select **SoundFork** as the ASIO driver in the game or DAW and set the sample rate to **48 kHz**.
+1. Run Setup and select the playback output.
+2. Select **SoundFork** as the ASIO driver in the game or DAW. For Windows output mode, set the sample rate to **48 kHz**.
 
-In v1.3.0 development builds, choose `ASIO — driver name` or `Windows — speakers/headphones`
+Choose `ASIO — driver name` or `Windows — speakers/headphones`
 under **Playback output** and press **Apply**, then restart the application. Vendor ASIO
 is the recommended low-latency path; Windows output uses shared-mode WASAPI. The Windows
 default device is not changed. The **Forwarding device** is a separate broadcast selection.
@@ -53,8 +52,11 @@ playback alone, neither the control panel nor audio forwarding needs to stay ope
 
 ## Discord sharing
 
-Install a virtual audio device separately; [VB-CABLE](https://vb-audio.com/Cable/) is recommended.
-With VB-CABLE:
+With **Windows output mode**, Discord can capture the game's audio directly when sharing its window.
+Try sharing with audio forwarding disabled first.
+
+**Vendor ASIO output** needs audio forwarding and a separately installed virtual audio device.
+[VB-CABLE](https://vb-audio.com/Cable/) is recommended. With VB-CABLE:
 
 1. Select `CABLE Input` as the **Forwarding device** in the control panel.
 2. Enable **audio forwarding** and select a forwarding mode.
@@ -99,7 +101,7 @@ For another virtual device, select the same virtual playback device in both Soun
 
 Close games/DAWs and OBS and stop audio forwarding before updating or uninstalling.
 
-- **Updates:** SoundFork checks for new versions when you first open the control panel.
+- **Updates:** SoundFork checks for new stable versions when you first open the control panel. Alpha, beta and rc versions are excluded.
   Disable notifications in the notice or under **Settings → Notify me about new versions**.
   **About → Check for updates** remains available. Download and run the new Setup.
   If you use the OBS plugin, select its installation option to update it at the same time.
