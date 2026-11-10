@@ -92,7 +92,8 @@ void check_pages(AppState& state) {
       UpdateWindow(window);
       for (int other = 0; other < kPageCount; ++other)
         for (const auto control : state.panel.pages[other])
-          require_ui(IsWindowVisible(control) == (other == page - 1),
+          require_ui(((GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE) != 0) ==
+                         (other == page - 1),
                      "backward navigation left an old page visible");
     }
     require_ui(caption(state.startup_checkbox) == startup_strings(language).menu, "startup translation wrong");
