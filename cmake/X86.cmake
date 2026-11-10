@@ -10,7 +10,7 @@ add_library(soundfork_app_relay SHARED
   src/capture-backend/shared_ring.cpp src/capture-backend/hub_client.cpp)
 target_compile_definitions(soundfork_app_relay PRIVATE SOUNDFORK_RELAY_NO_ENTRYPOINT)
 target_include_directories(soundfork_app_relay PRIVATE src)
-target_link_libraries(soundfork_app_relay PRIVATE soundfork_warnings soundfork_diagnostics ole32 uuid)
+target_link_libraries(soundfork_app_relay PRIVATE soundfork_warnings soundfork_diagnostics ole32 uuid avrt)
 add_executable(soundfork_register src/asio-proxy/register_main.cpp)
 target_include_directories(soundfork_register PRIVATE src "${SOUNDFORK_SDK_DIR}")
 target_link_libraries(soundfork_register PRIVATE soundfork_warnings ole32 advapi32)

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "capture-backend/shared_ring.hpp"
+#include "capture-backend/audio_scheduling.hpp"
 #include "capture-backend/hub_client.hpp"
 #include "capture-backend/relay_clock.hpp"
 #include "capture-backend/relay_control.hpp"
@@ -221,16 +222,18 @@ struct RelayMetrics {
   std::uint64_t rebuffer_count = 0;
   double maximum_correction_ppm = 0.0;
   double last_correction_ppm = 0.0;
+  std::uint64_t maximum_wake_gap_us = 0, maximum_render_us = 0;
   std::uint64_t underflow_frames = 0, prebuffer_frames = 0, last_queue_frames = 0;
 };
 
 void log_metrics(const soundfork::capture::SharedRingReader& reader, const RelayMetrics& metrics,
                  std::uint64_t current_underflow = 0, std::uint64_t current_prebuffer = 0) {
-  char detail[512]{};
+  char detail[640]{};
   _snprintf_s(detail, sizeof(detail), _TRUNCATE,
       "rendered_frames=%llu queue_frames=%llu queue_min=%llu queue_max=%llu underflow_frames=%llu "
       "prebuffer_frames=%llu resyncs=%llu discarded_blocks=%llu session_reconnects=%llu rebuffers=%llu "
-      "hub_output_drops=%llu correction_ppm=%.2f max_correction_ppm=%.2f",
+      "hub_output_drops=%llu correction_ppm=%.2f max_correction_ppm=%.2f "
+      "max_wake_gap_us=%llu max_render_us=%llu",
       static_cast<unsigned long long>(metrics.rendered_frames),
       static_cast<unsigned long long>(metrics.last_queue_frames),
       static_cast<unsigned long long>(metrics.minimum_queue_frames == (std::numeric_limits<std::uint64_t>::max)()
@@ -243,7 +246,9 @@ void log_metrics(const soundfork::capture::SharedRingReader& reader, const Relay
       static_cast<unsigned long long>(metrics.reconnect_count),
       static_cast<unsigned long long>(metrics.rebuffer_count),
       static_cast<unsigned long long>(reader.stats().dropped_blocks),
-      metrics.last_correction_ppm, metrics.maximum_correction_ppm);
+      metrics.last_correction_ppm, metrics.maximum_correction_ppm,
+      static_cast<unsigned long long>(metrics.maximum_wake_gap_us),
+      static_cast<unsigned long long>(metrics.maximum_render_us));
   diagnostics::log().write(diagnostics::Level::info, "relay_metrics", detail);
 }
 
@@ -364,6 +369,12 @@ SessionOutcome run_render_session(
   }
   std::wcout << L"Source: " << soundfork::capture::sample_format_name(reader->format().sample_format)
              << L"; WASAPI render: " << format.sample_rate << L" Hz, stereo Int32LSB\n";
+  soundfork::capture::AudioScheduling scheduling;
+  const bool audio_priority = scheduling.start();
+  diagnostics::log().write(audio_priority ? diagnostics::Level::info : diagnostics::Level::warning,
+      "relay_audio_scheduling", "active=" + std::to_string(audio_priority) +
+      " error=" + std::to_string(scheduling.error()));
+  soundfork::capture::WorkerTiming timing;
   result = audio_client->Start();
   if (FAILED(result)) {
     succeeded_asio_style(result, L"IAudioClient start");
@@ -420,6 +431,10 @@ SessionOutcome run_render_session(
       outcome = SessionOutcome::reconnect;
       break;
     }
+
+    timing.observe_wake();
+    metrics->maximum_wake_gap_us = (std::max)(metrics->maximum_wake_gap_us, timing.maximum_gap_us);
+    const auto render_started_us = timing.now_us();
 
     UINT32 padding = 0;
     result = audio_client->GetCurrentPadding(&padding);
@@ -485,6 +500,8 @@ SessionOutcome run_render_session(
       break;
     }
     metrics->rendered_frames += available;
+    metrics->maximum_render_us = (std::max)(metrics->maximum_render_us,
+        timing.now_us() - render_started_us);
     const auto now = GetTickCount64();
     if ((decision.rebuffered || source->metrics().silent_frames != underflow_before || metrics->resync_count != resync_before) &&
         now >= next_gap_log_at) {

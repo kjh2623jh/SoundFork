@@ -1,11 +1,13 @@
 #include <windows.h>
 
 #include <array>
+#include <algorithm>
 #include <cwctype>
 #include <memory>
 #include <string>
 
 #include "capture-backend/hub_client.hpp"
+#include "capture-backend/audio_scheduling.hpp"
 #include "capture-backend/shared_ring.hpp"
 #include "diagnostics/async_log.hpp"
 #include "soundfork_version.hpp"
@@ -55,9 +57,13 @@ int hub_main(int argc, wchar_t** argv) {
   ULONGLONG retry_at = 0;
   ULONGLONG check_stream_at = 0;
   ULONGLONG next_metrics_at = GetTickCount64() + 30000;
+  AudioScheduling scheduling;
+  WorkerTiming timing;
+  std::uint64_t maximum_input_blocks = 0;
   SetEvent(ready.value);
   while (WaitForSingleObject(timer.value, 1000) == WAIT_OBJECT_0) {
     const auto now = GetTickCount64();
+    if (input.is_open()) timing.observe_wake();
     if (now >= check_clients_at) {
       check_clients_at = now + 250;
       if (hub_has_clients(names)) {
@@ -75,6 +81,8 @@ int hub_main(int argc, wchar_t** argv) {
         input.close();
         relay.close();
         obs.close();
+        scheduling.reset();
+        timing.reset_interval();
         if (!set_timer_period(timer.value, 50)) break;
       }
     }
@@ -93,10 +101,16 @@ int hub_main(int argc, wchar_t** argv) {
         continue;
       }
       if (!set_timer_period(timer.value, 1)) break;
+      const bool audio_priority = scheduling.start();
+      logger.write(audio_priority ? soundfork::diagnostics::Level::info : soundfork::diagnostics::Level::warning,
+          "hub_audio_scheduling", "active=" + std::to_string(audio_priority) +
+          " error=" + std::to_string(scheduling.error()));
+      timing.reset_interval();
       logger.write(soundfork::diagnostics::Level::info, "hub_source_connected",
           "rate=" + std::to_string(format.sample_rate) + " frames_per_block=" + std::to_string(format.frames_per_block));
     }
     // Bound work per wake. A stalled consumer only fills its own output ring.
+    maximum_input_blocks = (std::max)(maximum_input_blocks, input.queued_blocks());
     for (std::uint32_t block = 0; block < kCapacityBlocks; ++block) {
       std::uint32_t frames = 0;
       if (!input.read_planar(buffers->input.data(),
@@ -113,7 +127,9 @@ int hub_main(int argc, wchar_t** argv) {
           "asio_published=" + std::to_string(stats.published_blocks) +
           " asio_drops=" + std::to_string(stats.dropped_blocks) +
           " relay_drops=" + std::to_string(relay.stats().dropped_blocks) +
-          " obs_drops=" + std::to_string(obs.stats().dropped_blocks));
+          " obs_drops=" + std::to_string(obs.stats().dropped_blocks) +
+          " max_poll_gap_us=" + std::to_string(timing.maximum_gap_us) +
+          " max_input_queue_blocks=" + std::to_string(maximum_input_blocks));
     }
   }
   ResetEvent(ready.value);

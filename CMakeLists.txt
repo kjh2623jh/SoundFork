@@ -186,6 +186,7 @@ target_link_libraries(soundfork_discord_relay PRIVATE
   soundfork_diagnostics
   ole32
   uuid
+  avrt
 )
 
 add_library(soundfork_app_relay SHARED
@@ -195,7 +196,7 @@ add_library(soundfork_app_relay SHARED
 target_compile_definitions(soundfork_app_relay PRIVATE SOUNDFORK_RELAY_NO_ENTRYPOINT)
 target_include_directories(soundfork_app_relay PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(soundfork_app_relay PRIVATE
-  soundfork_warnings soundfork_diagnostics ole32 uuid)
+  soundfork_warnings soundfork_diagnostics ole32 uuid avrt)
 set_target_properties(soundfork_app_relay PROPERTIES
   OUTPUT_NAME "soundfork_app_relay"
   PREFIX ""
@@ -207,7 +208,7 @@ add_executable(soundfork_capture_hub
   src/capture-backend/shared_ring.cpp
 )
 target_include_directories(soundfork_capture_hub PRIVATE src)
-target_link_libraries(soundfork_capture_hub PRIVATE soundfork_warnings soundfork_diagnostics)
+target_link_libraries(soundfork_capture_hub PRIVATE soundfork_warnings soundfork_diagnostics avrt)
 add_dependencies(soundfork_discord_relay soundfork_capture_hub)
 add_dependencies(soundfork_app_relay soundfork_capture_hub)
 
