@@ -16,11 +16,13 @@ Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
-The default build version is `1.2.1`; `-Version` may override it for release builds.
+The default build version is `1.2.2`; `-Version` may override it for release builds.
 Control checks asynchronously once per process on its first visible opening; hidden
 sign-in startup waits until the window is opened. Automatic failures/up-to-date results
 are silent. The opt-out is stored in `HKCU\Software\SoundFork\AutomaticUpdateNotifications`
 (DWORD, default 1). Manual checks remain available. Tests use fake checks, not GitHub requests.
+Both automatic and manual checks use GitHub `/releases/latest`, which excludes drafts
+and prereleases, and accept only stable `vX.Y.Z` tags. Alpha, beta, rc and dev tags are excluded.
 The alpha version in packaging examples is for explicitly preparing a prerelease,
 not an instruction to publish automatically.
 

@@ -5,7 +5,7 @@
 This document explains operation, compatibility, latency and verification boundaries.
 Use the README for installation and everyday use; use the development guide for
 source changes, builds and test commands.
-This document describes 1.2.1 raw Int16/Int24/Int32/Float32 PCM capture and
+This document describes 1.2.2 raw Int16/Int24/Int32/Float32 PCM capture and
 the optional in-application Discord relay.
 
 ## Compatibility and scope
@@ -372,6 +372,11 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   passed again after the final pending-notice adjustment. Changed Control/test targets
   passed `/analyze /WX`. Fake checks and private registry keys verify one-shot execution,
   silent failure and preferences; live requests and dialog clicks were not tested.
+
+- 2026-11-10 1.2.2 update selection: automatic and manual checks now accept only stable releases.
+  Self-tests cover prerelease/invalid-tag rejection and version comparisons. OBS-enabled Release
+  CTest passed 29/29, as did `/analyze /WX`, CFG/NX/ASLR/static-runtime checks and a live API request.
+  Local installer compilation and self-test passed; installation/removal and remote release CI were not run.
 
 The following are not claimed complete:
 
