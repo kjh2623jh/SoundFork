@@ -1960,12 +1960,19 @@ void layout_controls(AppState* state, int) {
   move(p.bug_button, 188, 204, 138, 26);
   move(p.project_button, 338, 204, width - 364, 26);
   move(state->status, 14, r.bottom - 25, width - 28, 18);
-  for (int page = 0; page < kPageCount; ++page)
-    for (auto control : p.pages[page]) ShowWindow(control, p.page == page ? SW_SHOW : SW_HIDE);
+  // Hide the old page before showing the new one. Showing an earlier page first and
+  // hiding a later page afterwards makes Windows erase the later controls over the
+  // newly shown page, which leaves stale/blank areas when navigating to the left.
+  SendMessageW(state->window, WM_SETREDRAW, FALSE, 0);
+  for (const auto& page : p.pages)
+    for (auto control : page) ShowWindow(control, SW_HIDE);
+  for (auto control : p.pages[p.page]) ShowWindow(control, SW_SHOW);
+  SendMessageW(state->window, WM_SETREDRAW, TRUE, 0);
   if (const auto focus = GetFocus();
       focus && IsChild(state->window, focus) && !IsWindowVisible(focus))
     SetFocus(GetNextDlgTabItem(state->window, nullptr, FALSE));
-  InvalidateRect(state->window, nullptr, TRUE);
+  RedrawWindow(state->window, nullptr, nullptr,
+               RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 HWND panel_widget(AppState* state, const wchar_t* kind, const wchar_t* text, int id,

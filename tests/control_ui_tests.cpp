@@ -84,6 +84,17 @@ void check_pages(AppState& state) {
       rebuild_menu(&state);
       require_ui(state.panel.page == page, "menu refresh reset page");
     }
+    // Exercise the reported direction-sensitive path as well: every transition
+    // below moves from a later page to an earlier page.
+    for (int page = kPageCount - 1; page > 0; --page) {
+      SendMessageW(window, WM_COMMAND, kNavigate + page, 0);
+      SendMessageW(window, WM_COMMAND, kNavigate + page - 1, 0);
+      UpdateWindow(window);
+      for (int other = 0; other < kPageCount; ++other)
+        for (const auto control : state.panel.pages[other])
+          require_ui(IsWindowVisible(control) == (other == page - 1),
+                     "backward navigation left an old page visible");
+    }
     require_ui(caption(state.startup_checkbox) == startup_strings(language).menu, "startup translation wrong");
     require_ui(caption(state.panel.logs_button) == soundfork::control::diagnostic_strings(ko).logs + std::wstring(L"…"),
         "logs action translation wrong");
