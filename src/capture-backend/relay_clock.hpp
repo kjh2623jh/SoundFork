@@ -50,6 +50,9 @@ class RelayRenderClock final {
  public:
   RelayRenderClock(std::uint32_t rate, std::uint32_t block, std::uint32_t target) noexcept;
   std::uint64_t prefill_frames(std::uint32_t output) const noexcept;
+  bool needs_source(std::uint64_t queued, std::uint32_t output) const noexcept {
+    return prepared_ && output != 0 && queued < prefill_frames(output) - target_frames();
+  }
   RelayRenderDecision prepare(std::uint64_t queued, std::uint32_t output) noexcept;
   void reset() noexcept { prepared_ = false; controller_.reset(); }
   std::uint64_t target_frames() const noexcept { return controller_.target_frames(); }

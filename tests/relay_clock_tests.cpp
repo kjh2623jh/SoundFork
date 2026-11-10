@@ -10,6 +10,7 @@
 #include <string>
 
 #include "capture-backend/relay_clock.hpp"
+#include "capture-backend/relay_source_wait.hpp"
 #include "capture-backend/relay_preferences.hpp"
 #include "capture-backend/endpoint_selection.hpp"
 #include "capture-backend/relay_recovery.hpp"
@@ -166,6 +167,64 @@ void test_relay_rebuffer_recovery() {
       "explicit resync skipped prebuffering");
 }
 
+void test_late_source_grace(soundfork::capture::SourcePoll cancellation,
+    soundfork::capture::SourcePoll deadline) {
+  using namespace soundfork::capture;
+  require(source_wait_budget_us(0, 48000) == 0, "empty device allowed waiting");
+  require(source_wait_budget_us(48, 48000) == 0, "device guard was ignored");
+  require(source_wait_budget_us(96, 48000) == 1000, "short device budget wrong");
+  require(source_wait_budget_us(576, 48000) == 2000, "source wait not capped");
+  require(source_wait_budget_us(576, 0) == 0, "invalid rate allowed waiting");
+  const auto name = L"Local\\SoundFork.LateSource." + std::to_wstring(GetCurrentProcessId());
+  for (unsigned delay : {1U, 2U}) {
+    SharedRingPublisher publisher;
+    require(publisher.open(48000, 64, name.c_str()), "late-source publisher");
+    SharedRingReader reader;
+    require(reader.open(name.c_str(), false), "late-source reader");
+    auto source = std::make_unique<RelayAudioSource>(reader.format());
+    RelayRenderClock clock(48000, 64, 256);
+    std::array<std::int32_t, 64> sample{}; sample.fill(65536);
+    std::array<std::int32_t, 960> output{};
+    const auto publish = [&](unsigned blocks) {
+      for (unsigned block = 0; block < blocks; ++block)
+        require(publisher.publish_int32_stereo(sample.data(), sample.data()), "late publish failed");
+    };
+    const auto queued = [&] { return source->buffered_frames(reader); };
+    unsigned calls = 0;
+    const auto unused_poll = [&] { ++calls; return SourcePoll::tick; };
+    require(wait_for_relay_source(clock, 0, 480, 2000, queued, unused_poll).polls == 0,
+        "initial prebuffering polled the source");
+    publish(12);
+    const auto initial = clock.prepare(queued(), 480);
+    require(initial.render && source->render(reader, output.data(), 480, initial.ratio), "late initial render");
+    const auto remaining = queued();
+    require(clock.needs_source(remaining, 480), "test did not create a late source");
+    const auto no_budget = wait_for_relay_source(clock, remaining, 480, 0, queued, unused_poll);
+    require(no_budget.polls == 0 && calls == 0, "no-padding path waited");
+    const auto result = wait_for_relay_source(clock, remaining, 480, 2000, queued, [&] {
+      if (++calls == delay) publish(4); // A delayed hub wake delivers a short PCM burst.
+      return SourcePoll::tick;
+    });
+    require(result.recovered && !result.stopped && result.polls == delay, "late source was not recovered");
+    const auto ready = clock.prepare(result.queued, 480);
+    require(ready.render && !ready.rebuffered, "recoverable delay inserted a silent batch");
+    require(source->render(reader, output.data(), 480, ready.ratio), "late recovered render");
+    require(source->metrics().silent_frames == 0, "late recovered PCM underrun");
+    for (const auto value : output) require(value == sample[0], "late recovered PCM was discontinuous");
+
+    const auto stopped = wait_for_relay_source(clock, queued(), 480, 2000, queued,
+        [&] { return cancellation; });
+    require(stopped.stopped && stopped.polls == 1, "stop waited for more source polls");
+    const auto timeout = wait_for_relay_source(clock, queued(), 480, 2000, queued,
+        [&] { return deadline; });
+    require(!timeout.recovered && timeout.polls == 1, "deadline did not end source wait");
+    const auto exhausted = wait_for_relay_source(clock, queued(), 480, 2000, queued,
+        unused_poll);
+    require(!exhausted.recovered && exhausted.polls == 2, "source wait exceeded bounded attempts");
+    require(clock.prepare(exhausted.queued, 480).rebuffered, "permanent starvation did not recover normally");
+  }
+}
+
 void test_reconnect_error_policy() {
   using soundfork::capture::endpoint_matches;
   require(endpoint_matches(L"opaque-A", L"CABLE Input", L"opaque-A", true), "saved ID not selected");
@@ -257,6 +316,8 @@ int main() {
     for (auto target : {128U, 256U, 960U})
       for (auto ppm : {-1500.0, 0.0, 1500.0}) test_packetized_render(target, 480, ppm, true);
     test_relay_rebuffer_recovery();
+    test_late_source_grace(soundfork::capture::SourcePoll::stopped,
+        soundfork::capture::SourcePoll::timeout);
     test_all_consumer_formats();
     test_reconnect_error_policy();
     std::cout << "SoundFork relay clock tests passed\n";

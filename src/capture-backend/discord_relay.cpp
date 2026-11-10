@@ -23,6 +23,7 @@
 
 #include "capture-backend/shared_ring.hpp"
 #include "capture-backend/audio_scheduling.hpp"
+#include "capture-backend/relay_source_wait.hpp"
 #include "capture-backend/hub_client.hpp"
 #include "capture-backend/relay_clock.hpp"
 #include "capture-backend/relay_control.hpp"
@@ -223,17 +224,19 @@ struct RelayMetrics {
   double maximum_correction_ppm = 0.0;
   double last_correction_ppm = 0.0;
   std::uint64_t maximum_wake_gap_us = 0, maximum_render_us = 0;
+  std::uint64_t source_waits = 0, source_wait_recoveries = 0, maximum_source_wait_us = 0;
   std::uint64_t underflow_frames = 0, prebuffer_frames = 0, last_queue_frames = 0;
 };
 
 void log_metrics(const soundfork::capture::SharedRingReader& reader, const RelayMetrics& metrics,
                  std::uint64_t current_underflow = 0, std::uint64_t current_prebuffer = 0) {
-  char detail[640]{};
+  char detail[768]{};
   _snprintf_s(detail, sizeof(detail), _TRUNCATE,
       "rendered_frames=%llu queue_frames=%llu queue_min=%llu queue_max=%llu underflow_frames=%llu "
       "prebuffer_frames=%llu resyncs=%llu discarded_blocks=%llu session_reconnects=%llu rebuffers=%llu "
       "hub_output_drops=%llu correction_ppm=%.2f max_correction_ppm=%.2f "
-      "max_wake_gap_us=%llu max_render_us=%llu",
+      "max_wake_gap_us=%llu max_render_us=%llu source_waits=%llu "
+      "source_wait_recoveries=%llu max_source_wait_us=%llu",
       static_cast<unsigned long long>(metrics.rendered_frames),
       static_cast<unsigned long long>(metrics.last_queue_frames),
       static_cast<unsigned long long>(metrics.minimum_queue_frames == (std::numeric_limits<std::uint64_t>::max)()
@@ -248,7 +251,10 @@ void log_metrics(const soundfork::capture::SharedRingReader& reader, const Relay
       static_cast<unsigned long long>(reader.stats().dropped_blocks),
       metrics.last_correction_ppm, metrics.maximum_correction_ppm,
       static_cast<unsigned long long>(metrics.maximum_wake_gap_us),
-      static_cast<unsigned long long>(metrics.maximum_render_us));
+      static_cast<unsigned long long>(metrics.maximum_render_us),
+      static_cast<unsigned long long>(metrics.source_waits),
+      static_cast<unsigned long long>(metrics.source_wait_recoveries),
+      static_cast<unsigned long long>(metrics.maximum_source_wait_us));
   diagnostics::log().write(diagnostics::Level::info, "relay_metrics", detail);
 }
 
@@ -375,6 +381,10 @@ SessionOutcome run_render_session(
       "relay_audio_scheduling", "active=" + std::to_string(audio_priority) +
       " error=" + std::to_string(scheduling.error()));
   soundfork::capture::WorkerTiming timing;
+  HandleCloser source_timer{CreateWaitableTimerExW(nullptr, nullptr,
+      CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE)};
+  if (!source_timer.value) diagnostics::log().write(diagnostics::Level::warning,
+      "source_wait_disabled", "error=" + std::to_string(GetLastError()));
   result = audio_client->Start();
   if (FAILED(result)) {
     succeeded_asio_style(result, L"IAudioClient start");
@@ -448,16 +458,6 @@ SessionOutcome run_render_session(
       continue;
     }
     const UINT32 available = endpoint_buffer_frames - padding;
-    BYTE* raw_destination = nullptr;
-    result = render_client->GetBuffer(available, &raw_destination);
-    if (FAILED(result)) {
-      outcome = soundfork::capture::recoverable_audio_error(result)
-                    ? SessionOutcome::reconnect
-                    : SessionOutcome::fatal;
-      break;
-    }
-
-    auto* destination = reinterpret_cast<std::int32_t*>(raw_destination);
     const auto underflow_before = source->metrics().silent_frames;
     const auto resync_before = metrics->resync_count;
     std::uint64_t queue_frames = source->buffered_frames(*reader);
@@ -471,6 +471,43 @@ SessionOutcome run_render_session(
       ++metrics->resync_count;
       queue_frames = source->buffered_frames(*reader);
     }
+    const auto wait_budget = soundfork::capture::source_wait_budget_us(padding, format.sample_rate);
+    if (source_timer.value && wait_budget >= 1000 && clock.needs_source(queue_frames, available)) {
+      const auto wait_started = timing.now_us();
+      if (wait_started != 0) {
+        const HANDLE source_wait_handles[] = {stop_event, source_timer.value};
+        const auto waited = soundfork::capture::wait_for_relay_source(clock, queue_frames,
+            available, wait_budget, [&] { return source->buffered_frames(*reader); }, [&] {
+              const auto elapsed = timing.now_us() - wait_started;
+              if (elapsed >= wait_budget) return soundfork::capture::SourcePoll::timeout;
+              const auto delay_us = (std::min)(std::uint64_t{1000}, wait_budget - elapsed);
+              LARGE_INTEGER due{};
+              due.QuadPart = -static_cast<LONGLONG>(delay_us * 10);
+              if (!SetWaitableTimer(source_timer.value, &due, 0, nullptr, nullptr, FALSE))
+                return soundfork::capture::SourcePoll::timeout;
+              const auto status = WaitForMultipleObjects(2, source_wait_handles, FALSE,
+                  static_cast<DWORD>((wait_budget - elapsed + 999) / 1000));
+              if (status == WAIT_OBJECT_0) return soundfork::capture::SourcePoll::stopped;
+              return status == WAIT_OBJECT_0 + 1 ? soundfork::capture::SourcePoll::tick
+                                                : soundfork::capture::SourcePoll::timeout;
+            });
+        ++metrics->source_waits;
+        metrics->source_wait_recoveries += waited.recovered ? 1U : 0U;
+        metrics->maximum_source_wait_us = (std::max)(metrics->maximum_source_wait_us,
+            timing.now_us() - wait_started);
+        queue_frames = waited.queued;
+        if (waited.stopped) { outcome = SessionOutcome::stopped; reason = "stop_requested"; break; }
+      }
+    }
+    // Waiting above must never hold a buffer owned by the Windows audio engine.
+    BYTE* raw_destination = nullptr;
+    result = render_client->GetBuffer(available, &raw_destination);
+    if (FAILED(result)) {
+      outcome = soundfork::capture::recoverable_audio_error(result)
+                    ? SessionOutcome::reconnect : SessionOutcome::fatal;
+      break;
+    }
+    auto* destination = reinterpret_cast<std::int32_t*>(raw_destination);
     metrics->minimum_queue_frames =
         (std::min)(metrics->minimum_queue_frames, queue_frames);
     metrics->maximum_queue_frames =

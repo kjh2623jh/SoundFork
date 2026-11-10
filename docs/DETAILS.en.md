@@ -136,6 +136,13 @@ the pending batch, WASAPI and capture-app buffering also contribute to actual la
 This queue and resampling do not affect game playback. Relay logs report `rebuffers`
 and cumulative startup/recovery silence as `prebuffer_frames`. `correction_ppm` is the
 current value; `max_correction_ppm` is a cumulative maximum.
+The hub and internal/external broadcast workers register with Windows MMCSS `Audio`.
+When queued device audio allows it, the relay uses a source-wait budget of up to 2ms
+before acquiring the render buffer; persistent shortages still trigger rebuffering.
+This wait never runs on the ASIO callback. Registration failure logs an error and
+keeps normal scheduling. `max_poll_gap_us`, `max_wake_gap_us`, `max_render_us` and
+`max_source_wait_us` expose actual scheduling/work intervals, including overshoot.
+Wake gaps include the normal audio period and are not measured DAC latency.
 
 The OBS plugin delivers 480-frame / 10 ms packets and uses a residual queue and
 clock correction. OBS buffering and video sync remain, so bypassing a virtual

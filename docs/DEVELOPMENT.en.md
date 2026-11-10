@@ -338,6 +338,14 @@ The batch-consumption regression fails with the old policy; it does not replace 
 On a PC with a live game relay, exclude the existing Stop-export lifecycle test with
 `ctest -E '^soundfork_app_relay_tests$'`: it can signal the shared stop event.
 Keep the full suite in isolated CI. This exclusion does not verify live stop/restart behavior.
+`audio_scheduling.hpp` applies MMCSS `Audio` only to active hub/relay worker threads
+and reverts on the same thread. It changes neither process-wide/ASIO priorities nor
+global timer resolution. `relay_source_wait.hpp` keeps a 1ms device-audio guard and
+limits the wait budget to 2ms/two polls. A high-resolution one-shot timer and the stop
+event are waited together; unavailable timers or insufficient device time skip waiting.
+OS scheduling overshoot is measured. Render buffers are acquired only after waiting.
+PCM tests cover recovery after one/two polls, timeout, stop, startup and insufficient
+device audio. These do not guarantee scheduling under real load or remote Discord playback.
 
 ### Automated regression and analysis
 
