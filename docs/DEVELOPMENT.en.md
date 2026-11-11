@@ -49,6 +49,7 @@ Control EXE when testing plugin management.
 - `src/capture-backend`: shared rings, hub, WASAPI relay/clock correction and monitor.
 - `src/obs-plugin`: official libobs source API integration and localization.
 - `src/control-app`: settings/language/tray, update checks and elevated plugin management.
+- `src/control-app/ui_strings.*`: language types and base translations independent of widgets/settings; window messages/layout remain in `control_main.cpp`.
 - `tests`: fake ASIO backend, regression, real-libobs integration and security tooling.
 - `installer`, `scripts`, `.github`: installer, build/diagnostic scripts and CI/release workflows.
 

@@ -263,6 +263,7 @@ target_link_libraries(soundfork_relay_settings PUBLIC soundfork_warnings advapi3
 
 add_executable(soundfork_control WIN32
   src/control-app/control_main.cpp
+  src/control-app/ui_strings.cpp
   src/control-app/update_checker.cpp
   src/control-app/soundfork_control.rc
   "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"
@@ -306,6 +307,7 @@ if(BUILD_TESTING)
   set_tests_properties(soundfork_download_tests PROPERTIES TIMEOUT 30 LABELS "deployment;security;unit")
   add_executable(soundfork_control_ui_tests
     tests/control_ui_tests.cpp
+    src/control-app/ui_strings.cpp
     src/control-app/update_checker.cpp
     src/control-app/soundfork_control.rc
     "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"

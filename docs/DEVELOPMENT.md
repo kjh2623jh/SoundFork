@@ -48,6 +48,7 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 - `src/capture-backend`: 공유 링, 캡처 허브, WASAPI 릴레이·클럭 보정, 진단 모니터
 - `src/obs-plugin`: 공식 libobs API로 출력하는 오디오 소스와 번역 리소스
 - `src/control-app`: 설정·언어·트레이, 업데이트 확인, 권한 분리된 플러그인 관리
+- `src/control-app/ui_strings.*`: 창·설정과 분리된 언어 타입과 기본 번역 테이블. 창 메시지·레이아웃은 `control_main.cpp`에서 관리한다.
 - `tests`: 가짜 ASIO 백엔드, 회귀·실제 libobs 통합·보안 도구 테스트
 - `installer`, `scripts`, `.github`: 설치 프로그램, 빌드·진단 스크립트, CI·배포 워크플로
 
