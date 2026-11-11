@@ -11,12 +11,10 @@
 #include "capture-backend/shared_ring.hpp"
 #include "diagnostics/async_log.hpp"
 #include "soundfork_version.hpp"
+#include "platform/unique_handle.hpp"
 
 namespace {
-struct Handle {
-  HANDLE value = nullptr;
-  ~Handle() { if (value != nullptr) CloseHandle(value); }
-};
+using Handle = soundfork::platform::UniqueHandle;
 
 struct Buffers {
   std::array<std::byte, soundfork::capture::kMaxPayloadBytes> input{};

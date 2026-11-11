@@ -40,6 +40,7 @@
 #include "control-app/control_status.hpp"
 #include "soundfork_version.hpp"
 #include "diagnostics/async_log.hpp"
+#include "platform/unique_registry_key.hpp"
 
 namespace {
 
@@ -108,14 +109,7 @@ constexpr wchar_t kProjectUrl[] = L"https://github.com/kjh2623jh/SoundFork";
 constexpr wchar_t kReleasesUrl[] =
     L"https://github.com/kjh2623jh/SoundFork/releases";
 
-struct RegistryKey {
-  HKEY value = nullptr;
-  ~RegistryKey() {
-    if (value != nullptr) {
-      RegCloseKey(value);
-    }
-  }
-};
+using RegistryKey = soundfork::platform::UniqueRegistryKey;
 
 struct AsioDriver {
   std::wstring name;

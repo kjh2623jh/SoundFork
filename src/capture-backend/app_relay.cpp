@@ -10,23 +10,23 @@
 #include "capture-backend/relay_control.hpp"
 #include "capture-backend/relay_entry.hpp"
 #include "diagnostics/async_log.hpp"
+#include "platform/unique_handle.hpp"
 
 namespace {
 
 std::thread g_worker;
 std::atomic<bool> g_running{false};
 std::mutex g_lifecycle;
-HANDLE g_private_stop = nullptr;
+soundfork::platform::UniqueHandle g_private_stop;
 
 DWORD stop_worker() noexcept {
   const std::lock_guard lock(g_lifecycle);
-  if (g_private_stop != nullptr) (void)SetEvent(g_private_stop);
+  if (g_private_stop) (void)SetEvent(g_private_stop.value);
   if (g_worker.joinable()) {
     g_worker.join();
   }
   g_running.store(false, std::memory_order_release);
-  if (g_private_stop != nullptr) CloseHandle(g_private_stop);
-  g_private_stop = nullptr;
+  g_private_stop.reset();
   return ERROR_SUCCESS;
 }
 
@@ -44,8 +44,7 @@ SoundForkAppRelayStart(const wchar_t* endpoint_id) noexcept {
   if (g_worker.joinable()) {
     g_worker.join();
   }
-  if (g_private_stop != nullptr) CloseHandle(g_private_stop);
-  g_private_stop = nullptr;
+  g_private_stop.reset();
   HANDLE existing = OpenMutexW(
       SYNCHRONIZE, FALSE, soundfork::capture::kRelaySingletonName);
   if (existing != nullptr) {
@@ -56,13 +55,13 @@ SoundForkAppRelayStart(const wchar_t* endpoint_id) noexcept {
 
   try {
     const std::wstring endpoint(endpoint_id);
-    g_private_stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (g_private_stop == nullptr) {
+    g_private_stop.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!g_private_stop) {
       const DWORD error = GetLastError();
       g_running.store(false, std::memory_order_release);
       return error;
     }
-    const HANDLE private_stop = g_private_stop;
+    const HANDLE private_stop = g_private_stop.value;
     g_worker = std::thread([endpoint, private_stop]() {
       try {
         std::vector<std::wstring> arguments{
@@ -87,8 +86,7 @@ SoundForkAppRelayStart(const wchar_t* endpoint_id) noexcept {
       g_running.store(false, std::memory_order_release);
     });
   } catch (...) {
-    if (g_private_stop != nullptr) CloseHandle(g_private_stop);
-    g_private_stop = nullptr;
+    g_private_stop.reset();
     g_running.store(false, std::memory_order_release);
     return ERROR_NOT_ENOUGH_MEMORY;
   }

@@ -50,6 +50,7 @@ Control EXE when testing plugin management.
 - `src/obs-plugin`: official libobs source API integration and localization.
 - `src/control-app`: settings/language/tray, update checks and elevated plugin management.
 - `src/control-app/ui_strings.*`: language types and base translations independent of widgets/settings; window messages/layout remain in `control_main.cpp`.
+- `src/platform`: noncopyable owners for kernel handles and registry keys, closed by `CloseHandle` and `RegCloseKey` respectively.
 - `tests`: fake ASIO backend, regression, real-libobs integration and security tooling.
 - `installer`, `scripts`, `.github`: installer, build/diagnostic scripts and CI/release workflows.
 
@@ -228,6 +229,30 @@ application-owned WASAPI stream is not a public contract, so each release still 
 real application restart and remote-listening check.
 
 ## Contracts to preserve when changing code
+
+### Resource ownership and optional preparation failure
+
+Hub/relay/OBS-plugin file management use move-only `UniqueHandle`, accepting both NULL
+and `INVALID_HANDLE_VALUE`. It stores one handle without allocation or locking.
+Registry keys use a separate `UniqueRegistryKey` and closer. Neither owner is used
+for windows, DLL modules or mapped views.
+
+Optional internal-relay settings/path preparation catches failures at its outer boundary
+instead of letting allocation exceptions terminate inside `noexcept` helpers. Registry
+keys are released on failure; preparation never runs on ASIO callbacks.
+`application_relay_allocation_tests` injects failures using private HKCU settings and a
+fake loader that cannot load a DLL, checking isolation and registry-handle cleanup.
+It does not establish all program-wide allocation-failure paths or long-running game behavior.
+MSVC Debug may allocate iterator proxies inside noexcept container constructors;
+failing those allocations terminates inside the STL. The test excludes proxy-sized
+allocations and exercises larger settings/path buffers, retaining iterator checking.
+CRT errors are reported to the console and fail the test instead of waiting in a modal dialog.
+
+The 2026-11-12 check passed full Release x64 39/39 and x86 12/12, resource/allocation/
+lifecycle tests in all four Debug/Release configurations, changed-target static analysis
+and 72 cross-bitness combinations. Debug UI testing intermittently exceeded its existing
+20-second limit; the final isolated CTest run passed in 18.12 seconds. Its assertions and
+limit are retained; timing variability remains a CI stability follow-up.
 
 ### ASIO real-time path
 

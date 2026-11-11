@@ -34,6 +34,7 @@
 #include "capture-backend/relay_preferences.hpp"
 #include "diagnostics/async_log.hpp"
 #include "soundfork_version.hpp"
+#include "platform/unique_handle.hpp"
 
 namespace {
 namespace diagnostics = soundfork::diagnostics;
@@ -58,14 +59,7 @@ struct ComUninitializer {
   }
 };
 
-struct HandleCloser {
-  HANDLE value = nullptr;
-  ~HandleCloser() {
-    if (value != nullptr) {
-      CloseHandle(value);
-    }
-  }
-};
+using HandleCloser = soundfork::platform::UniqueHandle;
 
 std::wstring lowercase(std::wstring value) {
   std::transform(value.begin(), value.end(), value.begin(), [](wchar_t character) {

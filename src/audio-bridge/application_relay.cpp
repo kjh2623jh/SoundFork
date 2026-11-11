@@ -1,5 +1,6 @@
 #include "audio-bridge/application_relay.hpp"
 #include "capture-backend/relay_preferences.hpp"
+#include "platform/unique_registry_key.hpp"
 
 #include <string>
 #include <vector>
@@ -7,27 +8,25 @@
 namespace soundfork {
 namespace {
 
-bool read_setting(const wchar_t* name, std::wstring* value) noexcept {
+bool read_setting(const wchar_t* name, std::wstring* value) {
   value->clear();
-  HKEY key = nullptr;
+  platform::UniqueRegistryKey key;
   if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\SoundFork", 0,
-                    KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+                    KEY_QUERY_VALUE, &key.value) != ERROR_SUCCESS) {
     return false;
   }
   DWORD type = 0;
   DWORD bytes = 0;
   auto result = RegQueryValueExW(
-      key, name, nullptr, &type, nullptr, &bytes);
+      key.value, name, nullptr, &type, nullptr, &bytes);
   if (result != ERROR_SUCCESS || type != REG_SZ ||
       bytes < sizeof(wchar_t) || bytes > 8192 ||
       bytes % sizeof(wchar_t) != 0) {
-    RegCloseKey(key);
     return false;
   }
   std::vector<wchar_t> buffer(bytes / sizeof(wchar_t));
-  result = RegQueryValueExW(key, name, nullptr, &type,
+  result = RegQueryValueExW(key.value, name, nullptr, &type,
       reinterpret_cast<BYTE*>(buffer.data()), &bytes);
-  RegCloseKey(key);
   if (result != ERROR_SUCCESS || buffer.empty() || buffer.back() != L'\0') {
     return false;
   }
@@ -38,7 +37,7 @@ bool read_setting(const wchar_t* name, std::wstring* value) noexcept {
   return true;
 }
 
-std::wstring module_directory() noexcept {
+std::wstring module_directory() {
   static const wchar_t anchor = 0;
   HMODULE module = nullptr;
   if (!GetModuleHandleExW(
@@ -70,6 +69,15 @@ ApplicationRelay::~ApplicationRelay() {
 }
 
 void ApplicationRelay::start_if_enabled() noexcept {
+  try {
+    prepare();
+  } catch (...) {
+    // Optional broadcast preparation must not unwind into the ASIO host.
+    // Registry keys and temporary strings are released during unwinding.
+  }
+}
+
+void ApplicationRelay::prepare() {
   if (!capture::relay_enabled()) return;
   if (module_ != nullptr) return;
   std::wstring mode;

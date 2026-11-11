@@ -1,4 +1,5 @@
 #include "control-app/obs_plugin_manager.hpp"
+#include "platform/unique_handle.hpp"
 
 #include <shlobj.h>
 #include <tlhelp32.h>
@@ -17,14 +18,7 @@ constexpr std::array<const wchar_t*, 7> files{
 constexpr std::array<const wchar_t*, 5> directories{
     L"bin/64bit", L"bin", L"data/locale", L"data", L""};
 
-struct Handle {
-  HANDLE value = INVALID_HANDLE_VALUE;
-  explicit Handle(HANDLE handle = INVALID_HANDLE_VALUE) : value(handle) {}
-  ~Handle() { if (value != INVALID_HANDLE_VALUE && value != nullptr) CloseHandle(value); }
-  Handle(Handle&& other) noexcept : value(std::exchange(other.value, INVALID_HANDLE_VALUE)) {}
-  Handle& operator=(Handle&&) = delete;
-  Handle(const Handle&) = delete;
-};
+using Handle = soundfork::platform::UniqueHandle;
 
 bool absolute_plain_path(const fs::path& path) {
   if (!path.is_absolute() || path.root_name().native().size() != 2 ||

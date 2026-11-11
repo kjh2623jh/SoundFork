@@ -18,6 +18,7 @@ class ApplicationRelay final {
   bool loaded() const noexcept { return module_ != nullptr; }
 
  private:
+  void prepare();
   using StartFunction = DWORD(WINAPI*)(const wchar_t*);
   using StopFunction = DWORD(WINAPI*)();
   HMODULE module_ = nullptr;
