@@ -601,6 +601,11 @@ Automated coverage: 9 rates x 18 formats x 4 block sizes for raw byte identity a
 
 ### Convert only where required
 
+On 2026-11-12, an isolated Release benchmark compared block-level dispatch for the
+four basic formats. Initial prototype gains were not reproduced consistently with
+the actual implementation and changing inputs, so the candidate was rejected and
+the existing decoder retained. This compares decoder CPU time, not audio latency or hardware.
+
 Relay workers scale S16 by 65536 and sign-extended S24 by 256; S32 values remain
 unchanged. F32→Int32 maps NaN/Inf to zero, clamps to [-1,1], multiplies by 2³¹,
 rounds nearest with ties away from zero, and saturates to Int32 limits.
