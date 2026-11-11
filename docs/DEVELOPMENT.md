@@ -23,7 +23,7 @@ CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서�
 수동 확인은 이 설정과 무관하게 실행한다. 테스트는 실제 GitHub 요청 대신 가짜 검사 함수를 사용한다.
 자동·수동 확인 모두 GitHub `/releases/latest`로 초안·사전 릴리스를 제외하고,
 태그도 정식 `vX.Y.Z` 형식인지 검사한다. alpha·beta·rc·dev 버전은 안내 대상이 아니다.
-아래 패키징 예시의 alpha 번호는 명시적인 시험판 준비 시에만 사용하며 자동 배포하지 않는다.
+로컬 빌드·패키징 명령은 GitHub 배포나 태그 생성을 수행하지 않는다.
 
 ```powershell
 .\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
@@ -55,7 +55,7 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 `SOUNDFORK_VERSION`에서 생성한다. 언어 선택은 사용자별
 `HKCU\Software\SoundFork\Language`에 저장한다.
 
-## 1.3.0 Windows 재생 출력과 32비트 ASIO 호스트
+## Windows 재생 출력과 32비트 ASIO 호스트
 
 ### Windows 재생 백엔드
 
@@ -175,7 +175,7 @@ x86 등록 테스트는 프로세스 한정 HKLM 리다이렉션과 임시 HKCU 
 전체 Setup 설치·업데이트·제거의 양쪽 레지스트리 확인은 격리된 릴리스 CI가 담당한다.
 실제 32비트 게임·제조사 드라이버·Discord 창 공유와 물리 지연은 수동 검증으로 남긴다.
 
-## 1.2.0 애플리케이션 창 공유 릴레이
+## 애플리케이션 창 공유 릴레이
 
 `RelayEnabled` DWORD(기본 1)은 내부 DLL 로드와 제어판 외부 전달 시작을 제어한다.
 끄면 실행 중 전달을 중지하며 공유 방식·로그인 선호값은 유지한다. OBS는 독립적이다.
@@ -237,13 +237,13 @@ DLL은 `SoundFork.DiscordRelay.Singleton.v1` 및 같은 stop event를 공유한�
 
 ### OBS 출력과 플러그인 관리
 
-OBS 작업 스레드는 480프레임 / 10 ms를 `obs_source_output_audio`에 전달하고 OBS 단조
+OBS 작업 스레드는 원본 샘플레이트의 10 ms 패킷(48kHz에서 480프레임)을 `obs_source_output_audio`에 전달하고 OBS 단조
 시계의 연속 타임스탬프를 사용한다. 타이머 기상 횟수가 아닌 누적 샘플 기한으로
 one-shot 타이머를 재설정하고, 늦게 기상하면 최대 5패킷까지 따라잡는다. 50 ms를
 초과한 정체나 과도한 큐는 OBS 경로만 재동기화한다. 전송 스레드는 MMCSS `Audio`에
 등록하되 실패하면 경고 후 계속한다. 프로세스 생성·복구는 별도 관리 스레드에 둔다.
 
-OBS 목표 잔여 큐는 최소 20 ms와 4블록 중 큰 값으로, 64 samples에서는 960프레임이다.
+OBS 목표 잔여 큐는 최소 20 ms와 4블록 중 큰 값으로, 48kHz / 64 samples에서는 960프레임이다.
 한 패킷과 보간 look-ahead까지 준비한 뒤 시작하며 실제 언더런 후에도 재충전한다.
 보정 한도는 ±2,000 ppm이고, 따라잡을 패킷은 드리프트 판단용 큐에서 제외한다.
 시작 여유량이 48블록 상한보다 작은 포맷만 받는다(48 kHz / 64 samples 지원).
@@ -327,9 +327,9 @@ libobs 테스트는 DLL 로드, 소스 생성, 연속 스테레오 파형, 타�
 
 | 구분 | 자동으로 확인하는 것 | 아직 확인하지 못하는 것 |
 | --- | --- | --- |
-| 프록시·변환기·링 | 버퍼 포인터·콜백·게시 횟수, 네 형식의 원본 바이트, 경계값·헤더 변조, C++ `new/new[]` 감시 | 실제 제조사 ASIO 동작·물리 지연, 모든 CRT/Win32 할당을 망라한 증명 |
+| 프록시·변환기·링 | 버퍼 포인터·콜백·게시 횟수, 18개 형식의 원본 바이트, 경계값·헤더 변조, C++ `new/new[]` 감시 | 실제 제조사 ASIO 동작·물리 지연, 모든 CRT/Win32 할당을 망라한 증명 |
 | 허브·가속 soak | 동시 분배·느린 소비자 격리·재시작·충돌 복구, 반복 PCM·카운터·큐·메모리 관측 | 실제 시간 경과·하드웨어 클럭·WASAPI 장치 장애, 메모리 보고만으로 모든 누수 부재 증명 |
-| libobs·가상 시계 | 실제 libobs가 받은 네 형식 파형·좌우·PTS·무음·지터, 정수/float 복구·가상 드리프트 | 실제 OBS 영상·인코더·Discord 원격 청취·DAC와의 물리 싱크 |
+| libobs·가상 시계 | 기본 네 형식과 추가 Float64·MSB 사례의 파형·좌우·PTS·무음·지터, 44.1/96kHz 입력, 정수/float 복구·가상 드리프트 | 18개 형식 전체의 libobs 개별 시험, 실제 OBS 영상·인코더·Discord 원격 청취·DAC와의 물리 싱크 |
 | 제어판·설정 | 숨겨진 실제 Win32 UI, 임시 HKCU 설정·권한·단일 실행·자동 시작 조기 종료 | 실제 로그인·UAC·클립보드·모든 DPI와 사용자 장치 환경 |
 | 보안 검사 | CodeQL·MSVC 분석, 스캐너 실패·경로·체크섬·게시 정책, 릴리스 ClamAV 관문 | 취약점/악성코드 부재 보장·코드 서명·일반 CTest만으로 실제 백신 검사 |
 | 배포 검사 | CTest의 설치 선택 정책·프로세스 시간 제한·DLL 인터페이스, 격리 릴리스 CI의 설치·업데이트·제거 | 사용 중인 PC에서의 실제 설치·관리자 승인; 로컬 정책 시험은 설치 완료 증거가 아님 |
@@ -483,7 +483,7 @@ UTC 시각(`Z`), PID, 버전과 구조화된 이벤트를 기록한다. UTC에 9
 설치된 로그·설정은 사용하지 않는다. 실제 제어판의 폴더 열기와 새 빌드로 반복 시작/중지·
 장치 재연결 시 로그 연계는 별도 수동 확인 항목이다.
 
-## 1.1.0 원본 PCM 복제와 소비자 변환
+## 원본 PCM 복제와 소비자 변환
 
 ### 지원 형식과 재생 경로
 
@@ -544,10 +544,12 @@ OBS는 정수 입력에 기존 Int32 보간·출력을 유지하고, F32는 floa
 
 ### 자동 시험과 수동 검증
 
-변환기 경계값·Int24 부호·비정렬 입력·float 비유한/포화, 네 형식의 원본 바이트 동일성,
+변환기 경계값·Int24 부호·비정렬 입력·float 비유한/포화, 18개 형식의 원본 바이트 동일성,
 무할당 콜백·소비자 정지 격리·게시 횟수·헤더 변조·세대 변경·허브 분배를 검사한다.
 소비자 보간에는 정수 정규화와 Int32로 표현되지 않는 float 보존 시험이 있다.
-실제 libobs는 네 형식의 파형·좌우·타임스탬프·지터와 정수/float 입력 중단 복구를 검사한다.
+실제 libobs는 기본 Int16·Int24·Int32·Float32와 추가 Float64·Float64MSB·Int32MSB24의
+파형·좌우·타임스탬프·지터, 정수/float 입력 중단 복구와 44.1/96kHz 입력을 검사한다.
+18개 형식 전부를 실제 libobs에서 개별 실행한 것으로 확대 해석하지 않는다.
 
 실제 FiiO 48k/64, Discord·OBS 수 시간 동시 사용과 다른 형식의 실제 드라이버 시험은
 별도 수동 검증이다. 합성 콜백 시간·가속 드리프트 시험은 물리 지연이나 실시간 soak가 아니다.
@@ -579,15 +581,15 @@ Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 �
 아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1
-.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 -SkipInstaller
 ```
 
 인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
 인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
@@ -601,7 +603,8 @@ ZIP과 설치본 모두 README는 루트, 상세·개발 문서는 `docs`에 두
 1. Debug·Release 회귀와 정적 분석을 확인하고 변경 사항을 커밋한다.
 2. 미사용 버전을 정한다. 기본 `X.Y.Z`는 CMake와 일치해야 하며 선택 접미사는
    `alpha.N`, `beta.N`, `rc.N`이다. 한·영 README의 Setup 링크도 같은 버전으로 맞춘다.
-3. 배포 커밋을 원격 `main`에 반영한 뒤 그 커밋에 태그를 붙여 푸시한다.
+3. 정식 배포는 커밋을 원격 `main`에, 시험판은 일치하는 `vX.Y.Z-dev` 브랜치에 반영한 뒤
+   그 커밋에 태그를 붙여 푸시한다. 릴리스 워크플로가 해당 브랜치에 포함된 커밋인지 검사한다.
    아래 명령은 배포 담당자가 의도적으로 실행할 절차이며 기존 태그를 강제로 옮기지 않는다.
 
 ```powershell

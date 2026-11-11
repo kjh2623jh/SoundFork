@@ -23,8 +23,7 @@ are silent. The opt-out is stored in `HKCU\Software\SoundFork\AutomaticUpdateNot
 (DWORD, default 1). Manual checks remain available. Tests use fake checks, not GitHub requests.
 Both automatic and manual checks use GitHub `/releases/latest`, which excludes drafts
 and prereleases, and accept only stable `vX.Y.Z` tags. Alpha, beta, rc and dev tags are excluded.
-The alpha version in packaging examples is for explicitly preparing a prerelease,
-not an instruction to publish automatically.
+Local build and packaging commands do not publish to GitHub or create tags.
 
 ```powershell
 .\scripts\Build-SoundFork.ps1 -Configuration Debug -WithObsPlugin
@@ -57,7 +56,7 @@ The base version comes from `project(VERSION ...)` in `CMakeLists.txt`; the
 user-visible version is generated from `SOUNDFORK_VERSION`. Language preferences
 are stored per user in `HKCU\Software\SoundFork\Language`.
 
-## 1.3.0 Windows playback and 32-bit ASIO hosts
+## Windows playback and 32-bit ASIO hosts
 
 ### Windows playback backend
 
@@ -192,7 +191,7 @@ process to a temporary HKCU key. Full dual-view install/update/uninstall runs in
 release CI. Real x86 games/vendor drivers, Discord sharing and physical latency remain
 manual checks.
 
-## 1.2.0 application-window relay
+## Application-window relay
 
 `RelayEnabled` (DWORD, default 1) gates optional DLL loading and Control's external
 relay launch. Disabling stops forwarding and preserves mode/startup preferences;
@@ -262,7 +261,7 @@ same-format game restarts, forcibly terminated hubs and a stalled single consume
 
 ### OBS output and plugin management
 
-The OBS worker sends 480-frame / 10 ms packets to `obs_source_output_audio` using
+The OBS worker sends source-rate 10 ms packets (480 frames at 48 kHz) to `obs_source_output_audio` using
 a continuous OBS monotonic timeline. Rearm a one-shot timer against accumulated
 sample deadlines, not wake counts; catch up at most five packets per batch. Stalls
 exceeding 50 ms or excessive queues resynchronize OBS only. Register the delivery
@@ -270,7 +269,7 @@ thread with MMCSS `Audio`, warning and continuing on failure. Keep process
 launch/recovery on a separate supervisor thread.
 
 OBS residual headroom is at least 20 ms or four blocks, whichever is greater:
-960 frames at a 64-frame ASIO block size. Prefill an additional packet and
+960 frames at 48 kHz with a 64-frame ASIO block size. Prefill an additional packet and
 interpolation look-ahead, including after a real underrun. Correction remains
 bounded to ±2,000 ppm; exclude pending catch-up packets from the drift estimate.
 Accept only formats whose startup headroom is below the 48-block high-water mark
@@ -369,9 +368,9 @@ timestamp assertions, with no exclusion window.
 
 | Area | Automated evidence | Not established |
 | --- | --- | --- |
-| Proxy/decoder/ring | Buffer identity, callbacks/publication counts, four raw formats, boundaries/header corruption, C++ `new/new[]` interception | Real vendor ASIO behavior, physical latency, exhaustive CRT/Win32 allocation interception |
+| Proxy/decoder/ring | Buffer identity, callbacks/publication counts, 18 raw formats, boundaries/header corruption, C++ `new/new[]` interception | Real vendor ASIO behavior, physical latency, exhaustive CRT/Win32 allocation interception |
 | Hub/accelerated soak | Fan-out, stalled-client isolation, restart/crash recovery, repeated PCM/counters/queues/memory observations | Real elapsed hours, hardware clocks, WASAPI device failures, proof of no leaks from memory reports alone |
-| Real libobs/virtual clocks | Four waveforms, stereo, PTS, silence/jitter, integer/float recovery and simulated drift | Actual OBS video/encoder, remote Discord listening, physical DAC sync |
+| Real libobs/virtual clocks | Four base formats plus Float64/MSB cases, stereo, PTS, silence/jitter, 44.1/96 kHz inputs, integer/float recovery and simulated drift | Individual libobs tests for all 18 formats, actual OBS video/encoder, remote Discord listening, physical DAC sync |
 | Control/settings | Hidden real Win32 UI, private HKCU settings/permissions, singleton and disabled-startup exit | Real sign-in/UAC/clipboard, every DPI/device setup |
 | Security | CodeQL/MSVC analysis, scanner error/path/checksum/publication policy, release ClamAV gate | Guarantee of no vulnerabilities/malware, signing, actual antivirus scanning from ordinary CTest alone |
 | Deployment | CTest selection-policy/process-timeout/DLL checks; isolated release-CI install/upgrade/uninstall | Actual in-use-PC installation/UAC; local policy tests do not prove installation succeeded |
@@ -544,11 +543,11 @@ recovery after file contention. Hardlinked log files are also tested for rejecti
 without modifying their target. Opening the real GUI folder and correlating
 start/stop/device reconnection in a new build remain manual checks.
 
-## 1.1.0 raw PCM transport and consumer conversion
+## Raw PCM transport and consumer conversion
 
 ### Formats and playback invariant
 
-v1.3.0-dev keeps wire IDs 1-4, mapping size and 64 KiB slot size, adding IDs 5-18.
+The extended format set keeps wire IDs 1-4, mapping size and 64 KiB slot size, adding IDs 5-18.
 Float64 capture is capped at 4096 frames; oversized blocks keep ASIO playback and
 disable capture with a buffer-size diagnostic. Producer preparation and header
 validation both enforce the payload limit. Older consumers reject unknown IDs:
@@ -615,8 +614,9 @@ Tests cover decoder boundaries, signed packed Int24, unaligned/nonfinite inputs,
 saturation, all-format byte identity, allocation-free callbacks, stalled consumers,
 publication count, corrupt headers, generations and raw hub fan-out. Consumer
 interpolation tests include normalized integers and floats below Int32 resolution.
-Real-libobs tests cover all four waveforms/stereo/timestamps/jitter and integer/float
-pause recovery.
+Real-libobs tests cover Int16, Int24, Int32 and Float32 plus Float64, Float64MSB and
+Int32MSB24 waveforms/stereo/timestamps/jitter, integer/float pause recovery and
+44.1/96 kHz inputs. This is not individual real-libobs coverage of all 18 PCM types.
 
 Physical FiiO 48k/64, multi-hour Discord/OBS use and real alternate-format drivers
 remain manual checks. Synthetic callback timings and accelerated drift simulation
@@ -650,15 +650,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1
-.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.1.0-alpha.1 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```
@@ -672,7 +672,9 @@ Both ZIP and Setup keep READMEs at the root and detail/development guides in `do
 1. Verify Debug/Release regression and static analysis, then commit the changes.
 2. Choose an unused version. Base `X.Y.Z` must match CMake; optional suffixes are
    `alpha.N`, `beta.N` and `rc.N`. Match both READMEs' direct Setup links to it.
-3. Land the release commit on remote `main`, then tag that commit and push the tag.
+3. Land the commit on remote `main` for a stable release, or the matching `vX.Y.Z-dev`
+   branch for a prerelease, then tag that commit and push the tag. The release workflow
+   checks that the commit belongs to the required branch.
    These are intentional release-operator commands; never force-move an existing tag.
 
 ```powershell

@@ -23,10 +23,6 @@ virtual driver's own buffering latency is not removed.
 
 Broadcast capture has additional constraints:
 
-Version 1.3.0 also offers Windows playback without a vendor ASIO driver:
-48 kHz stereo Float32 shared-mode WASAPI, with separate playback/broadcast selections.
-This does not add support for 32-bit Windows or load x64 vendor DLLs in x86 processes.
-
 - Windows 10/11 x64 with x64 or x86 ASIO hosts. The vendor driver must match the host's bitness.
 - 32/44.1/48/88.2/96/176.4/192/352.8/384 kHz stereo capture of two selected outputs (default 1/2; choose 1–64, including the same output on both sides); Int16/Int24/Int32/Float32/Float64 in LSB/MSB order,
   including right-aligned 16/18/20/24 valid-bit Int32 containers.
@@ -36,12 +32,23 @@ This does not add support for 32-bit Windows or load x64 vendor DLLs in x86 proc
 - The dedicated OBS plugin targets OBS Studio 32.2.2 or later, x64.
 
 64 samples is the tested FiiO setting, not a forced setting for every driver.
-Install a compatible ASIO driver first; SoundFork neither supplies nor modifies the selected driver.
+Vendor ASIO mode requires a compatible driver installed first; SoundFork neither supplies nor modifies it.
+
+The installer includes x86 ASIO proxy and internal-relay components; Control, the hub,
+external relay and OBS plugin remain x64. Vendor selection uses the x64 registration
+and finds the matching x86 driver. Without a vendor's x86 driver, that output works only in x64 hosts.
+Windows output needs no vendor ASIO driver and works with x86 and x64 hosts on 64-bit Windows.
+It exposes 48 kHz stereo Float32 ASIO to the game/DAW and plays through WASAPI shared mode.
+**Set the game/DAW to 48 kHz.** The Windows device may stay at 96, 192 kHz or another
+supported mix rate; SoundFork converts to the device format. There is no need to change Windows' sample rate.
+Choose the vendor ASIO or Windows speakers/headphones under **Playback → Playback output**,
+press **Apply**, and restart the game/DAW. **Broadcast → Forwarding device** selects a separate broadcast output.
+32-bit Windows and loading an x64 vendor driver inside an x86 process are not supported.
 
 ## Audio paths and running components
 
 ```text
-Game / DAW → SoundFork ASIO proxy → hardware ASIO driver → DAC
+Game / DAW → SoundFork ASIO proxy → selected ASIO driver → DAC or other playback output
                          └→ audio copy → capture hub
                                             ├→ dedicated OBS source
                                             ├→ external relay → virtual render device
@@ -51,12 +58,17 @@ Game / DAW → SoundFork ASIO proxy → hardware ASIO driver → DAC
                                                                       └→ Discord application sharing
 ```
 
-The game writes directly into hardware-driver-owned output buffers. SoundFork adds
+This diagram describes vendor ASIO mode. The game writes directly into the selected driver's output buffers. SoundFork adds
 no playback queue, playback worker or one-buffer-period wait. Broadcast data is
 copied separately; a slow consumer loses capture blocks rather than delaying DAC output.
 
+Windows output uses `Game / DAW → SoundFork virtual ASIO → WASAPI shared mode → selected playback device`.
+It has a WASAPI playback worker and buffers, so its latency structure differs from ASIO forwarding.
+Discord can capture the game process's Windows audio directly, without loading an internal relay.
+The dedicated OBS plugin can receive the copied audio with forwarding disabled.
+
 - `soundfork_driver.dll`: ASIO proxy loaded inside the game process, not a separate EXE.
-- `soundfork_control.exe`: ASIO driver selection, status, audio forwarding and plugin management.
+- `soundfork_control.exe`: playback output selection, status, audio forwarding and plugin management.
 - `soundfork_capture_hub.exe`: distributes copied audio independently to OBS and the relay.
 - `soundfork_discord_relay.exe`: renders broadcast audio to a virtual playback device.
 - `soundfork_app_relay.dll`: loaded in the game only when application-sharing mode is selected;
@@ -112,7 +124,7 @@ window does not stop playback or forwarding.
 
 ### Game playback
 
-The theoretical lower bound of SoundFork-added **buffering latency is 0 ms**.
+In vendor ASIO forwarding mode, the theoretical lower bound of SoundFork-added **buffering latency is 0 ms**.
 That does not mean zero actual input-to-output latency or zero proxy CPU time.
 The ASIO driver, USB, DAC and game contribute latency; copying also takes execution time.
 
@@ -144,7 +156,7 @@ keeps normal scheduling. `max_poll_gap_us`, `max_wake_gap_us`, `max_render_us` a
 `max_source_wait_us` expose actual scheduling/work intervals, including overshoot.
 Wake gaps include the normal audio period and are not measured DAC latency.
 
-The OBS plugin delivers 480-frame / 10 ms packets and uses a residual queue and
+The OBS plugin delivers 10 ms packets at the source sample rate (480 frames at 48 kHz) and uses a residual queue and
 clock correction. OBS buffering and video sync remain, so bypassing a virtual
 device does not establish a measured recording-latency improvement. Compare recordings
 and measure the result.
@@ -160,16 +172,18 @@ ASIO bypasses the Windows shared audio engine. Direct FiiO ASIO output does not
 appear in ordinary WASAPI loopback. The external stream belongs to
 `soundfork_discord_relay.exe`; the optional internal stream belongs to the game process.
 
-Previous remote-listener tests found:
+| Playback and forwarding | Discord sharing method | Separate virtual device |
+| --- | --- | --- |
+| Vendor ASIO + internal relay | Application window or entire screen | Required |
+| Vendor ASIO + external relay | Entire screen | Required |
+| Windows output | Direct capture of the game process's Windows audio | Not required |
 
-- DJMAX application-window sharing: no game audio, even with the relay.
-- Entire-screen sharing with direct ASIO: no game audio.
-- Entire-screen sharing with SoundFork relay and VB-CABLE: game audio included.
+The external relay belongs to another process, so sharing the game's window does not
+automatically include it. Previous tests using the public Windows 11 stream/window
+association API did not remove this limitation. Windows output's direct capture is
+different from forwarding a copy of vendor ASIO audio.
 
-The validated 1.1.0 path therefore uses **entire-screen sharing**. A public Windows 11
-stream/window association API was also tried, but Discord excluded the external relay.
-
-In 1.2.0, explicitly selecting application-sharing mode loads
+Explicitly selecting application-sharing mode loads
 `soundfork_app_relay.dll` through the normal ASIO lifecycle. Its worker reads the existing
 hub output and creates the WASAPI stream inside the application process. This is neither injection
 nor hooking. When disabled, the DLL, worker, WASAPI session and hub lease do not exist.
@@ -181,7 +195,7 @@ application-sharing mode. Its effective Windows Run entry is suspended and resto
 the user returns to entire-screen sharing.
 
 The dedicated OBS source receives audio directly from the hub, without a virtual
-device or relay. For simultaneous Discord use, run the relay and keep the dedicated
+device or relay. For simultaneous Discord use with vendor ASIO, run the relay and keep the dedicated
 source in OBS. For device capture, select the same virtual playback device in
 SoundFork and OBS: VB-CABLE's `CABLE Input` is playback; `CABLE Output` is recording.
 Capturing the same audio through both OBS methods duplicates it.
@@ -215,6 +229,17 @@ task is unchecked. Portable OBS does not search ProgramData: manually place the
 DLL and hub EXE in `obs-plugins\64bit`, and plugin `data` contents in
 `data\obs-plugins\soundfork-obs`. Control manages the standard installation location.
 
+### Updates, language and removal
+
+Control checks asynchronously for new stable versions when first shown. Alpha, beta,
+rc and dev releases are excluded. Disable notifications under **Settings → Notify me about new versions**;
+**About → Check for updates** remains available regardless of that preference.
+Download and run the new Setup. If using the OBS plugin, select its installation option too.
+
+Choose Korean or English under **Settings → Language**. Before updating or uninstalling,
+close games/DAWs and OBS and stop forwarding. Remove SoundFork through **Windows Settings → Apps**
+or **Uninstall SoundFork** in the Start menu. The vendor ASIO driver and virtual audio devices are kept.
+
 ## Diagnostic logs
 
 Starting with v1.0.1, log-folder access is available, now under **Connection > Open log folder**.
@@ -230,6 +255,20 @@ for coverage, timing, tests and the implemented raw PCM transport.
 
 These are dated records, not guarantees for every driver, PC or future release.
 See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for commands and reproduction steps.
+
+### v1.3.0 release preparation (2026-11-11)
+
+- OBS-enabled x64 Release CTest passed 36/36; x86 passed 9/9, including the relay-stop test.
+- All 72 cross-bitness combinations passed: 18 PCM types × 64/256 frames × both x86↔x64 directions.
+- Both complete MSVC `/analyze /WX` builds and CFG/NX/ASLR/static-runtime checks passed.
+- Local Setup, ZIP and checksums were created; package version, Control self-test and x64/x86 DLL hashes were checked.
+- The user reported basic real-use testing after the latest relay fixes. This is not an instrumented long soak or a physical latency measurement.
+- This local check did not run installation/removal, remote GitHub Actions, CodeQL or ClamAV.
+
+<details>
+<summary>Earlier verification records by version</summary>
+
+Results and outstanding checks below describe the state at each test date.
 
 - Hardware: FiiO ASIO Driver 6.16.0.0, FiiO K11 R2R, 48 kHz / 64 samples, stereo
   `ASIOSTInt32LSB`. The user confirmed stereo playback, no perceptible latency
@@ -453,17 +492,18 @@ See the [development guide](DEVELOPMENT.en.md#testing-and-diagnostics) for comma
   CTest passed 29/29, as did `/analyze /WX`, CFG/NX/ASLR/static-runtime checks and a live API request.
   Local installer compilation and self-test passed; installation/removal and remote release CI were not run.
 
-The following are not claimed complete:
+</details>
 
-- Real x86 games/vendor ASIO playback, Discord application sharing and the full installed lifecycle.
+### Additional hardware and real-use checks
 
-- Observing nonzero DJMAX song PCM in the monitor and a four-hour simultaneous soak instrumenting callbacks, queues and memory.
-- Physical virtual-WASAPI driver removal/reconnection.
-- Simultaneous remote verification of a real microphone and Discord screen-share audio.
-- FiiO/Discord/dedicated OBS plugin recording sync and long-duration stability.
-- Physical loopback measurement of end-to-end or proxy-added latency.
-- Real UAC approval/cancellation, full installer lifecycle for the new plugin manager,
-  and actual symlink/junction rejection.
+Automated results and individual user reports do not establish complete coverage of:
+
+- Other vendors, x86 games, additional PCM types and non-48 kHz hardware.
+- A multi-hour ASIO/Discord/OBS soak of the latest fixes with callback, queue, drop and memory metrics.
+- Physical virtual-device removal/reconnection and game/consumer restart recovery.
+- Game/microphone/video sync at the Discord receiver and in OBS recordings/streams.
+- Physical-loopback latency relative to direct ASIO and actual Windows-output latency.
+- Final-release installation, upgrade, removal, sign-in, UAC approval/cancellation and symlink/junction rejection.
 
 ## Security coverage and trust boundaries
 
