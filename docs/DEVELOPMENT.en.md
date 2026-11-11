@@ -336,9 +336,12 @@ trigger rebuffering without discarding pending PCM; added silence is counted sep
 `relay_clock_tests` uses real shared rings and PCM for 64-frame supply, 480/960-frame
 consumption, 128/256/960-frame targets, ±1,500 ppm, variable batches and starvation recovery.
 The batch-consumption regression fails with the old policy; it does not replace live Discord listening.
-On a PC with a live game relay, exclude the existing Stop-export lifecycle test with
-`ctest -E '^soundfork_app_relay_tests$'`: it can signal the shared stop event.
-Keep the full suite in isolated CI. This exclusion does not verify live stop/restart behavior.
+The internal relay creates a per-run stop event before launching its worker. Its Stop
+export cancels only its own worker; the shared Control stop event still stops either
+relay mode. A lifecycle mutex serializes start/stop calls and is never used by ASIO callbacks.
+`app_relay_lifecycle_tests` links the production lifecycle code to a delayed fake worker
+and private events to check early cancellation, isolation and stop precedence over audio wakes.
+It uses no actual device, installation or shared-name event and does not replace real game-exit testing.
 `audio_scheduling.hpp` applies MMCSS `Audio` only to active hub/relay worker threads
 and reverts on the same thread. It changes neither process-wide/ASIO priorities nor
 global timer resolution. `relay_source_wait.hpp` keeps a 1ms device-audio guard and

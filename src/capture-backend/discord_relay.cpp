@@ -30,6 +30,7 @@
 #include "capture-backend/relay_recovery.hpp"
 #include "capture-backend/endpoint_selection.hpp"
 #include "capture-backend/relay_entry.hpp"
+#include "capture-backend/relay_stop.hpp"
 #include "capture-backend/relay_preferences.hpp"
 #include "diagnostics/async_log.hpp"
 #include "soundfork_version.hpp"
@@ -266,7 +267,7 @@ SessionOutcome run_render_session(
     std::wstring_view matched_title,
     bool persistent,
     ULONGLONG run_deadline,
-    HANDLE stop_event,
+    const soundfork::capture::RelayStop& stop,
     soundfork::capture::SharedRingReader* reader,
     RelayMetrics* metrics) {
   if (endpoint == nullptr || reader == nullptr || metrics == nullptr) {
@@ -404,7 +405,6 @@ SessionOutcome run_render_session(
       format.sample_rate, format.frames_per_block,
       reserve_frames);
   std::uint64_t prebuffer_silent_frames = 0;
-  const HANDLE wait_handles[] = {audio_event.value, stop_event};
   SessionOutcome outcome = SessionOutcome::complete;
   const char* reason = "deadline";
   ULONGLONG next_metrics_at = GetTickCount64() + 30000;
@@ -415,12 +415,8 @@ SessionOutcome run_render_session(
       outcome = SessionOutcome::reconnect;
       break;
     }
-    const DWORD wait_result = WaitForMultipleObjects(
-        static_cast<DWORD>(std::size(wait_handles)),
-        wait_handles,
-        FALSE,
-        200);
-    if (wait_result == WAIT_OBJECT_0 + 1) {
+    const DWORD wait_result = stop.wait_with(audio_event.value, 200);
+    if (wait_result == WAIT_OBJECT_0) {
       reason = "stop_requested";
       outcome = SessionOutcome::stopped;
       break;
@@ -436,7 +432,7 @@ SessionOutcome run_render_session(
       }
       continue;
     }
-    if (wait_result != WAIT_OBJECT_0) {
+    if (wait_result != WAIT_OBJECT_0 + 1) {
       reason = "audio_wait_error";
       outcome = SessionOutcome::reconnect;
       break;
@@ -475,7 +471,6 @@ SessionOutcome run_render_session(
     if (source_timer.value && wait_budget >= 1000 && clock.needs_source(queue_frames, available)) {
       const auto wait_started = timing.now_us();
       if (wait_started != 0) {
-        const HANDLE source_wait_handles[] = {stop_event, source_timer.value};
         const auto waited = soundfork::capture::wait_for_relay_source(clock, queue_frames,
             available, wait_budget, [&] { return source->buffered_frames(*reader); }, [&] {
               const auto elapsed = timing.now_us() - wait_started;
@@ -485,7 +480,7 @@ SessionOutcome run_render_session(
               due.QuadPart = -static_cast<LONGLONG>(delay_us * 10);
               if (!SetWaitableTimer(source_timer.value, &due, 0, nullptr, nullptr, FALSE))
                 return soundfork::capture::SourcePoll::timeout;
-              const auto status = WaitForMultipleObjects(2, source_wait_handles, FALSE,
+              const auto status = stop.wait_with(source_timer.value,
                   static_cast<DWORD>((wait_budget - elapsed + 999) / 1000));
               if (status == WAIT_OBJECT_0) return soundfork::capture::SourcePoll::stopped;
               return status == WAIT_OBJECT_0 + 1 ? soundfork::capture::SourcePoll::tick
@@ -571,7 +566,9 @@ SessionOutcome run_render_session(
 
 }  // namespace
 
-int soundfork_relay_main(int argc, wchar_t** argv) {
+int soundfork_relay_main(int argc, wchar_t** argv, HANDLE private_stop) {
+  if (private_stop && WaitForSingleObject(private_stop, 0) == WAIT_OBJECT_0)
+    return 0;
   bool list_endpoints = false;
   bool system_share = false;
   bool persistent = false;
@@ -674,6 +671,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
       std::wcerr << L"Cannot create the relay stop event\n";
       return 10;
     }
+    const soundfork::capture::RelayStop stop(stop_event.value, private_stop);
 
     soundfork::capture::HubClient hub(soundfork::capture::HubRole::relay);
     soundfork::capture::SharedRingReader reader;
@@ -682,7 +680,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
     const ULONGLONG wait_deadline =
         GetTickCount64() + static_cast<ULONGLONG>(wait_seconds) * 1000;
     while (persistent || GetTickCount64() <= wait_deadline) {
-      if (WaitForSingleObject(stop_event.value, 0) == WAIT_OBJECT_0) {
+      if (stop.wait(0) == WAIT_OBJECT_0) {
         return 0;
       }
       if (!system_share && target_window == nullptr) {
@@ -695,7 +693,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
       if ((system_share || target_window != nullptr) && reader.is_open()) {
         break;
       }
-      Sleep(50);
+      if (stop.wait(50) == WAIT_OBJECT_0) return 0;
     }
     if (!system_share && target_window == nullptr) {
       std::wcerr << L"No visible window matching: " << window_title << L'\n';
@@ -718,21 +716,21 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
     RelayMetrics metrics;
     bool waiting_endpoint = false;
     while (persistent || GetTickCount64() < run_deadline) {
-      if (WaitForSingleObject(stop_event.value, 0) == WAIT_OBJECT_0) {
+      if (stop.wait(0) == WAIT_OBJECT_0) {
         break;
       }
       if (!reader.stream_active()) {
         reader.close();
         hub.ensure_running();
         if (!reader.open(hub.mapping_name())) {
-          if (WaitForSingleObject(stop_event.value, 50) == WAIT_OBJECT_0) break;
+          if (stop.wait(50) == WAIT_OBJECT_0) break;
           continue;
         }
         const auto current_format = reader.format();
         if (!soundfork::capture::supported_sample_rate(current_format.sample_rate) ||
             current_format.channel_count != 2) {
           reader.close();
-          if (WaitForSingleObject(stop_event.value, 250) == WAIT_OBJECT_0) break;
+          if (stop.wait(250) == WAIT_OBJECT_0) break;
           continue;
         }
       }
@@ -744,7 +742,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
       if (endpoint == nullptr) {
         if (!waiting_endpoint) diagnostics::log().write(diagnostics::Level::warning, "endpoint_unavailable");
         waiting_endpoint = true;
-        if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
+        if (stop.wait(500) == WAIT_OBJECT_0) {
           break;
         }
         continue;
@@ -759,7 +757,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
           matched_title,
           persistent,
           run_deadline,
-          stop_event.value,
+          stop,
           &reader,
           &metrics);
       if (outcome == SessionOutcome::fatal) {
@@ -772,7 +770,7 @@ int soundfork_relay_main(int argc, wchar_t** argv) {
       ++metrics.reconnect_count;
       diagnostics::log().write(diagnostics::Level::warning, "render_session_reconnect");
       std::wcerr << L"Audio endpoint disconnected; waiting to reconnect\n";
-      if (WaitForSingleObject(stop_event.value, 500) == WAIT_OBJECT_0) {
+      if (stop.wait(500) == WAIT_OBJECT_0) {
         break;
       }
     }
