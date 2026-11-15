@@ -69,6 +69,8 @@ int main() try {
         update_proc, reinterpret_cast<LPARAM>(&state));
     if (!window) throw std::runtime_error("update resource did not load");
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
+    require(SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETFIRSTVISIBLELINE, 0, 0) == 0,
+        "release notes did not open at the first line");
     require(text(window, IDC_UPDATE_NOTES).find(L"\r\n") != std::wstring::npos, "notes line breaks lost");
     require(text(window, IDC_UPDATE_NOTES).find(L"\ud55c\uae00") != std::wstring::npos, "Korean notes lost");
     const auto rendered = text(window, IDC_UPDATE_NOTES);

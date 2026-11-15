@@ -72,6 +72,8 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETBKGNDCOLOR, 0, GetSysColor(COLOR_WINDOW));
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&stream));
     if (stream.dwError) throw std::runtime_error("Release notes rendering failed");
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, WM_VSCROLL, SB_TOP, 0);
     ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES_LABEL), notes.empty() ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES), notes.empty() ? SW_HIDE : SW_SHOW);
     if (notes.empty()) {
