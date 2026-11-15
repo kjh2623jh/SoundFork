@@ -2,8 +2,12 @@
 
 #include <windows.h>
 #include <winhttp.h>
+#include <roapi.h>
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Foundation.Collections.h>
 
 #include <cstdint>
+#include <cmath>
 #include <iterator>
 #include <limits>
 #include <string>
@@ -136,45 +140,6 @@ bool version_is_newer(
   return candidate.stage_number > current.stage_number;
 }
 
-std::string latest_release_tag(std::string_view json) {
-  constexpr std::string_view key = "\"tag_name\"";
-  SemanticVersion best;
-  std::string best_tag;
-  std::size_t search_from = 0;
-  while (search_from < json.size()) {
-    const std::size_t key_at = json.find(key, search_from);
-    if (key_at == std::string_view::npos) {
-      break;
-    }
-    search_from = key_at + key.size();
-    if (key_at > 0 && json[key_at - 1] == '\\') {
-      continue;
-    }
-    const std::size_t colon = json.find(':', search_from);
-    if (colon == std::string_view::npos) {
-      break;
-    }
-    const std::size_t quote = json.find('"', colon + 1);
-    if (quote == std::string_view::npos) {
-      break;
-    }
-    const std::size_t end = json.find('"', quote + 1);
-    if (end == std::string_view::npos) {
-      break;
-    }
-    const std::string tag(json.substr(quote + 1, end - quote - 1));
-    const SemanticVersion parsed = parse_semantic_version(tag);
-    // Also reject prerelease tag suffixes if a release was mislabeled on GitHub.
-    if (parsed.valid && parsed.stage == kStableStage &&
-        (!best.valid || version_is_newer(parsed, best))) {
-      best = parsed;
-      best_tag = tag;
-    }
-    search_from = end + 1;
-  }
-  return best_tag;
-}
-
 UpdateResult check_for_updates_impl() {
   UpdateResult result;
   InternetHandle session(WinHttpOpen(
@@ -203,6 +168,8 @@ UpdateResult check_for_updates_impl() {
   if (request.get() == nullptr) {
     return result;
   }
+  DWORD disable = WINHTTP_DISABLE_REDIRECTS;
+  if (!WinHttpSetOption(request.get(), WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable))) return result;
   constexpr wchar_t headers[] =
       L"Accept: application/vnd.github+json\r\n"
       L"X-GitHub-Api-Version: 2022-11-28\r\n";
@@ -248,18 +215,7 @@ UpdateResult check_for_updates_impl() {
     response.append(buffer, bytes_read);
   }
 
-  const std::string tag = latest_release_tag(response);
-  const SemanticVersion latest = parse_semantic_version(tag);
-  const SemanticVersion current =
-      parse_semantic_version(SOUNDFORK_VERSION_STRING);
-  if (!latest.valid || !current.valid) {
-    return result;
-  }
-  result.latest_tag.assign(tag.begin(), tag.end());
-  result.status =
-      version_is_newer(latest, current) ? UpdateStatus::available
-                                        : UpdateStatus::up_to_date;
-  return result;
+  return parse_update_release(response);
 }
 
 }  // namespace
@@ -272,6 +228,72 @@ UpdateResult check_for_updates() noexcept {
   }
 }
 
+bool downloadable_update(const UpdateResult& release) noexcept try {
+  for (const auto character : release.latest_tag) if (character > 127) return false;
+  const auto version = parse_semantic_version(winrt::to_string(release.latest_tag));
+  if (!version.valid || version.stage != kStableStage ||
+      release.latest_tag.empty() || release.latest_tag.front() != L'v' ||
+      release.installer_size == 0 || release.installer_size > 128U * 1024U * 1024U ||
+      release.sha256.size() != 64) return false;
+  for (const auto digit : release.sha256) {
+    if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f'))) return false;
+  }
+  return release.installer_name == L"SoundFork-Setup-" + release.latest_tag + L".exe" &&
+      release.installer_url == L"https://github.com/kjh2623jh/SoundFork/releases/download/" +
+          release.latest_tag + L"/" + release.installer_name;
+} catch (...) { return false; }
+
+UpdateResult parse_update_release(std::string_view json) noexcept {
+  // Use the OS JSON parser, including Unicode/surrogate handling, rather than
+  // searching strings (release notes may themselves contain JSON-looking text).
+  const HRESULT initialized = RoInitialize(RO_INIT_MULTITHREADED);
+  struct Apartment {
+    HRESULT hr;
+    ~Apartment() { if (SUCCEEDED(hr)) RoUninitialize(); }
+  } apartment{initialized};
+  if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) return {};
+  try {
+    if (json.size() > 2U * 1024U * 1024U) return {};
+    using namespace winrt::Windows::Data::Json;
+    // Avoid a process-wide cached activation factory outliving this worker's
+    // apartment. Tests also exercise repeated calls without an outer COM scope.
+    const auto factory = winrt::get_activation_factory<IJsonObjectStatics>(L"Windows.Data.Json.JsonObject");
+    const auto root = factory.Parse(winrt::to_hstring(json));
+    if (root.GetNamedBoolean(L"draft", true) || root.GetNamedBoolean(L"prerelease", true)) return {};
+    const std::wstring tag(root.GetNamedString(L"tag_name"));
+    const auto version = parse_semantic_version(winrt::to_string(tag));
+    const auto current = parse_semantic_version(SOUNDFORK_VERSION_STRING);
+    if (!version.valid || version.stage != kStableStage || !current.valid) return {};
+    UpdateResult result;
+    result.latest_tag = tag;
+    result.status = version_is_newer(version, current) ? UpdateStatus::available : UpdateStatus::up_to_date;
+    const auto notes = root.TryLookup(L"body");
+    if (notes && notes.ValueType() == JsonValueType::String) result.release_notes = notes.GetString();
+    const auto assets_value = root.TryLookup(L"assets");
+    if (!assets_value || assets_value.ValueType() != JsonValueType::Array) return result;
+    const auto assets = assets_value.GetArray();
+    for (const auto& value : assets) {
+      if (value.ValueType() != JsonValueType::Object) continue;
+      const auto asset = value.GetObject();
+      const std::wstring expected = L"SoundFork-Setup-" + tag + L".exe";
+      if (asset.GetNamedString(L"name", L"") != expected) continue;
+      const auto digest_value = asset.TryLookup(L"digest");
+      if (!digest_value || digest_value.ValueType() != JsonValueType::String) continue;
+      const auto digest = winrt::to_string(digest_value.GetString());
+      const double size = asset.GetNamedNumber(L"size", 0);
+      if (!std::isfinite(size) || size < 1 || size > 128U * 1024U * 1024U || digest.substr(0, 7) != "sha256:") continue;
+      UpdateResult candidate = result;
+      candidate.installer_name = expected;
+      candidate.installer_url = asset.GetNamedString(L"browser_download_url", L"");
+      candidate.installer_size = static_cast<std::uint64_t>(size);
+      if (static_cast<double>(candidate.installer_size) != size) continue;
+      candidate.sha256 = digest.substr(7);
+      if (downloadable_update(candidate)) return candidate;
+    }
+    return result;
+  } catch (...) { return {}; }
+}
+
 bool update_parser_self_test() noexcept {
   try {
     constexpr std::string_view excluded[] = {
@@ -279,8 +301,8 @@ bool update_parser_self_test() noexcept {
         "v9.0.0-preview.1", "not-a-version", "v1.2.3/other",
         "v18446744073709551616.0.0"};
     for (const auto tag : excluded) {
-      const auto json = std::string("{\"tag_name\":\"") + std::string(tag) + "\"}";
-      if (!latest_release_tag(json).empty()) return false;
+      const auto json = std::string("{\"tag_name\":\"") + std::string(tag) + "\",\"draft\":false,\"prerelease\":false}";
+      if (parse_update_release(json).status != UpdateStatus::failed) return false;
     }
     return version_is_newer(
                parse_semantic_version("v0.1.0-beta.1"),
@@ -288,12 +310,7 @@ bool update_parser_self_test() noexcept {
            version_is_newer(
                parse_semantic_version("v0.1.0"),
                parse_semantic_version("0.1.0-rc.1")) &&
-           latest_release_tag(
-               R"({"tag_name":"v1.2.2","draft":false,"prerelease":false})") == "v1.2.2" &&
-           latest_release_tag(
-               R"([{"tag_name":"v1.3.0-alpha.8"},{"tag_name":"v1.2.1"},{"tag_name":"v1.3.0-beta.1"},{"tag_name":"v1.3.0-rc.1"},{"tag_name":"v1.2.2"}])") == "v1.2.2" &&
-           latest_release_tag(
-               R"([{"tag_name":"v1.3.0-alpha.8"},{"tag_name":"v1.3.0-beta.1"},{"tag_name":"v1.3.0-rc.1"}])").empty() &&
+           parse_update_release(R"({"tag_name":"v1.2.2","draft":false,"prerelease":false})").latest_tag == L"v1.2.2" &&
            !version_is_newer(parse_semantic_version("v1.2.1"), parse_semantic_version("1.2.2")) &&
            !version_is_newer(parse_semantic_version("v1.2.2"), parse_semantic_version("1.2.2")) &&
            version_is_newer(parse_semantic_version("v1.2.3"), parse_semantic_version("1.2.2")) &&

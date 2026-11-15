@@ -265,6 +265,8 @@ add_executable(soundfork_control WIN32
   src/control-app/control_main.cpp
   src/control-app/ui_strings.cpp
   src/control-app/update_checker.cpp
+  src/control-app/update_download.cpp
+  src/control-app/update_dialog.cpp
   src/control-app/soundfork_control.rc
   "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"
   src/capture-backend/shared_ring.cpp
@@ -284,6 +286,8 @@ target_link_libraries(soundfork_control PRIVATE
   shell32
   comctl32
   winhttp
+  windowsapp
+  bcrypt
 )
 
 if(SOUNDFORK_BUILD_OBS_PLUGIN)
@@ -293,6 +297,18 @@ endif()
 
 if(BUILD_TESTING)
   find_program(SOUNDFORK_POWERSHELL NAMES pwsh powershell REQUIRED)
+  add_executable(soundfork_update_download_tests tests/update_download_tests.cpp
+    src/control-app/update_checker.cpp src/control-app/update_download.cpp)
+  target_include_directories(soundfork_update_download_tests PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  target_link_libraries(soundfork_update_download_tests PRIVATE soundfork_warnings winhttp windowsapp bcrypt shell32 ole32)
+  add_test(NAME soundfork_update_download_tests COMMAND soundfork_update_download_tests)
+  set_tests_properties(soundfork_update_download_tests PROPERTIES TIMEOUT 20 LABELS "deployment;security;unit")
+  add_executable(soundfork_update_dialog_tests tests/update_dialog_tests.cpp
+    src/control-app/update_checker.cpp src/control-app/update_download.cpp src/control-app/soundfork_control.rc)
+  target_include_directories(soundfork_update_dialog_tests PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  target_link_libraries(soundfork_update_dialog_tests PRIVATE soundfork_warnings winhttp windowsapp bcrypt shell32 ole32 comctl32)
+  add_test(NAME soundfork_update_dialog_tests COMMAND soundfork_update_dialog_tests)
+  set_tests_properties(soundfork_update_dialog_tests PROPERTIES TIMEOUT 20 LABELS "deployment;security;ui")
   add_executable(soundfork_update_preferences_tests tests/update_preferences_tests.cpp)
   target_include_directories(soundfork_update_preferences_tests PRIVATE src)
   target_link_libraries(soundfork_update_preferences_tests PRIVATE soundfork_warnings advapi32)
@@ -309,6 +325,8 @@ if(BUILD_TESTING)
     tests/control_ui_tests.cpp
     src/control-app/ui_strings.cpp
     src/control-app/update_checker.cpp
+    src/control-app/update_download.cpp
+    src/control-app/update_dialog.cpp
     src/control-app/soundfork_control.rc
     "${CMAKE_CURRENT_BINARY_DIR}/generated/soundfork_version.rc"
     src/capture-backend/shared_ring.cpp
@@ -316,7 +334,7 @@ if(BUILD_TESTING)
   target_include_directories(soundfork_control_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
   target_link_libraries(soundfork_control_ui_tests PRIVATE soundfork_obs_manager soundfork_relay_settings
-    soundfork_diagnostics soundfork_warnings ole32 uuid advapi32 shell32 comctl32 winhttp)
+    soundfork_diagnostics soundfork_warnings ole32 uuid advapi32 shell32 comctl32 winhttp windowsapp bcrypt)
   add_executable(soundfork_diagnostics_tests tests/diagnostics_tests.cpp)
   target_link_libraries(soundfork_diagnostics_tests PRIVATE soundfork_diagnostics)
   add_test(NAME soundfork_diagnostics_tests COMMAND soundfork_diagnostics_tests)

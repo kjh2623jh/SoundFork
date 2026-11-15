@@ -42,6 +42,35 @@ optional in-game relay `soundfork_app_relay.dll`, `soundfork_control.exe`,
 optional `soundfork-obs.dll` and the `obs-plugin` payload. Do not move only the
 Control EXE when testing plugin management.
 
+### In-app updates
+
+- GitHub release `body` supplies the notes. Editing the release description requires no
+  application-code change; workflow-generated `--generate-notes` descriptions work too.
+  Notes appear as scrollable read-only plain text, without executing Markdown/HTML/scripts.
+- `update_checker.*` uses the Windows SDK C++/WinRT JSON parser. In-app download requires
+  the exact stable-tag Setup name/repository URL, a 1 byte–128 MiB size and a `sha256:` digest.
+  A release without a verifiable asset retains the release-page fallback.
+- `update_download.*` performs HTTPS and CNG SHA-256 verification on its own worker.
+  Every redirect must use HTTPS/443 and an exact allowed GitHub download host.
+  Request timeouts and a ten-minute transfer deadline bound operations; cancellation
+  may wait for an outstanding network call's timeout. Audio threads do not participate.
+- Each download uses a new `%LOCALAPPDATA%\SoundFork\Updates\{GUID}` directory.
+  A handle denying write/delete sharing remains held until installer launch, with a second
+  hash check before launch. Failure, cancellation or closing without installing deletes
+  the download. A launched installer remains cached for its process and can be removed manually.
+  This is integrity verification, not publisher authentication against compromised GitHub
+  credentials or malicious software running as the same user.
+- `update_dialog.*` offers progress, cancellation, retry and explicit installation.
+  Active ASIO streams, OBS or forwarding defer launch; the installer's Restart Manager
+  handles remaining file users. Only Install requests `runas` elevation; a successful
+  launch closes Control. UAC cancellation retains the verified file for retry.
+  Existing installer logic continues to preserve settings.
+- `soundfork_update_download_tests` and `soundfork_update_dialog_tests` run offline without
+  executing an installer: Unicode notes, stable-only selection, URL/hash/size rejection,
+  file locking/cleanup, cancellation/retry, UAC cancellation, readiness and bilingual layout.
+  Real CDN transfer, SmartScreen/UAC, completed installation and setting preservation
+  remain manual pre-release checks.
+
 ## Finding the implementation
 
 - `src/asio-proxy`: x64/x86 ASIO COM servers and registration entrypoints.

@@ -25,6 +25,34 @@ SHA-256 checksums:
 ASIO is a trademark of Steinberg Media Technologies GmbH. SoundFork does not
 use the ASIO logo, and ASIO is not part of the SoundFork product name.
 
+## Windows SDK C++/WinRT
+
+Control's update metadata parser uses the Windows JSON API through the C++/WinRT
+headers supplied by the Windows SDK. No SDK files are redistributed separately.
+Upstream: <https://github.com/microsoft/cppwinrt>.
+
+MIT License
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## Optional OBS audio source
 
 The optional plugin uses official OBS Studio 32.2.2 headers (GPL-2.0-or-later,

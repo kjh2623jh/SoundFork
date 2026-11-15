@@ -28,6 +28,12 @@ SHA-256 체크섬:
 ASIO는 Steinberg Media Technologies GmbH의 상표다. SoundFork는 ASIO 로고를
 사용하지 않으며 제품 이름에도 ASIO를 포함하지 않는다.
 
+## Windows SDK C++/WinRT
+
+제어판 업데이트 메타데이터는 Windows JSON API와 Windows SDK의 C++/WinRT 헤더를 사용한다.
+C++/WinRT는 Microsoft Corporation의 MIT License를 따른다. 전체 저작권·허가 고지는
+[영어판](THIRD_PARTY_NOTICES.en.md#windows-sdk-cwinrt)에 포함한다. 별도 SDK 파일은 배포하지 않는다.
+
 ## 선택적 OBS 오디오 소스
 
 선택형 플러그인은 OBS Studio 32.2.2 공식 헤더를 사용합니다. 해당 헤더는

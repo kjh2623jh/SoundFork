@@ -34,6 +34,7 @@
 #include "control-app/obs_plugin_manager.hpp"
 #include "control-app/obs_plugin_strings.hpp"
 #include "control-app/update_checker.hpp"
+#include "control-app/update_dialog.hpp"
 #include "control-app/update_preferences.hpp"
 #include "audio-bridge/windows_output_settings.hpp"
 #include "control-app/relay_settings.hpp"
@@ -2339,49 +2340,24 @@ LRESULT CALLBACK window_proc(
       }
       const UiStrings& strings = ui_strings(state->language);
       if (result.status == UpdateStatus::available) {
-        std::wstring message_text = strings.update_available;
-        message_text += result.latest_tag;
-        message_text += L"\n";
-        message_text += strings.update_current;
-        message_text += L"v" SOUNDFORK_VERSION_WIDE;
         const bool korean = state->language == UiLanguage::korean;
-        const TASKDIALOG_BUTTON buttons[] = {
-            {IDYES, korean ? L"릴리스 페이지 열기" : L"Open release page"},
-            {IDNO, korean ? L"나중에" : L"Later"}};
-        TASKDIALOGCONFIG dialog{sizeof(dialog)};
-        dialog.hwndParent = window;
-        dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT;
-        dialog.pszWindowTitle = L"SoundFork";
-        dialog.pszMainInstruction = korean ? L"새 버전이 있습니다" : L"A new version is available";
-        dialog.pszContent = message_text.c_str();
-        dialog.pszVerificationText = korean ? L"앞으로 자동 업데이트 알림 표시 안 함" : L"Don't show automatic update notifications again";
-        dialog.cButtons = static_cast<UINT>(std::size(buttons)); dialog.pButtons = buttons;
-        dialog.nDefaultButton = IDNO;
-        int chosen = IDNO; BOOL disable = FALSE;
-        const auto shown = TaskDialogIndirect(&dialog, &chosen, nullptr, &disable);
-        if (SUCCEEDED(shown) && disable) {
+        const auto readiness = +[](HWND parent, bool ko) {
+          if (!asio_stream_is_active() && !relay_is_running() && !obs_plugin::obs_is_running()) return true;
+          MessageBoxW(parent, ko
+              ? L"설치 전에 SoundFork를 사용하는 게임·DAW, OBS와 오디오 전달을 종료하세요."
+              : L"Before installing, close games/DAWs using SoundFork, OBS and audio forwarding.",
+              L"SoundFork", MB_ICONINFORMATION);
+          return false;
+        };
+        const auto choice = soundfork::control::show_update_dialog(window, korean, result, readiness);
+        if (choice.disable_notifications) {
           const auto saved = soundfork::control::save_automatic_updates(false);
           if (saved == ERROR_SUCCESS) { state->automatic_updates_enabled = false; rebuild_menu(state); }
           else MessageBoxW(window, korean ? L"알림 설정을 저장하지 못했습니다." : L"Could not save notification settings.", L"SoundFork", MB_ICONERROR);
         }
-        if (SUCCEEDED(shown) && chosen == IDYES) {
-          std::wstring release_url = kReleasesUrl;
-          release_url += L"/tag/";
-          release_url += result.latest_tag;
-          const HINSTANCE opened = ShellExecuteW(
-              window,
-              L"open",
-              release_url.c_str(),
-              nullptr,
-              nullptr,
-              SW_SHOWNORMAL);
-          if (reinterpret_cast<INT_PTR>(opened) <= 32) {
-            MessageBoxW(
-                window,
-                strings.open_project_failed,
-                L"SoundFork",
-                MB_ICONERROR);
-          }
+        if (choice.installer_started) {
+          state->force_exit = true;
+          PostMessageW(window, WM_CLOSE, 0, 0);
         }
       } else {
         MessageBoxW(

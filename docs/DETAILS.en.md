@@ -234,7 +234,12 @@ DLL and hub EXE in `obs-plugins\64bit`, and plugin `data` contents in
 Control checks asynchronously for new stable versions when first shown. Alpha, beta,
 rc and dev releases are excluded. Disable notifications under **Settings → Notify me about new versions**;
 **About → Check for updates** remains available regardless of that preference.
-Download and run the new Setup. If using the OBS plugin, select its installation option too.
+The update window shows the GitHub release description and offers **Download → Install**.
+Empty descriptions are hidden. Downloads support cancellation and retry; the installer
+must match its published size and SHA-256 before it can run. Releases without a digest
+link to the release page instead. This integrity check does not replace code signing.
+Elevation is requested only when you choose Install. Close games/DAWs and OBS and stop
+forwarding first. If using the OBS plugin, select its installation option too.
 
 Choose Korean or English under **Settings → Language**. Before updating or uninstalling,
 close games/DAWs and OBS and stop forwarding. Remove SoundFork through **Windows Settings → Apps**
@@ -495,6 +500,13 @@ Results and outstanding checks below describe the state at each test date.
 </details>
 
 ### Additional hardware and real-use checks
+
+Control update verification (2026-11-15): OBS-enabled x64 Release CTest passed 41/41;
+the final updater/control rerun passed 5/5 and the new updater Debug tests passed 2/2.
+Changed control/test targets passed `/analyze /WX`; release binaries retained CFG,
+NX, ASLR and a static CRT. A verified real PE was image-mapped without executing it.
+Real GitHub CDN transfer, SmartScreen/UAC, completed installation and setting
+preservation were not exercised in this work.
 
 Automated results and individual user reports do not establish complete coverage of:
 
