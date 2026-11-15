@@ -1,6 +1,7 @@
 // Exercise the real resource and dialog procedure offline. No GitHub request,
 // elevation, installer execution, browser or production settings are used.
 #include "../src/control-app/update_dialog.cpp"
+#include <commdlg.h>
 #include <iostream>
 #include <stdexcept>
 
@@ -43,6 +44,12 @@ std::wstring text(HWND window, int id) {
 }
 
 int main() try {
+  require(selected_release_notes(L"before<!-- soundfork-notes:start -->\n## Notes\n<!-- soundfork-notes:end -->after") == L"## Notes", "marked notes selection");
+  require(selected_release_notes(L"unmarked") == L"unmarked", "unmarked notes fallback");
+  require(selected_release_notes(L"<!-- soundfork-notes:start -->unfinished").find(L"unfinished") != std::wstring_view::npos, "incomplete marker fallback");
+  const auto formatted = release_notes_rtf(L"## Heading\n- **Bold** `code` {\\object}");
+  require(formatted.find("## Heading") == std::string::npos && formatted.find("{\\b Bold}") != std::string::npos &&
+      formatted.find("\\u8226?") != std::string::npos && formatted.find("\\{\\\\object\\}") != std::string::npos, "Markdown formatting/RTF escaping");
   INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_PROGRESS_CLASS};
   require(InitCommonControlsEx(&controls) != FALSE, "common controls initialization");
   root = std::filesystem::temp_directory_path() / (L"SoundForkUpdateUiTest-" + std::to_wstring(GetCurrentProcessId()));
@@ -50,7 +57,7 @@ int main() try {
   struct Cleanup { ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); } } cleanup;
   UpdateResult release;
   release.latest_tag = L"v99.0.0";
-  release.release_notes = L"## Changes\n\ud55c\uae00 \U0001f3b5\n- Test";
+  release.release_notes = L"Excluded<!-- soundfork-notes:start -->\n## Changes\n\ud55c\uae00 \U0001f3b5\n- **Bold** `code`\n<!-- soundfork-notes:end -->Hidden";
   release.installer_name = L"SoundFork-Setup-v99.0.0.exe";
   release.installer_url = L"https://github.com/kjh2623jh/SoundFork/releases/download/v99.0.0/SoundFork-Setup-v99.0.0.exe";
   release.installer_size = 3;
@@ -64,6 +71,19 @@ int main() try {
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
     require(text(window, IDC_UPDATE_NOTES).find(L"\r\n") != std::wstring::npos, "notes line breaks lost");
     require(text(window, IDC_UPDATE_NOTES).find(L"\ud55c\uae00") != std::wstring::npos, "Korean notes lost");
+    const auto rendered = text(window, IDC_UPDATE_NOTES);
+    require(rendered.find(L"Excluded") == rendered.npos && rendered.find(L"Hidden") == rendered.npos &&
+        rendered.find(L"##") == rendered.npos && rendered.find(L"**") == rendered.npos, "selected Markdown text not rendered");
+    const auto bold_at = rendered.find(L"Bold");
+    require(bold_at != rendered.npos, "bold text missing");
+    FINDTEXTEXW find{};
+    find.chrg = {0, -1}; find.lpstrText = L"Bold";
+    require(SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_FINDTEXTEXW, FR_DOWN, reinterpret_cast<LPARAM>(&find)) >= 0, "bold range not found");
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&find.chrgText));
+    CHARFORMAT2W character{sizeof(character)};
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&character));
+    require((character.dwEffects & CFE_BOLD) != 0, "bold style missing in real Rich Edit");
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
     require(text(window, IDC_UPDATE_ACTION) == (korean ? L"다운로드" : L"Download"), "download translation");
     RECT client{}; GetClientRect(window, &client);
     for (const int id : {IDC_UPDATE_NOTES, IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_ACTION, IDCANCEL}) {

@@ -46,7 +46,7 @@ Control EXE when testing plugin management.
 
 - GitHub release `body` supplies the notes. Editing the release description requires no
   application-code change; workflow-generated `--generate-notes` descriptions work too.
-  Notes appear as scrollable read-only plain text, without executing Markdown/HTML/scripts.
+  A complete `<!-- soundfork-notes:start -->` / `<!-- soundfork-notes:end -->` pair selects the displayed section; otherwise the full body is used.
 - `update_checker.*` uses the Windows SDK C++/WinRT JSON parser. In-app download requires
   the exact stable-tag Setup name/repository URL, a 1 byte–128 MiB size and a `sha256:` digest.
   A release without a verifiable asset retains the release-page fallback.

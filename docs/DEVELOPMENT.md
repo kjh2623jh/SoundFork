@@ -45,7 +45,7 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
 
 - GitHub 릴리스 API의 `body`가 패치노트다. 릴리스 설명을 작성·수정하면 별도 코드 수정 없이
   다음 확인에 반영된다. 현재 배포 워크플로의 `--generate-notes`로 생성된 설명도 표시한다.
-  Markdown은 스크롤 가능한 읽기 전용 일반 텍스트로 표시하며 HTML·스크립트를 실행하지 않는다.
+  `<!-- soundfork-notes:start -->`와 `<!-- soundfork-notes:end -->` 사이만 표시하며, 완전한 표시 쌍이 없으면 전체 설명을 표시한다.
 - `update_checker.*`는 Windows SDK의 C++/WinRT JSON 파서로 메타데이터를 읽는다.
   정식 태그에 대응하는 정확한 Setup 이름·저장소 URL·1바이트~128 MiB 크기·`sha256:` digest가
   있어야 제어판 다운로드를 허용한다. 해시 없는 배포는 페이지 열기만 제공한다.

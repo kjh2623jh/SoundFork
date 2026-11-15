@@ -4,8 +4,13 @@
 #include "soundfork_version.hpp"
 
 #include <commctrl.h>
+#include <richedit.h>
+#include <cstring>
+#include <algorithm>
+#include "control-app/release_notes.hpp"
 #include <shellapi.h>
 #include <thread>
+#include <stdexcept>
 
 namespace soundfork::control {
 namespace {
@@ -13,6 +18,7 @@ constexpr UINT_PTR kDownloadTimer = 1;
 struct Dialog {
   Dialog(const UpdateResult& value, bool ko, InstallReadiness ready)
       : release(value), korean(ko), readiness(ready) {}
+  HMODULE rich_edit = LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   const UpdateResult& release;
   bool korean;
   InstallReadiness readiness;
@@ -24,7 +30,7 @@ struct Dialog {
   bool closing = false;
   void (*download)(const UpdateResult&, DownloadProgress&, DownloadedUpdate&) noexcept = download_update;
   bool (*launch)(HWND, bool, const std::filesystem::path&) = nullptr;
-  ~Dialog() { progress.cancel = true; if (worker.joinable()) worker.join(); }
+  ~Dialog() { progress.cancel = true; if (worker.joinable()) worker.join(); if (rich_edit) FreeLibrary(rich_edit); }
   const wchar_t* text(const wchar_t* ko, const wchar_t* en) const noexcept { return korean ? ko : en; }
 };
 
@@ -50,14 +56,22 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     SetDlgItemTextW(window, IDC_UPDATE_VERSION, title.c_str());
     SetWindowTextW(window, state->text(L"SoundFork 업데이트", L"SoundFork update"));
     SetDlgItemTextW(window, IDC_UPDATE_NOTES_LABEL, state->text(L"업데이트 내용", L"Release notes"));
-    // Plain text: never interpret release Markdown/HTML as executable content.
-    std::wstring notes;
-    for (const auto c : state->release.release_notes) {
-      if (c == L'\n' && (notes.empty() || notes.back() != L'\r')) notes += L'\r';
-      notes += c;
-    }
-    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETLIMITTEXT, 2U * 1024U * 1024U, 0);
-    SetDlgItemTextW(window, IDC_UPDATE_NOTES, notes.c_str());
+    const auto notes = selected_release_notes(state->release.release_notes);
+    const auto rtf = release_notes_rtf(state->release.release_notes);
+    struct Stream { const std::string& text; std::size_t offset = 0; } input{rtf};
+    EDITSTREAM stream{};
+    stream.dwCookie = reinterpret_cast<DWORD_PTR>(&input);
+    stream.pfnCallback = +[](DWORD_PTR cookie, LPBYTE buffer, LONG count, LONG* written) -> DWORD {
+      auto& source = *reinterpret_cast<Stream*>(cookie);
+      if (count < 0) return ERROR_INVALID_PARAMETER;
+      const auto size = (std::min)(static_cast<std::size_t>(count), source.text.size() - source.offset);
+      if (size) std::memcpy(buffer, source.text.data() + source.offset, size);
+      source.offset += size; *written = static_cast<LONG>(size); return 0;
+    };
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXLIMITTEXT, 0, 2U * 1024U * 1024U);
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETBKGNDCOLOR, 0, GetSysColor(COLOR_WINDOW));
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&stream));
+    if (stream.dwError) throw std::runtime_error("Release notes rendering failed");
     ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES_LABEL), notes.empty() ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES), notes.empty() ? SW_HIDE : SW_SHOW);
     if (notes.empty()) {
