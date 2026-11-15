@@ -15,7 +15,7 @@
 저장소 루트의 PowerShell에서 실행한다. 빌드 스크립트는 Visual Studio에 포함된
 CMake도 찾으며, 구성·빌드 후 기본적으로 CTest까지 실행한다. `-SkipTests`는 컴파일은 유지하고
 CTest 실행만 생략하는 CodeQL용 옵션이며 일반 CI·릴리스에서는 사용하지 않는다.
-기본 빌드는 `1.3.0`이다. 릴리스 버전은 `-Version`으로 명시할 수 있다.
+기본 빌드는 `1.3.1`이다. 릴리스 버전은 `-Version`으로 명시할 수 있다.
 
 제어판은 처음 표시될 때 프로세스당 한 번 업데이트를 비동기로 확인한다. 로그인 트레이 시작은
 창을 펼칠 때까지 미룬다. 자동 확인의 최신·실패 결과는 조용히 처리하고 새 버전만 안내한다.
@@ -640,15 +640,15 @@ Inno Setup 6이 있으면 Setup.exe와 ZIP, `SHA256SUMS.txt`를 `artifacts`에 �
 아래 버전은 로컬 패키징 예시이며 이미 존재하는 태그를 재생성하라는 뜻이 아니다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0
-.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.1
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.1 -SkipInstaller
 ```
 
 인증서가 있으면 모든 배포 EXE·DLL과 Setup을 SHA-256 / RFC 3161로 서명·검증한다.
 인증서 비밀키·비밀번호는 저장소에 넣지 않는다.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

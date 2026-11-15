@@ -16,7 +16,7 @@ Run from the repository root in PowerShell. The build script also locates Visual
 Studio's bundled CMake, then configures, builds and runs CTest by default.
 `-SkipTests` preserves compilation and skips only CTest execution for CodeQL;
 normal CI and releases do not pass this switch.
-The default build version is `1.3.0`; `-Version` may override it for release builds.
+The default build version is `1.3.1`; `-Version` may override it for release builds.
 Control checks asynchronously once per process on its first visible opening; hidden
 sign-in startup waits until the window is opened. Automatic failures/up-to-date results
 are silent. The opt-out is stored in `HKCU\Software\SoundFork\AutomaticUpdateNotifications`
@@ -713,15 +713,15 @@ With Inno Setup 6, packaging creates Setup.exe, ZIP and `SHA256SUMS.txt` in
 to recreate an existing tag.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0
-.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 -SkipInstaller
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.1
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.1 -SkipInstaller
 ```
 
 With a certificate, the script SHA-256/RFC 3161 signs and verifies every shipped
 EXE/DLL and Setup. Never commit certificate private keys or passwords.
 
 ```powershell
-.\scripts\Build-ReleasePackage.ps1 -Version 1.3.0 `
+.\scripts\Build-ReleasePackage.ps1 -Version 1.3.1 `
   -CertificateThumbprint '<SHA1 thumbprint>' `
   -TimestampUrl 'https://timestamp-provider.example'
 ```

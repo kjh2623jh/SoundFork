@@ -13,10 +13,10 @@ SoundFork는 게임이나 DAW의 ASIO 오디오를 기존 DAC로 저지연 재�
 
 ## 다운로드
 
-[**Windows x64 설치 파일 다운로드**](../../releases/download/v1.3.0/SoundFork-Setup-v1.3.0.exe) ·
+[**Windows x64 설치 파일 다운로드**](../../releases/download/v1.3.1/SoundFork-Setup-v1.3.1.exe) ·
 [모든 릴리스 보기](../../releases)
 
-버전은 `v1.3.0`입니다. 설치 파일 하나에 64비트·32비트 ASIO 구성 요소가 함께 포함됩니다.
+버전은 `v1.3.1`입니다. 설치 파일 하나에 64비트·32비트 ASIO 구성 요소가 함께 포함됩니다.
 실행 파일은 코드 서명되지 않았으므로 Windows SmartScreen 경고가 표시될 수 있습니다.
 
 ## 설치 및 재생

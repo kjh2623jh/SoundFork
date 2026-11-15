@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(SoundFork VERSION 1.3.0 LANGUAGES CXX)
+project(SoundFork VERSION 1.3.1 LANGUAGES CXX)
 
 set(
   SOUNDFORK_VERSION

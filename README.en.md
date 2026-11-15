@@ -14,10 +14,10 @@ recordings** on Windows.
 
 ## Download
 
-[**Download Windows x64 Setup**](../../releases/download/v1.3.0/SoundFork-Setup-v1.3.0.exe) ·
+[**Download Windows x64 Setup**](../../releases/download/v1.3.1/SoundFork-Setup-v1.3.1.exe) ·
 [View all releases](../../releases)
 
-Version: `v1.3.0`. One installer includes both 64-bit and 32-bit ASIO components.
+Version: `v1.3.1`. One installer includes both 64-bit and 32-bit ASIO components.
 Executables are not code-signed, so Windows SmartScreen may show a warning.
 
 ## Installation and playback
