@@ -226,6 +226,26 @@ int wmain() {
     require_ui(state.automatic_updates_enabled && soundfork::control::automatic_updates_enabled(), "notification command not saved");
     SendMessageW(window, WM_COMMAND, kAutomaticUpdateNotifications, 0);
     require_ui(!state.automatic_updates_enabled && !soundfork::control::automatic_updates_enabled(), "notification command not disabled");
+    RECT original_page{};
+    GetWindowRect(state.output_group, &original_page);
+    state.silent_update_request = false;
+    state.update_result.status = UpdateStatus::available;
+    state.update_result.latest_tag = L"v99.0.0";
+    state.update_result.release_notes = L"# Changes";
+    SendMessageW(window, kUpdateResultMessage, 0, 0);
+    const HWND notice = state.update_notice;
+    if (!notice) throw std::runtime_error("update notice not created");
+    require_ui(GetParent(notice) == window && !GetDlgItem(notice, IDC_UPDATE_RELEASE), "update notice not embedded");
+    RECT banner{}, moved_page{};
+    GetWindowRect(notice, &banner);
+    GetWindowRect(state.output_group, &moved_page);
+    require_ui(banner.bottom < moved_page.top && moved_page.top > original_page.top, "notice overlaps settings");
+    SendMessageW(notice, WM_COMMAND, IDCANCEL, 0);
+    require_ui(PeekMessageW(&pending, window, soundfork::control::kUpdateNoticeClosed,
+        soundfork::control::kUpdateNoticeClosed, PM_REMOVE) != FALSE, "Later did not dismiss notice");
+    DispatchMessageW(&pending);
+    GetWindowRect(state.output_group, &moved_page);
+    require_ui(!state.update_notice && moved_page.top == original_page.top, "dismissal did not restore settings layout");
     for (const int index : {0, 1}) {
       SendMessageW(state.panel.language, CB_SETCURSEL, index, 0);
       SendMessageW(window, WM_COMMAND, MAKEWPARAM(kDisplayLanguage, CBN_SELCHANGE), 0);

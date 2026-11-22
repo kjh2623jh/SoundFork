@@ -234,7 +234,8 @@ DLL and hub EXE in `obs-plugins\64bit`, and plugin `data` contents in
 Control checks asynchronously for new stable versions when first shown. Alpha, beta,
 rc and dev releases are excluded. Disable notifications under **Settings → Notify me about new versions**;
 **About → Check for updates** remains available regardless of that preference.
-The update window offers **Update** and **Show changes**, which expands the GitHub release description.
+New versions appear in Control. **Show changes** opens the GitHub release description and a link to the release page.
+**Update** shows download progress in the same notice.
 A complete `<!-- soundfork-notes:start -->` / `<!-- soundfork-notes:end -->` pair selects the displayed notes; otherwise the full description is shown. Empty descriptions are hidden. Headings, bullets, bold and inline code are formatted.
 must match its published size and SHA-256 before it can run. Releases without a digest
 link to the release page instead. This integrity check does not replace code signing.

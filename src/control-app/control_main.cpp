@@ -23,6 +23,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "capture-backend/relay_control.hpp"
@@ -200,6 +201,8 @@ struct AppState {
   bool automatic_update_considered = false;
   bool silent_update_request = false;
   bool pending_update_notice = false;
+  HWND update_notice = nullptr;
+  int update_notice_extra_height = 0;
   std::mutex update_mutex;
   soundfork::control::UpdateResult update_result;
   std::thread update_thread;
@@ -1685,8 +1688,16 @@ void layout_controls(AppState* state, int) {
   RECT r{};
   GetClientRect(state->window, &r);
   const int width = r.right, field = width - 164;
-  const auto move = [](HWND h, int x, int y, int w, int height) {
-    MoveWindow(h, x, y, w, height, TRUE);
+  int page_offset = 0;
+  if (state->update_notice) {
+    RECT notice{};
+    GetClientRect(state->update_notice, &notice);
+    page_offset = notice.bottom + 8;
+    SetWindowPos(state->update_notice, nullptr, (std::max)(8L, (width - notice.right) / 2), 4, 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  }
+  const auto move = [page_offset](HWND h, int x, int y, int w, int height) {
+    MoveWindow(h, x, y + page_offset, w, height, TRUE);
   };
   move(state->output_group, 12, 12, width - 24, 82);
   move(state->backend_combo, 26, 42, width - 146, 200);
@@ -1741,7 +1752,7 @@ void layout_controls(AppState* state, int) {
   move(p.update_button, 26, 204, 150, 26);
   move(p.bug_button, 188, 204, 138, 26);
   move(p.project_button, 338, 204, width - 364, 26);
-  move(state->status, 14, r.bottom - 25, width - 28, 18);
+  MoveWindow(state->status, 14, r.bottom - 25, width - 28, 18, TRUE);
   // Hide every old page before showing the requested page. This keeps backward
   // navigation from erasing a page that was just made visible.
   for (const auto& page : p.pages)
@@ -1751,6 +1762,21 @@ void layout_controls(AppState* state, int) {
       focus && IsChild(state->window, focus) && !IsWindowVisible(focus))
     SetFocus(GetNextDlgTabItem(state->window, nullptr, FALSE));
   InvalidateRect(state->window, nullptr, TRUE);
+}
+
+void resize_for_update_notice(AppState* state, int delta, int minimum_width = 0) {
+  WINDOWPLACEMENT placement{sizeof(placement)};
+  if (!GetWindowPlacement(state->window, &placement)) return;
+  auto& bounds = placement.rcNormalPosition;
+  bounds.bottom += delta;
+  bounds.right = (std::max)(bounds.right, bounds.left + minimum_width);
+  // Keep the maximized window maximized and update the restored size as well.
+  if (IsZoomed(state->window)) {
+    SetWindowPlacement(state->window, &placement);
+  } else if (IsWindowVisible(state->window) && !IsIconic(state->window)) {
+    SetWindowPos(state->window, nullptr, 0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top,
+        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+  }
 }
 
 HWND panel_widget(AppState* state, const wchar_t* kind, const wchar_t* text, int id,
@@ -1823,6 +1849,7 @@ void translate_panel(AppState* state) {
   SetWindowTextW(p.update_button, ko ? L"업데이트 확인…" : L"Check for updates…");
   SetWindowTextW(p.bug_button, ko ? L"버그 제보…" : L"Report a bug…");
   SetWindowTextW(p.project_button, ko ? L"프로젝트…" : L"Project…");
+  if (state->update_notice) soundfork::control::translate_update_notice(state->update_notice, ko);
   populate_channels(state);
   update_obs_controls(state);
   SendMessageW(p.updates, BM_SETCHECK,
@@ -2165,6 +2192,10 @@ void apply_language(AppState* state, UiLanguage language, bool persist) {
 void start_update_check(AppState* state, bool silent,
     UpdateResult (*check)() noexcept = check_for_updates) {
   if (state->update_check_in_progress) return;
+  if (state->update_notice) {
+    if (!silent) SetFocus(GetDlgItem(state->update_notice, IDC_UPDATE_TOGGLE_NOTES));
+    return;
+  }
   if (state->update_thread.joinable()) state->update_thread.join();
   state->pending_update_notice = false;
   state->silent_update_request = silent;
@@ -2221,7 +2252,7 @@ LRESULT CALLBACK window_proc(
       if (wparam) PostMessageW(window, kAutomaticUpdateMessage, 0, 0);
       break;
     case kAutomaticUpdateMessage:
-      if (!IsWindowVisible(window) || IsIconic(window) || !state->automatic_updates_enabled) return 0;
+      if (!IsWindowVisible(window) || IsIconic(window)) return 0;
       if (state->pending_update_notice) {
         state->pending_update_notice = false;
         SendMessageW(window, kUpdateResultMessage, 0, 0);
@@ -2250,7 +2281,10 @@ LRESULT CALLBACK window_proc(
       return 0;
     case WM_GETMINMAXINFO: {
       auto* size = reinterpret_cast<MINMAXINFO*>(lparam);
-      size->ptMinTrackSize = {540, 410};
+      RECT notice{};
+      if (state->update_notice) GetWindowRect(state->update_notice, &notice);
+      size->ptMinTrackSize = {(std::max)(540L, notice.right - notice.left + 34),
+          410 + state->update_notice_extra_height};
       return 0;
     }
     case WM_SIZE: {
@@ -2336,30 +2370,51 @@ LRESULT CALLBACK window_proc(
       rebuild_menu(state);
       if (state->silent_update_request) {
         if (!state->automatic_updates_enabled || result.status != UpdateStatus::available) return 0;
-        if (!IsWindowVisible(window) || IsIconic(window)) { state->pending_update_notice = true; return 0; }
       }
       const UiStrings& strings = ui_strings(state->language);
       if (result.status == UpdateStatus::available) {
-        const bool korean = state->language == UiLanguage::korean;
-        const auto choice = soundfork::control::show_update_dialog(window, korean, result);
-        if (choice.disable_notifications) {
-          const auto saved = soundfork::control::save_automatic_updates(false);
-          if (saved == ERROR_SUCCESS) { state->automatic_updates_enabled = false; rebuild_menu(state); }
-          else MessageBoxW(window, korean ? L"알림 설정을 저장하지 못했습니다." : L"Could not save notification settings.", L"SoundFork", MB_ICONERROR);
+        if (IsIconic(window) || (!IsWindowVisible(window) && state->silent_update_request)) {
+          state->pending_update_notice = true;
+          return 0;
         }
-        if (choice.installer_started) {
-          state->force_exit = true;
-          PostMessageW(window, WM_CLOSE, 0, 0);
+        const bool korean = state->language == UiLanguage::korean;
+        if (state->update_notice) return 0;
+        state->update_notice = soundfork::control::create_update_notice(window, korean, std::move(result));
+        if (state->update_notice) {
+          RECT bounds{};
+          GetClientRect(state->update_notice, &bounds);
+          state->update_notice_extra_height = bounds.bottom + 8;
+          resize_for_update_notice(state, state->update_notice_extra_height, bounds.right + 34);
+          layout_controls(state, 0);
+          ShowWindow(state->update_notice, SW_SHOWNA);
+        } else if (!state->silent_update_request) {
+          MessageBoxW(window, strings.update_failed, L"SoundFork", MB_ICONERROR);
         }
       } else {
         MessageBoxW(
-            window,
-            result.status == UpdateStatus::up_to_date
-                ? strings.update_not_available
-                : strings.update_failed,
-            L"SoundFork",
-            result.status == UpdateStatus::up_to_date ? MB_ICONINFORMATION
-                                                      : MB_ICONERROR);
+            window, result.status == UpdateStatus::up_to_date ? strings.update_not_available : strings.update_failed,
+            L"SoundFork", result.status == UpdateStatus::up_to_date ? MB_ICONINFORMATION : MB_ICONERROR);
+      }
+      return 0;
+    }
+    case soundfork::control::kUpdateNoticeClosed: {
+      if (!state->update_notice || state->update_notice != reinterpret_cast<HWND>(wparam)) return 0;
+      const bool korean = state->language == UiLanguage::korean;
+      const bool focused = IsChild(state->update_notice, GetFocus());
+      DestroyWindow(std::exchange(state->update_notice, nullptr));
+      const int shrink = std::exchange(state->update_notice_extra_height, 0);
+      if (lparam & soundfork::control::disable_update_notifications) {
+        const auto saved = soundfork::control::save_automatic_updates(false);
+        if (saved == ERROR_SUCCESS) { state->automatic_updates_enabled = false; rebuild_menu(state); }
+        else MessageBoxW(window, korean ? L"알림 설정을 저장하지 못했습니다." : L"Could not save notification settings.", L"SoundFork", MB_ICONERROR);
+      }
+      if (lparam & soundfork::control::update_installer_started) {
+        state->force_exit = true;
+        PostMessageW(window, WM_CLOSE, 0, 0);
+      } else {
+        resize_for_update_notice(state, -shrink);
+        layout_controls(state, 0);
+        if (focused) SetFocus(GetNextDlgTabItem(window, nullptr, FALSE));
       }
       return 0;
     }

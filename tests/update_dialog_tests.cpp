@@ -62,70 +62,52 @@ int main() try {
   const auto end_marker = release.release_notes.find(L"<!-- soundfork-notes:end -->");
   for (int line = 0; line < 50; ++line) release.release_notes.insert(end_marker, L"- Additional changes\n");
   release.sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  const HWND parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPEDWINDOW,
+      0, 0, 600, 600, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+  if (!parent) throw std::runtime_error("test parent creation");
+  struct Window { HWND value; ~Window() { DestroyWindow(value); } } parent_owner{parent};
   {
     Dialog state{release, true};
+    const HMODULE rich = LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!rich) throw std::runtime_error("Rich Edit DLL unavailable");
+    struct Library { HMODULE value; ~Library() { FreeLibrary(value); } } rich_owner{rich};
     const auto modal = +[](HWND window, UINT message, WPARAM wparam, LPARAM lparam) -> INT_PTR {
       if (message == WM_APP) {
-        RECT compact{};
-        GetClientRect(window, &compact);
-        const HWND notes = GetDlgItem(window, IDC_UPDATE_NOTES);
-        const auto notes_visible = [notes] { return (GetWindowLongPtrW(notes, GWL_STYLE) & WS_VISIBLE) != 0; };
-        const bool starts_collapsed = !notes_visible() &&
-            GetFocus() == GetDlgItem(window, IDCANCEL);
-        SendMessageW(window, WM_COMMAND, IDC_UPDATE_TOGGLE_NOTES, 0);
-        RECT expanded{};
-        GetClientRect(window, &expanded);
-        const bool opened = notes_visible() && expanded.bottom > compact.bottom;
+        ValidateRect(window, nullptr);
         CHARRANGE selected{};
         SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
         const bool at_top = SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETFIRSTVISIBLELINE, 0, 0) == 0;
         const bool no_selection = selected.cpMin == 0 && selected.cpMax == 0;
-        SendMessageW(window, WM_COMMAND, IDC_UPDATE_TOGGLE_NOTES, 0);
-        RECT collapsed{};
-        GetClientRect(window, &collapsed);
-        const bool closed = !notes_visible() && collapsed.bottom == compact.bottom;
-        if (!(starts_collapsed && opened && at_top && no_selection && closed)) {
-          std::cerr << "starts collapsed=" << starts_collapsed << ", opened=" << opened
-                    << ", at top=" << at_top << ", no selection=" << no_selection << ", closed=" << closed << '\n';
-        }
-        EndDialog(window, starts_collapsed && opened && at_top && no_selection && closed ? IDOK : IDCANCEL);
+        const auto rendered = text(window, IDC_UPDATE_NOTES);
+        FINDTEXTEXW find{};
+        find.chrg = {0, -1}; find.lpstrText = L"Bold";
+        const auto found = SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_FINDTEXTEXW, FR_DOWN, reinterpret_cast<LPARAM>(&find));
+        SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&find.chrgText));
+        CHARFORMAT2W character{sizeof(character)};
+        SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&character));
+        const bool notes_ok = found >= 0 && (character.dwEffects & CFE_BOLD) && rendered.find(L"\ud55c\uae00") != rendered.npos &&
+            rendered.find(L"Excluded") == rendered.npos && rendered.find(L"Hidden") == rendered.npos;
+        EndDialog(window, at_top && no_selection && notes_ok && GetDlgItem(window, IDC_UPDATE_RELEASE) ? IDOK : IDCANCEL);
         return TRUE;
       }
-      const auto handled = update_proc(window, message, wparam, lparam);
+      const auto handled = notes_proc(window, message, wparam, lparam);
       if (message == WM_INITDIALOG) PostMessageW(window, WM_APP, 0, 0);
       return handled;
     };
-    require(DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
-        modal, reinterpret_cast<LPARAM>(&state)) == IDOK, "modal notes did not collapse or open at the first line");
+    require(DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE_NOTES), parent,
+        modal, reinterpret_cast<LPARAM>(&state)) == IDOK, "notes text, styling, scroll or release link");
   }
   for (const bool korean : {false, true}) {
     Dialog state{release, korean};
     state.download = fake_download; state.launch = fake_launch;
-    HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
+    HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), parent,
         update_proc, reinterpret_cast<LPARAM>(&state));
     if (!window) throw std::runtime_error("update resource did not load");
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
-    SendMessageW(window, WM_COMMAND, IDC_UPDATE_TOGGLE_NOTES, 0);
-    require(SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETFIRSTVISIBLELINE, 0, 0) == 0,
-        "release notes did not open at the first line");
-    require(text(window, IDC_UPDATE_NOTES).find(L"\r\n") != std::wstring::npos, "notes line breaks lost");
-    require(text(window, IDC_UPDATE_NOTES).find(L"\ud55c\uae00") != std::wstring::npos, "Korean notes lost");
-    const auto rendered = text(window, IDC_UPDATE_NOTES);
-    require(rendered.find(L"Excluded") == rendered.npos && rendered.find(L"Hidden") == rendered.npos &&
-        rendered.find(L"##") == rendered.npos && rendered.find(L"**") == rendered.npos, "selected Markdown text not rendered");
-    const auto bold_at = rendered.find(L"Bold");
-    require(bold_at != rendered.npos, "bold text missing");
-    FINDTEXTEXW find{};
-    find.chrg = {0, -1}; find.lpstrText = L"Bold";
-    require(SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_FINDTEXTEXW, FR_DOWN, reinterpret_cast<LPARAM>(&find)) >= 0, "bold range not found");
-    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&find.chrgText));
-    CHARFORMAT2W character{sizeof(character)};
-    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&character));
-    require((character.dwEffects & CFE_BOLD) != 0, "bold style missing in real Rich Edit");
-    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
+    require(GetParent(window) == parent && !GetDlgItem(window, IDC_UPDATE_RELEASE), "notice is not embedded or exposes release link");
     require(text(window, IDC_UPDATE_ACTION) == (korean ? L"업데이트" : L"Update"), "update translation");
     RECT client{}; GetClientRect(window, &client);
-    for (const int id : {IDC_UPDATE_NOTES, IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_ACTION, IDCANCEL}) {
+    for (const int id : {IDC_UPDATE_TOGGLE_NOTES, IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_ACTION, IDCANCEL}) {
       RECT bounds{}; GetWindowRect(GetDlgItem(window, id), &bounds);
       MapWindowPoints(HWND_DESKTOP, window, reinterpret_cast<POINT*>(&bounds), 2);
       require(bounds.left >= 0 && bounds.top >= 0 && bounds.right <= client.right && bounds.bottom <= client.bottom,
@@ -137,54 +119,52 @@ int main() try {
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
     finish_worker(window, state);
     require(state.downloaded.status == DownloadStatus::ready, "UI download not ready");
-    require(launches == before + 1 && !state.result.installer_started && state.downloaded.file,
+    require(launches == before + 1 && state.phase == NoticePhase::install_cancelled && state.downloaded.file,
         "verified download did not launch or UAC cancellation lost the file");
     cancelled_uac = false;
     CheckDlgButton(window, IDC_UPDATE_DISABLE, BST_CHECKED);
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
-    require(launches == before + 2 && downloads == downloads_before + 1 && state.result.installer_started && state.result.disable_notifications,
+    MSG notification{};
+    const bool posted = PeekMessageW(&notification, parent, kUpdateNoticeClosed, kUpdateNoticeClosed, PM_REMOVE) != FALSE;
+    require(launches == before + 2 && downloads == downloads_before + 1 && posted &&
+        notification.lParam == (disable_update_notifications | update_installer_started),
         "verified install/notification choice not propagated");
   }
   {
     auto empty = release; empty.release_notes.clear(); empty.sha256.clear();
     Dialog state{empty, false};
-    HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
+    HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), parent,
         update_proc, reinterpret_cast<LPARAM>(&state));
     if (!window) throw std::runtime_error("empty notes dialog creation");
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
-    require((GetWindowLongPtrW(GetDlgItem(window, IDC_UPDATE_NOTES), GWL_STYLE) & WS_VISIBLE) == 0 &&
-        (GetWindowLongPtrW(GetDlgItem(window, IDC_UPDATE_TOGGLE_NOTES), GWL_STYLE) & WS_VISIBLE) == 0 &&
-        !IsWindowEnabled(GetDlgItem(window, IDC_UPDATE_ACTION)), "empty notes/unverifiable asset fallback");
+    require(text(window, IDC_UPDATE_TOGGLE_NOTES) == L"Release details" && !IsWindowEnabled(GetDlgItem(window, IDC_UPDATE_ACTION)), "missing notes or installer fallback");
     RECT client{}; GetClientRect(window, &client);
     RECT button{}; GetWindowRect(GetDlgItem(window, IDCANCEL), &button);
     MapWindowPoints(HWND_DESKTOP, window, reinterpret_cast<POINT*>(&button), 2);
     require(button.top > 0 && button.bottom <= client.bottom, "compact update dialog clipped");
   }
   {
-    // Corrupt files cannot reach even the fake launcher. Closing during an
-    // outstanding worker requests cancellation and defers state destruction.
-    Dialog state{release, false};
-    state.download = fake_download; state.launch = fake_launch;
-    HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
+    auto corrupt = release;
+    corrupt.sha256[0] = '0';
+    Dialog state{corrupt, false};
+    state.download = fake_download;
+    state.launch = fake_launch;
+    HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), parent,
         update_proc, reinterpret_cast<LPARAM>(&state));
-    if (!window) throw std::runtime_error("second update dialog creation");
-    struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
-    cancelled_uac = true;
-    SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0); finish_worker(window, state);
-    cancelled_uac = false;
+    if (!window) throw std::runtime_error("failure test notice creation");
+    Window owner{window};
     const int before = launches;
-    release.sha256[0] = '0';
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
-    require(launches == before && !state.downloaded.file, "unverified installer launched");
-    SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0); finish_worker(window, state);
-    require(state.downloaded.status == DownloadStatus::failed && IsWindowEnabled(GetDlgItem(window, IDC_UPDATE_ACTION)), "failed download cannot retry");
+    finish_worker(window, state);
+    require(launches == before && !state.downloaded.file && state.phase == NoticePhase::failed &&
+        IsWindowEnabled(GetDlgItem(window, IDC_UPDATE_ACTION)), "corrupt file launched or retry unavailable");
     state.download = +[](const UpdateResult&, DownloadProgress& progress, DownloadedUpdate& output) noexcept {
       while (!progress.cancel.load()) Sleep(1);
       output.status = DownloadStatus::cancelled;
     };
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
-    SendMessageW(window, WM_CLOSE, 0, 0);
-    require(state.closing && state.progress.cancel && !IsWindowEnabled(GetDlgItem(window, IDCANCEL)), "close did not defer cancellation");
+    SendMessageW(window, WM_COMMAND, IDCANCEL, 0);
+    require(state.phase == NoticePhase::cancelling && state.progress.cancel && !IsWindowEnabled(GetDlgItem(window, IDCANCEL)), "close did not defer cancellation");
     finish_worker(window, state);
   }
   std::cout << "Update dialog localization, layout, download, retry, cancellation and verified launch passed.\n";
