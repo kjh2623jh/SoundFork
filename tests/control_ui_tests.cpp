@@ -48,6 +48,9 @@ std::wstring caption(HWND control) {
 }
 void check_pages(AppState& state) {
   const HWND window = state.window;
+  const auto expected_visible = [&state](HWND control, bool current_page) {
+    return current_page && (control != state.vb_cable_button || !has_vb_cable(state));
+  };
   for (const auto language : {UiLanguage::korean, UiLanguage::english}) {
     apply_language(&state, language, false);
     const bool ko = language == UiLanguage::korean;
@@ -70,7 +73,7 @@ void check_pages(AppState& state) {
         for (const auto control : state.panel.pages[other]) {
           if (!control) throw std::runtime_error("control creation failed");
           const bool visible = (GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE) != 0;
-          require_ui(visible == (other == page), "controls leak across pages");
+          require_ui(visible == expected_visible(control, other == page), "controls leak across pages");
           if (!visible) continue;
           RECT rect{};
           GetWindowRect(control, &rect);
@@ -93,7 +96,7 @@ void check_pages(AppState& state) {
       for (int other = 0; other < kPageCount; ++other)
         for (const auto control : state.panel.pages[other])
           require_ui(((GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE) != 0) ==
-                         (other == page - 1),
+                         expected_visible(control, other == page - 1),
                      "backward navigation left an old page visible");
     }
     require_ui(caption(state.startup_checkbox) == startup_strings(language).menu, "startup translation wrong");
@@ -259,6 +262,23 @@ int wmain() {
     update_status(&state);
     require_ui(SendMessageW(state.startup_checkbox, BM_GETCHECK, 0, 0) == expected_startup, "startup preference not synchronized");
     check_pages(state);
+    {
+      const auto endpoints = std::move(state.endpoints);
+      const auto visible = [&state] {
+        return (GetWindowLongPtrW(state.vb_cable_button, GWL_STYLE) & WS_VISIBLE) != 0;
+      };
+      state.endpoints = {{L"VoiceMeeter Input", L"vaio", EndpointKind::voicemeeter}};
+      SendMessageW(window, WM_COMMAND, kNavigate + 1, 0);
+      require_ui(visible(), "VB-CABLE setup action missing without VB-CABLE");
+      state.endpoints.push_back({L"CABLE Input", L"cable", EndpointKind::vb_cable});
+      layout_controls(&state, 0);
+      require_ui(!visible(), "VB-CABLE setup action shown when VB-CABLE is present");
+      SendMessageW(window, WM_COMMAND, kNavigate, 0);
+      SendMessageW(window, WM_COMMAND, kNavigate + 1, 0);
+      require_ui(!visible(), "page navigation restored hidden VB-CABLE setup action");
+      state.endpoints = endpoints;
+      layout_controls(&state, 0);
+    }
     check_channels(state);
     check_obs(state);
     for (const auto language : {UiLanguage::korean, UiLanguage::english}) {

@@ -1070,16 +1070,23 @@ bool save_endpoint(AppState* state, std::wstring_view endpoint_id) {
   return false;
 }
 
+bool has_vb_cable(const AppState& state) {
+  return std::any_of(state.endpoints.begin(), state.endpoints.end(),
+      [](const Endpoint& endpoint) { return endpoint.kind == EndpointKind::vb_cable; });
+}
+
+void layout_controls(AppState* state, int width);
+
 void populate_endpoint_combo(AppState* state) {
   const UiStrings& strings = ui_strings(state->language);
   const std::wstring saved = read_saved_endpoint();
+  const bool had_vb_cable = has_vb_cable(*state);
   state->endpoints = enumerate_endpoints();
   SendMessageW(state->endpoint_combo, CB_RESETCONTENT, 0, 0);
   int selected_index = -1;
   int vb_cable_index = -1;
   int voicemeeter_desktop_index = -1;
   int voicemeeter_index = -1;
-  bool vb_cable_detected = false;
   for (std::size_t index = 0; index < state->endpoints.size(); ++index) {
     std::wstring label = state->endpoints[index].name;
     if (state->endpoints[index].kind == EndpointKind::vb_cable) {
@@ -1098,7 +1105,6 @@ void populate_endpoint_combo(AppState* state) {
     }
     const std::wstring lower = lowercase(state->endpoints[index].name);
     if (state->endpoints[index].kind == EndpointKind::vb_cable) {
-      vb_cable_detected = true;
       if (vb_cable_index < 0) {
         vb_cable_index = static_cast<int>(index);
       }
@@ -1123,10 +1129,10 @@ void populate_endpoint_combo(AppState* state) {
     SendMessageW(state->endpoint_combo, CB_SETCURSEL, selected_index, 0);
   }
   if (state->vb_cable_button != nullptr) {
-    SetWindowTextW(
-        state->vb_cable_button,
-        vb_cable_detected ? strings.vb_cable_detected : strings.get_vb_cable);
-    EnableWindow(state->vb_cable_button, vb_cable_detected ? FALSE : TRUE);
+    SetWindowTextW(state->vb_cable_button, strings.get_vb_cable);
+    if (state->panel.page == 1 && had_vb_cable != (vb_cable_index >= 0)) {
+      layout_controls(state, 0);
+    }
   }
 }
 
@@ -1705,7 +1711,9 @@ void layout_controls(AppState* state, int) {
   move(p.playback_info, 12, 108, width - 24, 110);
   move(p.playback_note, 26, 132, width - 52, 72);
   move(state->refresh_button, 26, 234, 130, 26);
-  move(state->forwarding_group, 12, 12, width - 24, 238);
+  const bool show_vb_cable_help = !has_vb_cable(*state);
+  const int vb_cable_row = show_vb_cable_help ? 42 : 0;
+  move(state->forwarding_group, 12, 12, width - 24, 196 + vb_cable_row);
   move(state->relay_enabled, 26, 36, width - 200, 24);
   move(state->relay_button, width - 178, 34, 152, 26);
   move(state->relay_mode_label, 26, 84, 112, 20);
@@ -1714,7 +1722,7 @@ void layout_controls(AppState* state, int) {
   move(state->endpoint_combo, 138, 122, field, 200);
   move(state->startup_checkbox, 26, 166, width - 52, 24);
   move(state->vb_cable_button, 26, 208, 158, 24);
-  move(state->note, 26, 266, width - 52, 44);
+  move(state->note, 26, 224 + vb_cable_row, width - 52, 44);
   move(p.buffer_group, 12, 12, width - 24, 142);
   move(state->buffer_label, 26, 48, 112, 20);
   move(state->relay_buffer, 138, 44, field, 200);
@@ -1757,7 +1765,9 @@ void layout_controls(AppState* state, int) {
   // navigation from erasing a page that was just made visible.
   for (const auto& page : p.pages)
     for (auto control : page) ShowWindow(control, SW_HIDE);
-  for (auto control : p.pages[p.page]) ShowWindow(control, SW_SHOW);
+  for (auto control : p.pages[p.page]) {
+    if (control != state->vb_cable_button || show_vb_cable_help) ShowWindow(control, SW_SHOW);
+  }
   if (const auto focus = GetFocus();
       focus && IsChild(state->window, focus) && !IsWindowVisible(focus))
     SetFocus(GetNextDlgTabItem(state->window, nullptr, FALSE));

@@ -35,7 +35,6 @@ struct UiStrings {
   const wchar_t* stop_relay;
   const wchar_t* refresh_devices;
   const wchar_t* get_vb_cable;
-  const wchar_t* vb_cable_detected;
   const wchar_t* note;
   const wchar_t* recommended;
   const wchar_t* supported;
