@@ -59,7 +59,27 @@ int main() try {
   release.installer_name = L"SoundFork-Setup-v99.0.0.exe";
   release.installer_url = L"https://github.com/kjh2623jh/SoundFork/releases/download/v99.0.0/SoundFork-Setup-v99.0.0.exe";
   release.installer_size = 3;
+  const auto end_marker = release.release_notes.find(L"<!-- soundfork-notes:end -->");
+  for (int line = 0; line < 50; ++line) release.release_notes.insert(end_marker, L"- Additional changes\n");
   release.sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  {
+    Dialog state{release, true};
+    const auto modal = +[](HWND window, UINT message, WPARAM wparam, LPARAM lparam) -> INT_PTR {
+      if (message == WM_APP) {
+        CHARRANGE selected{};
+        SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+        const bool at_top = SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETFIRSTVISIBLELINE, 0, 0) == 0;
+        const bool no_selection = selected.cpMin == 0 && selected.cpMax == 0;
+        EndDialog(window, at_top && no_selection && GetFocus() == GetDlgItem(window, IDCANCEL) ? IDOK : IDCANCEL);
+        return TRUE;
+      }
+      const auto handled = update_proc(window, message, wparam, lparam);
+      if (message == WM_INITDIALOG) PostMessageW(window, WM_APP, 0, 0);
+      return handled;
+    };
+    require(DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
+        modal, reinterpret_cast<LPARAM>(&state)) == IDOK, "modal opening selected or scrolled release notes");
+  }
   for (const bool korean : {false, true}) {
     Dialog state{release, korean};
     state.download = fake_download; state.launch = fake_launch;
@@ -84,7 +104,7 @@ int main() try {
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&character));
     require((character.dwEffects & CFE_BOLD) != 0, "bold style missing in real Rich Edit");
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
-    require(text(window, IDC_UPDATE_ACTION) == (korean ? L"다운로드" : L"Download"), "download translation");
+    require(text(window, IDC_UPDATE_ACTION) == (korean ? L"다운로드 및 설치" : L"Download and install"), "download translation");
     RECT client{}; GetClientRect(window, &client);
     for (const int id : {IDC_UPDATE_NOTES, IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_ACTION, IDCANCEL}) {
       RECT bounds{}; GetWindowRect(GetDlgItem(window, id), &bounds);
@@ -93,17 +113,17 @@ int main() try {
           "update control clipped outside client area");
     }
     const int before = launches;
+    const int downloads_before = downloads.load();
+    cancelled_uac = true;
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
     finish_worker(window, state);
     require(state.downloaded.status == DownloadStatus::ready, "UI download not ready");
-    require(launches == before && !state.result.installer_started, "download launched installer automatically");
-    cancelled_uac = true;
-    SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
-    require(launches == before + 1 && !state.result.installer_started && state.downloaded.file, "UAC cancellation loses ready download");
+    require(launches == before + 1 && !state.result.installer_started && state.downloaded.file,
+        "verified download did not launch or UAC cancellation lost the file");
     cancelled_uac = false;
     CheckDlgButton(window, IDC_UPDATE_DISABLE, BST_CHECKED);
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
-    require(launches == before + 2 && state.result.installer_started && state.result.disable_notifications,
+    require(launches == before + 2 && downloads == downloads_before + 1 && state.result.installer_started && state.result.disable_notifications,
         "verified install/notification choice not propagated");
   }
   {
@@ -129,7 +149,9 @@ int main() try {
         update_proc, reinterpret_cast<LPARAM>(&state));
     if (!window) throw std::runtime_error("second update dialog creation");
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
+    cancelled_uac = true;
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0); finish_worker(window, state);
+    cancelled_uac = false;
     const int before = launches;
     release.sha256[0] = '0';
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);

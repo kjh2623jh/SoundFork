@@ -26,6 +26,7 @@ struct Dialog {
   std::atomic<bool> done{false};
   std::thread worker;
   bool closing = false;
+  bool launching = false;
   void (*download)(const UpdateResult&, DownloadProgress&, DownloadedUpdate&) noexcept = download_update;
   bool (*launch)(HWND, bool, const std::filesystem::path&) = nullptr;
   ~Dialog() { progress.cancel = true; if (worker.joinable()) worker.join(); if (rich_edit) FreeLibrary(rich_edit); }
@@ -33,6 +34,7 @@ struct Dialog {
 };
 
 void close_dialog(HWND window, Dialog& state) {
+  if (state.launching) return;
   if (state.worker.joinable()) {
     state.closing = true;
     state.progress.cancel = true;
@@ -42,6 +44,30 @@ void close_dialog(HWND window, Dialog& state) {
   }
   state.result.disable_notifications = IsDlgButtonChecked(window, IDC_UPDATE_DISABLE) == BST_CHECKED;
   EndDialog(window, IDOK);
+}
+
+void launch_verified_installer(HWND window, Dialog& state) {
+  if (!verify_download(state.release, state.downloaded)) {
+    state.downloaded.reset();
+    SetDlgItemTextW(window, IDC_UPDATE_STATUS, state.text(L"파일 확인에 실패했습니다. 다시 다운로드하세요.", L"File verification failed. Download again."));
+    SetDlgItemTextW(window, IDC_UPDATE_ACTION, state.text(L"다시 시도", L"Retry"));
+    return;
+  }
+  state.launching = true;
+  SetDlgItemTextW(window, IDC_UPDATE_STATUS, state.text(L"설치 마법사를 여는 중…", L"Opening the setup wizard…"));
+  const bool launched = state.launch && state.launch(window, state.korean, state.downloaded.path);
+  const auto error = GetLastError();
+  state.launching = false;
+  if (!launched) {
+    SetDlgItemTextW(window, IDC_UPDATE_STATUS, error == ERROR_CANCELLED
+        ? state.text(L"설치가 취소되었습니다. 다시 시도할 수 있습니다.", L"Installation was cancelled. You can retry.")
+        : state.text(L"설치 프로그램을 실행하지 못했습니다. 다시 시도하세요.", L"Could not start the installer. Please retry."));
+    SetDlgItemTextW(window, IDC_UPDATE_ACTION, state.text(L"설치 다시 시도", L"Retry installation"));
+    return;
+  }
+  state.downloaded.retain();
+  state.result.installer_started = true;
+  close_dialog(window, state);
 }
 
 INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -70,8 +96,6 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETBKGNDCOLOR, 0, GetSysColor(COLOR_WINDOW));
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&stream));
     if (stream.dwError) throw std::runtime_error("Release notes rendering failed");
-    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
-    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, WM_VSCROLL, SB_TOP, 0);
     ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES_LABEL), notes.empty() ? SW_HIDE : SW_SHOW);
     ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES), notes.empty() ? SW_HIDE : SW_SHOW);
     if (notes.empty()) {
@@ -87,18 +111,24 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
       SetWindowPos(window, nullptr, 0, 0, bounds.right - bounds.left,
           bounds.bottom - bounds.top - removed.bottom, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
-    SetDlgItemTextW(window, IDC_UPDATE_ACTION, state->text(L"다운로드", L"Download"));
+    SetDlgItemTextW(window, IDC_UPDATE_ACTION, state->text(L"다운로드 및 설치", L"Download and install"));
     SetDlgItemTextW(window, IDC_UPDATE_RELEASE, state->text(L"릴리스 페이지", L"Release page"));
     SetDlgItemTextW(window, IDCANCEL, state->text(L"나중에", L"Later"));
     SetDlgItemTextW(window, IDC_UPDATE_DISABLE, state->text(L"앞으로 자동 업데이트 알림 표시 안 함", L"Don't show automatic update notifications again"));
     const bool available = downloadable_update(state->release);
     EnableWindow(GetDlgItem(window, IDC_UPDATE_ACTION), available);
     SetDlgItemTextW(window, IDC_UPDATE_STATUS, available
-        ? state->text(L"다운로드 후 확인을 거쳐 설치합니다. 설정은 유지됩니다.", L"Download and verify the installer. Your settings are preserved.")
+        ? state->text(L"파일을 확인한 뒤 설치 마법사를 엽니다.", L"Setup opens after the download is verified.")
         : state->text(L"검증 가능한 설치 파일이 없습니다. 릴리스 페이지를 확인하세요.", L"No verifiable installer is available. See the release page."));
     SendDlgItemMessageW(window, IDC_UPDATE_PROGRESS, PBM_SETRANGE32, 0, 100);
     if (!SetTimer(window, kDownloadTimer, 100, nullptr)) EndDialog(window, IDCANCEL);
-    return TRUE;
+    // Win32 otherwise focuses the first tab stop after WM_INITDIALOG and
+    // selects all text in Rich Edit, which can scroll to the end.
+    SetFocus(GetDlgItem(window, IDCANCEL));
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
+    POINT top{};
+    SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&top));
+    return FALSE;
   }
   if (!state) return FALSE;
   if (message == WM_TIMER && wparam == kDownloadTimer && state->worker.joinable()) {
@@ -110,19 +140,21 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     state->worker.join();
     if (state->closing) { close_dialog(window, *state); return TRUE; }
     const bool ready = state->downloaded.status == DownloadStatus::ready;
-    SetDlgItemTextW(window, IDC_UPDATE_STATUS, ready
-        ? state->text(L"다운로드와 파일 검증을 완료했습니다.", L"Download and file verification complete.")
-        : state->text(L"다운로드 또는 파일 확인에 실패했습니다. 다시 시도할 수 있습니다.", L"Download or verification failed. You can retry."));
-    SetDlgItemTextW(window, IDC_UPDATE_ACTION, ready ? state->text(L"설치", L"Install") : state->text(L"다시 시도", L"Retry"));
     EnableWindow(GetDlgItem(window, IDC_UPDATE_ACTION), TRUE);
     EnableWindow(GetDlgItem(window, IDC_UPDATE_RELEASE), TRUE);
     SetDlgItemTextW(window, IDCANCEL, state->text(L"닫기", L"Close"));
+    if (ready) {
+      launch_verified_installer(window, *state);
+    } else {
+      SetDlgItemTextW(window, IDC_UPDATE_STATUS, state->text(L"다운로드 또는 파일 확인에 실패했습니다. 다시 시도할 수 있습니다.", L"Download or verification failed. You can retry."));
+      SetDlgItemTextW(window, IDC_UPDATE_ACTION, state->text(L"다시 시도", L"Retry"));
+    }
     return TRUE;
   }
   if (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wparam) == IDCANCEL)) {
     close_dialog(window, *state); return TRUE;
   }
-  if (message != WM_COMMAND) return FALSE;
+  if (message != WM_COMMAND || state->launching) return FALSE;
   if (LOWORD(wparam) == IDC_UPDATE_RELEASE) {
     const std::wstring url = L"https://github.com/kjh2623jh/SoundFork/releases/tag/" + state->release.latest_tag;
     if (reinterpret_cast<INT_PTR>(ShellExecuteW(window, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
@@ -130,23 +162,9 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     return TRUE;
   }
   if (LOWORD(wparam) != IDC_UPDATE_ACTION || state->worker.joinable()) return FALSE;
+  if (!IsWindowEnabled(GetDlgItem(window, IDC_UPDATE_ACTION))) return TRUE;
   if (state->downloaded.status == DownloadStatus::ready) {
-    if (!verify_download(state->release, state->downloaded)) {
-      state->downloaded.reset();
-      SetDlgItemTextW(window, IDC_UPDATE_STATUS, state->text(L"파일 확인에 실패했습니다. 다시 다운로드하세요.", L"File verification failed. Download again."));
-      SetDlgItemTextW(window, IDC_UPDATE_ACTION, state->text(L"다시 시도", L"Retry"));
-      return TRUE;
-    }
-    if (!state->launch || !state->launch(window, state->korean, state->downloaded.path)) {
-      const auto error = GetLastError();
-      SetDlgItemTextW(window, IDC_UPDATE_STATUS, error == ERROR_CANCELLED
-          ? state->text(L"설치가 취소되었습니다. 설치를 다시 누르면 재시도합니다.", L"Installation cancelled. Click Install to retry.")
-          : state->text(L"설치 프로그램을 실행하지 못했습니다. 다시 시도하세요.", L"Could not start the installer. Please retry."));
-      return TRUE;
-    }
-    state->downloaded.retain();
-    state->result.installer_started = true;
-    close_dialog(window, *state);
+    launch_verified_installer(window, *state);
     return TRUE;
   }
   state->progress.cancel = false; state->progress.received = 0; state->done = false;
