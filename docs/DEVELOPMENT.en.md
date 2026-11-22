@@ -62,7 +62,7 @@ Control EXE when testing plugin management.
   credentials or malicious software running as the same user.
 - `update_dialog.*` offers progress, cancellation, retry and explicit installation.
   The installer's Restart Manager detects apps using files selected for replacement,
-  and Setup stops the external relay during preparation. **Download and install** verifies the file,
+  and Setup stops the external relay during preparation. **Update** downloads and verifies the file,
   then opens Setup with `runas` elevation. A successful launch closes Control.
   UAC cancellation retains the verified file for retry.
   Existing installer logic continues to preserve settings.

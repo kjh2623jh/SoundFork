@@ -60,7 +60,7 @@ import library를 생성하며, OBS 런타임 DLL 자체는 배포 패키지에 
   같은 사용자 권한의 악성 코드나 GitHub 계정 침해를 막는 게시자 인증 수단은 아니다.
 - `update_dialog.*`는 진행률·취소·재시도·설치 선택을 제공한다. 교체할 파일을 사용하는 앱은
   설치 마법사의 Restart Manager가 확인하며, 외부 릴레이는 마법사의 설치 준비 단계에서 중지한다.
-  사용자가 **다운로드 및 설치**를 누르면 다운로드 검증 후 기존 Inno Setup을 `runas`로 실행하고 성공 시 제어판을 종료한다.
+  사용자가 **업데이트**를 누르면 다운로드 검증 후 기존 Inno Setup을 `runas`로 실행하고 성공 시 제어판을 종료한다.
   UAC 취소에는 확인된 다운로드를 유지해 재시도한다. 설치 설정 보존 로직은 기존 마법사를 따른다.
 - `soundfork_update_download_tests`, `soundfork_update_dialog_tests`는 네트워크·설치 실행 없이
   Unicode 패치노트, 사전 릴리스 제외, URL·해시·크기 거부, 파일 잠금·정리,

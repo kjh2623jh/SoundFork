@@ -66,11 +66,29 @@ int main() try {
     Dialog state{release, true};
     const auto modal = +[](HWND window, UINT message, WPARAM wparam, LPARAM lparam) -> INT_PTR {
       if (message == WM_APP) {
+        RECT compact{};
+        GetClientRect(window, &compact);
+        const HWND notes = GetDlgItem(window, IDC_UPDATE_NOTES);
+        const auto notes_visible = [notes] { return (GetWindowLongPtrW(notes, GWL_STYLE) & WS_VISIBLE) != 0; };
+        const bool starts_collapsed = !notes_visible() &&
+            GetFocus() == GetDlgItem(window, IDCANCEL);
+        SendMessageW(window, WM_COMMAND, IDC_UPDATE_TOGGLE_NOTES, 0);
+        RECT expanded{};
+        GetClientRect(window, &expanded);
+        const bool opened = notes_visible() && expanded.bottom > compact.bottom;
         CHARRANGE selected{};
         SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
         const bool at_top = SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETFIRSTVISIBLELINE, 0, 0) == 0;
         const bool no_selection = selected.cpMin == 0 && selected.cpMax == 0;
-        EndDialog(window, at_top && no_selection && GetFocus() == GetDlgItem(window, IDCANCEL) ? IDOK : IDCANCEL);
+        SendMessageW(window, WM_COMMAND, IDC_UPDATE_TOGGLE_NOTES, 0);
+        RECT collapsed{};
+        GetClientRect(window, &collapsed);
+        const bool closed = !notes_visible() && collapsed.bottom == compact.bottom;
+        if (!(starts_collapsed && opened && at_top && no_selection && closed)) {
+          std::cerr << "starts collapsed=" << starts_collapsed << ", opened=" << opened
+                    << ", at top=" << at_top << ", no selection=" << no_selection << ", closed=" << closed << '\n';
+        }
+        EndDialog(window, starts_collapsed && opened && at_top && no_selection && closed ? IDOK : IDCANCEL);
         return TRUE;
       }
       const auto handled = update_proc(window, message, wparam, lparam);
@@ -78,7 +96,7 @@ int main() try {
       return handled;
     };
     require(DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
-        modal, reinterpret_cast<LPARAM>(&state)) == IDOK, "modal opening selected or scrolled release notes");
+        modal, reinterpret_cast<LPARAM>(&state)) == IDOK, "modal notes did not collapse or open at the first line");
   }
   for (const bool korean : {false, true}) {
     Dialog state{release, korean};
@@ -87,6 +105,7 @@ int main() try {
         update_proc, reinterpret_cast<LPARAM>(&state));
     if (!window) throw std::runtime_error("update resource did not load");
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
+    SendMessageW(window, WM_COMMAND, IDC_UPDATE_TOGGLE_NOTES, 0);
     require(SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETFIRSTVISIBLELINE, 0, 0) == 0,
         "release notes did not open at the first line");
     require(text(window, IDC_UPDATE_NOTES).find(L"\r\n") != std::wstring::npos, "notes line breaks lost");
@@ -104,7 +123,7 @@ int main() try {
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&character));
     require((character.dwEffects & CFE_BOLD) != 0, "bold style missing in real Rich Edit");
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETSEL, 0, 0);
-    require(text(window, IDC_UPDATE_ACTION) == (korean ? L"다운로드 및 설치" : L"Download and install"), "download translation");
+    require(text(window, IDC_UPDATE_ACTION) == (korean ? L"업데이트" : L"Update"), "update translation");
     RECT client{}; GetClientRect(window, &client);
     for (const int id : {IDC_UPDATE_NOTES, IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_ACTION, IDCANCEL}) {
       RECT bounds{}; GetWindowRect(GetDlgItem(window, id), &bounds);
@@ -134,6 +153,7 @@ int main() try {
     if (!window) throw std::runtime_error("empty notes dialog creation");
     struct Window { HWND value; ~Window() { DestroyWindow(value); } } owner{window};
     require((GetWindowLongPtrW(GetDlgItem(window, IDC_UPDATE_NOTES), GWL_STYLE) & WS_VISIBLE) == 0 &&
+        (GetWindowLongPtrW(GetDlgItem(window, IDC_UPDATE_TOGGLE_NOTES), GWL_STYLE) & WS_VISIBLE) == 0 &&
         !IsWindowEnabled(GetDlgItem(window, IDC_UPDATE_ACTION)), "empty notes/unverifiable asset fallback");
     RECT client{}; GetClientRect(window, &client);
     RECT button{}; GetWindowRect(GetDlgItem(window, IDCANCEL), &button);

@@ -27,11 +27,55 @@ struct Dialog {
   std::thread worker;
   bool closing = false;
   bool launching = false;
+  bool notes_expanded = true;  // The resource uses the expanded layout.
   void (*download)(const UpdateResult&, DownloadProgress&, DownloadedUpdate&) noexcept = download_update;
   bool (*launch)(HWND, bool, const std::filesystem::path&) = nullptr;
   ~Dialog() { progress.cancel = true; if (worker.joinable()) worker.join(); if (rich_edit) FreeLibrary(rich_edit); }
   const wchar_t* text(const wchar_t* ko, const wchar_t* en) const noexcept { return korean ? ko : en; }
 };
+
+void set_notes_expanded(HWND window, Dialog& state, bool expanded, bool has_notes = true) {
+  const HWND notes = GetDlgItem(window, IDC_UPDATE_NOTES);
+  const HWND toggle = GetDlgItem(window, IDC_UPDATE_TOGGLE_NOTES);
+  if (state.notes_expanded == expanded) return;
+
+  // Keep the top section fixed and move the footer by the height of the
+  // notes panel. With no notes, also reclaim the toggle row.
+  RECT units{0, 0, 0, has_notes ? 134 : 157};
+  MapDialogRect(window, &units);
+  const int delta = expanded ? units.bottom : -units.bottom;
+  if (!expanded) ShowWindow(notes, SW_HIDE);
+  for (const int id : {IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_DISABLE,
+                      IDC_UPDATE_RELEASE, IDC_UPDATE_ACTION, IDCANCEL}) {
+    HWND child = GetDlgItem(window, id);
+    RECT bounds{};
+    GetWindowRect(child, &bounds);
+    MapWindowPoints(HWND_DESKTOP, window, reinterpret_cast<POINT*>(&bounds), 2);
+    SetWindowPos(child, nullptr, bounds.left, bounds.top + delta, 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  }
+
+  RECT bounds{};
+  GetWindowRect(window, &bounds);
+  const int height = bounds.bottom - bounds.top + delta;
+  int top = bounds.top;
+  MONITORINFO monitor{sizeof(monitor)};
+  if (expanded && GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+    top = (std::max)(monitor.rcWork.top, (std::min)(bounds.top, monitor.rcWork.bottom - height));
+  }
+  SetWindowPos(window, nullptr, bounds.left, top, bounds.right - bounds.left, height,
+      SWP_NOZORDER | SWP_NOACTIVATE);
+  state.notes_expanded = expanded;
+  SetWindowTextW(toggle, expanded ? state.text(L"변경사항 접기", L"Hide changes")
+                                 : state.text(L"변경사항 보기", L"Show changes"));
+  ShowWindow(toggle, has_notes ? SW_SHOW : SW_HIDE);
+  if (expanded) {
+    ShowWindow(notes, SW_SHOW);
+    SendMessageW(notes, EM_SETSEL, 0, 0);
+    POINT start{};
+    SendMessageW(notes, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&start));
+  }
+}
 
 void close_dialog(HWND window, Dialog& state) {
   if (state.launching) return;
@@ -79,7 +123,6 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
         state->text(L"  ·  현재: v", L"  ·  Current: v") + SOUNDFORK_VERSION_WIDE;
     SetDlgItemTextW(window, IDC_UPDATE_VERSION, title.c_str());
     SetWindowTextW(window, state->text(L"SoundFork 업데이트", L"SoundFork update"));
-    SetDlgItemTextW(window, IDC_UPDATE_NOTES_LABEL, state->text(L"업데이트 내용", L"Release notes"));
     const auto notes = selected_release_notes(state->release.release_notes);
     const auto rtf = release_notes_rtf(state->release.release_notes);
     struct Stream { const std::string& text; std::size_t offset = 0; } input{rtf};
@@ -96,22 +139,8 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_SETBKGNDCOLOR, 0, GetSysColor(COLOR_WINDOW));
     SendDlgItemMessageW(window, IDC_UPDATE_NOTES, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&stream));
     if (stream.dwError) throw std::runtime_error("Release notes rendering failed");
-    ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES_LABEL), notes.empty() ? SW_HIDE : SW_SHOW);
-    ShowWindow(GetDlgItem(window, IDC_UPDATE_NOTES), notes.empty() ? SW_HIDE : SW_SHOW);
-    if (notes.empty()) {
-      RECT removed{0, 0, 0, 150}; MapDialogRect(window, &removed);
-      for (const int id : {IDC_UPDATE_STATUS, IDC_UPDATE_PROGRESS, IDC_UPDATE_DISABLE,
-                          IDC_UPDATE_RELEASE, IDC_UPDATE_ACTION, IDCANCEL}) {
-        HWND child = GetDlgItem(window, id);
-        RECT bounds{}; GetWindowRect(child, &bounds);
-        MapWindowPoints(HWND_DESKTOP, window, reinterpret_cast<POINT*>(&bounds), 2);
-        SetWindowPos(child, nullptr, bounds.left, bounds.top - removed.bottom, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-      }
-      RECT bounds{}; GetWindowRect(window, &bounds);
-      SetWindowPos(window, nullptr, 0, 0, bounds.right - bounds.left,
-          bounds.bottom - bounds.top - removed.bottom, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-    SetDlgItemTextW(window, IDC_UPDATE_ACTION, state->text(L"다운로드 및 설치", L"Download and install"));
+    set_notes_expanded(window, *state, false, !notes.empty());
+    SetDlgItemTextW(window, IDC_UPDATE_ACTION, state->text(L"업데이트", L"Update"));
     SetDlgItemTextW(window, IDC_UPDATE_RELEASE, state->text(L"릴리스 페이지", L"Release page"));
     SetDlgItemTextW(window, IDCANCEL, state->text(L"나중에", L"Later"));
     SetDlgItemTextW(window, IDC_UPDATE_DISABLE, state->text(L"앞으로 자동 업데이트 알림 표시 안 함", L"Don't show automatic update notifications again"));
@@ -155,6 +184,14 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     close_dialog(window, *state); return TRUE;
   }
   if (message != WM_COMMAND || state->launching) return FALSE;
+  if (LOWORD(wparam) == IDC_UPDATE_TOGGLE_NOTES) {
+    const HWND toggle = GetDlgItem(window, IDC_UPDATE_TOGGLE_NOTES);
+    if (GetWindowLongPtrW(toggle, GWL_STYLE) & WS_VISIBLE) {
+      SetFocus(toggle);
+      set_notes_expanded(window, *state, !state->notes_expanded);
+    }
+    return TRUE;
+  }
   if (LOWORD(wparam) == IDC_UPDATE_RELEASE) {
     const std::wstring url = L"https://github.com/kjh2623jh/SoundFork/releases/tag/" + state->release.latest_tag;
     if (reinterpret_cast<INT_PTR>(ShellExecuteW(window, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
@@ -175,6 +212,8 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     });
     EnableWindow(GetDlgItem(window, IDC_UPDATE_ACTION), FALSE);
     EnableWindow(GetDlgItem(window, IDC_UPDATE_RELEASE), FALSE);
+    SendDlgItemMessageW(window, IDC_UPDATE_PROGRESS, PBM_SETPOS, 0, 0);
+    ShowWindow(GetDlgItem(window, IDC_UPDATE_PROGRESS), SW_SHOW);
     SetDlgItemTextW(window, IDCANCEL, state->text(L"취소", L"Cancel"));
     SetDlgItemTextW(window, IDC_UPDATE_STATUS, state->text(L"다운로드 중…", L"Downloading…"));
   } catch (...) {
