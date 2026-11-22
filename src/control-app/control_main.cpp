@@ -2341,15 +2341,7 @@ LRESULT CALLBACK window_proc(
       const UiStrings& strings = ui_strings(state->language);
       if (result.status == UpdateStatus::available) {
         const bool korean = state->language == UiLanguage::korean;
-        const auto readiness = +[](HWND parent, bool ko) {
-          if (!asio_stream_is_active() && !relay_is_running() && !obs_plugin::obs_is_running()) return true;
-          MessageBoxW(parent, ko
-              ? L"설치 전에 SoundFork를 사용하는 게임·DAW, OBS와 오디오 전달을 종료하세요."
-              : L"Before installing, close games/DAWs using SoundFork, OBS and audio forwarding.",
-              L"SoundFork", MB_ICONINFORMATION);
-          return false;
-        };
-        const auto choice = soundfork::control::show_update_dialog(window, korean, result, readiness);
+        const auto choice = soundfork::control::show_update_dialog(window, korean, result);
         if (choice.disable_notifications) {
           const auto saved = soundfork::control::save_automatic_updates(false);
           if (saved == ERROR_SUCCESS) { state->automatic_updates_enabled = false; rebuild_menu(state); }

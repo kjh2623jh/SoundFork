@@ -61,13 +61,13 @@ Control EXE when testing plugin management.
   This is integrity verification, not publisher authentication against compromised GitHub
   credentials or malicious software running as the same user.
 - `update_dialog.*` offers progress, cancellation, retry and explicit installation.
-  Active ASIO streams, OBS or forwarding defer launch; the installer's Restart Manager
-  handles remaining file users. Only Install requests `runas` elevation; a successful
+  The installer's Restart Manager detects apps using files selected for replacement,
+  and Setup stops the external relay during preparation. Only Install requests `runas` elevation; a successful
   launch closes Control. UAC cancellation retains the verified file for retry.
   Existing installer logic continues to preserve settings.
 - `soundfork_update_download_tests` and `soundfork_update_dialog_tests` run offline without
   executing an installer: Unicode notes, stable-only selection, URL/hash/size rejection,
-  file locking/cleanup, cancellation/retry, UAC cancellation, readiness and bilingual layout.
+  file locking/cleanup, cancellation/retry, UAC cancellation, verified launch and bilingual layout.
   Real CDN transfer, SmartScreen/UAC, completed installation and setting preservation
   remain manual pre-release checks.
 

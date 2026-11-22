@@ -16,12 +16,10 @@ namespace soundfork::control {
 namespace {
 constexpr UINT_PTR kDownloadTimer = 1;
 struct Dialog {
-  Dialog(const UpdateResult& value, bool ko, InstallReadiness ready)
-      : release(value), korean(ko), readiness(ready) {}
+  Dialog(const UpdateResult& value, bool ko) : release(value), korean(ko) {}
   HMODULE rich_edit = LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   const UpdateResult& release;
   bool korean;
-  InstallReadiness readiness;
   UpdateDialogResult result;
   DownloadProgress progress;
   DownloadedUpdate downloaded;
@@ -113,8 +111,7 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
     if (state->closing) { close_dialog(window, *state); return TRUE; }
     const bool ready = state->downloaded.status == DownloadStatus::ready;
     SetDlgItemTextW(window, IDC_UPDATE_STATUS, ready
-        ? state->text(L"다운로드와 SHA-256 확인을 마쳤습니다. 설치하려면 게임·DAW·OBS와 오디오 전달을 종료하세요.",
-                      L"Download and SHA-256 verification complete. Close games/DAWs, OBS and audio forwarding before installation.")
+        ? state->text(L"다운로드와 파일 검증을 완료했습니다.", L"Download and file verification complete.")
         : state->text(L"다운로드 또는 파일 확인에 실패했습니다. 다시 시도할 수 있습니다.", L"Download or verification failed. You can retry."));
     SetDlgItemTextW(window, IDC_UPDATE_ACTION, ready ? state->text(L"설치", L"Install") : state->text(L"다시 시도", L"Retry"));
     EnableWindow(GetDlgItem(window, IDC_UPDATE_ACTION), TRUE);
@@ -134,7 +131,6 @@ INT_PTR update_proc_impl(HWND window, UINT message, WPARAM wparam, LPARAM lparam
   }
   if (LOWORD(wparam) != IDC_UPDATE_ACTION || state->worker.joinable()) return FALSE;
   if (state->downloaded.status == DownloadStatus::ready) {
-    if (!state->readiness || !state->readiness(window, state->korean)) return TRUE;
     if (!verify_download(state->release, state->downloaded)) {
       state->downloaded.reset();
       SetDlgItemTextW(window, IDC_UPDATE_STATUS, state->text(L"파일 확인에 실패했습니다. 다시 다운로드하세요.", L"File verification failed. Download again."));
@@ -182,9 +178,8 @@ INT_PTR CALLBACK update_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 }
 }  // namespace
 
-UpdateDialogResult show_update_dialog(HWND parent, bool korean, const UpdateResult& release,
-    InstallReadiness readiness) {
-  Dialog state{release, korean, readiness};
+UpdateDialogResult show_update_dialog(HWND parent, bool korean, const UpdateResult& release) {
+  Dialog state{release, korean};
   INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_PROGRESS_CLASS};
   if (!InitCommonControlsEx(&controls)) {
     MessageBoxW(parent, state.text(L"업데이트 창을 준비하지 못했습니다.", L"Could not prepare the update window."), L"SoundFork", MB_ICONERROR);

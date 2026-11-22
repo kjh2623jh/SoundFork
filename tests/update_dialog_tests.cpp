@@ -11,7 +11,6 @@ void require(bool ok, const char* why) { if (!ok) throw std::runtime_error(why);
 std::filesystem::path root;
 std::atomic<int> downloads{0};
 int launches = 0;
-bool install_allowed = true;
 bool cancelled_uac = false;
 void fake_download(const UpdateResult& release, DownloadProgress& progress, DownloadedUpdate& output) noexcept {
   class Bytes final : public UpdateSource {
@@ -28,7 +27,6 @@ bool fake_launch(HWND, bool, const std::filesystem::path&) {
   if (cancelled_uac) { SetLastError(ERROR_CANCELLED); return false; }
   return true;
 }
-bool fake_ready(HWND, bool) { return install_allowed; }
 void finish_worker(HWND window, Dialog& state) {
   const auto until = GetTickCount64() + 5000;
   while (!state.done.load() && GetTickCount64() < until) Sleep(1);
@@ -63,7 +61,7 @@ int main() try {
   release.installer_size = 3;
   release.sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
   for (const bool korean : {false, true}) {
-    Dialog state{release, korean, fake_ready};
+    Dialog state{release, korean};
     state.download = fake_download; state.launch = fake_launch;
     HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
         update_proc, reinterpret_cast<LPARAM>(&state));
@@ -94,14 +92,12 @@ int main() try {
       require(bounds.left >= 0 && bounds.top >= 0 && bounds.right <= client.right && bounds.bottom <= client.bottom,
           "update control clipped outside client area");
     }
+    const int before = launches;
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
     finish_worker(window, state);
     require(state.downloaded.status == DownloadStatus::ready, "UI download not ready");
-    const int before = launches;
-    install_allowed = false;
-    SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
-    require(launches == before && !state.result.installer_started, "installer launched despite active audio");
-    install_allowed = true; cancelled_uac = true;
+    require(launches == before && !state.result.installer_started, "download launched installer automatically");
+    cancelled_uac = true;
     SendMessageW(window, WM_COMMAND, IDC_UPDATE_ACTION, 0);
     require(launches == before + 1 && !state.result.installer_started && state.downloaded.file, "UAC cancellation loses ready download");
     cancelled_uac = false;
@@ -112,7 +108,7 @@ int main() try {
   }
   {
     auto empty = release; empty.release_notes.clear(); empty.sha256.clear();
-    Dialog state{empty, false, fake_ready};
+    Dialog state{empty, false};
     HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
         update_proc, reinterpret_cast<LPARAM>(&state));
     if (!window) throw std::runtime_error("empty notes dialog creation");
@@ -127,7 +123,7 @@ int main() try {
   {
     // Corrupt files cannot reach even the fake launcher. Closing during an
     // outstanding worker requests cancellation and defers state destruction.
-    Dialog state{release, false, fake_ready};
+    Dialog state{release, false};
     state.download = fake_download; state.launch = fake_launch;
     HWND window = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_UPDATE), nullptr,
         update_proc, reinterpret_cast<LPARAM>(&state));
@@ -149,6 +145,6 @@ int main() try {
     require(state.closing && state.progress.cancel && !IsWindowEnabled(GetDlgItem(window, IDCANCEL)), "close did not defer cancellation");
     finish_worker(window, state);
   }
-  std::cout << "Update dialog localization, layout, download, retry, cancellation, readiness and launch gating passed.\n";
+  std::cout << "Update dialog localization, layout, download, retry, cancellation and verified launch passed.\n";
   return 0;
 } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

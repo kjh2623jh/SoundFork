@@ -238,10 +238,10 @@ The update window shows the GitHub release description and offers **Download →
 A complete `<!-- soundfork-notes:start -->` / `<!-- soundfork-notes:end -->` pair selects the displayed notes; otherwise the full description is shown. Empty descriptions are hidden. Headings, bullets, bold and inline code are formatted.
 must match its published size and SHA-256 before it can run. Releases without a digest
 link to the release page instead. This integrity check does not replace code signing.
-Elevation is requested only when you choose Install. Close games/DAWs and OBS and stop
-forwarding first. If using the OBS plugin, select its installation option too.
+Choosing Install requests elevation. Setup identifies apps using files selected for replacement.
+If using the OBS plugin, select its installation option too.
 
-Choose Korean or English under **Settings → Language**. Before updating or uninstalling,
+Choose Korean or English under **Settings → Language**. Before uninstalling,
 close games/DAWs and OBS and stop forwarding. Remove SoundFork through **Windows Settings → Apps**
 or **Uninstall SoundFork** in the Start menu. The vendor ASIO driver and virtual audio devices are kept.
 
